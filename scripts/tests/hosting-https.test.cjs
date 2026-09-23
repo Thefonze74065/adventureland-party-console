@@ -3,12 +3,22 @@ const fs=require('node:fs/promises'),os=require('node:os'),path=require('node:pa
 const http=require('node:http'),https=require('node:https');
 const nodeTLS=require('node:tls');
 const {LocalTLS}=require('../../tools/hosting/tls.ts');
-const {tlsHost}=require('../../tools/hosting/tls-config.ts');
+const {tlsHost,certificateProbes}=require('../../tools/hosting/tls-config.ts');
 const {Access}=require('../../tools/hosting/access.ts');
 const {gateway}=require('../../tools/hosting/gateway.ts');
 const listen=s=>new Promise(r=>s.listen(0,'127.0.0.1',()=>r(s.address().port)));
 const close=s=>new Promise(r=>{s.closeAllConnections();s.close(r)});
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
+test('certificate readiness probes preserve DNS SNI and verify the current no-SNI LAN fallback',()=>{
+ const probes=certificateProbes(['127.0.0.1','localhost','192.168.1.20','127.0.0.2','192.168.1.30']);
+ assert.deepEqual(probes,[
+  {host:'127.0.0.1',servername:'',identity:'127.0.0.1'},
+  {host:'127.0.0.1',servername:'localhost',identity:'localhost'},
+  {host:'127.0.0.2',servername:'',identity:'127.0.0.2'},
+  {host:'127.0.0.3',servername:'',identity:'192.168.1.30'},
+ ]);
+ assert.equal(certificateProbes(['127.0.0.1','localhost']).at(-1).identity,'127.0.0.1');
+});
 test('HTTPS address validation rejects public addresses, credentials, paths, and non-HTTP schemes',async()=>{
  for(const address of ['http://8.8.8.8','http://user@127.0.0.1','http://127.0.0.1/path','file:///tmp/cert','http://127.0.0.1/?x=1'])await assert.rejects(tlsHost(address));
  for(const host of ['127.0.0.1','192.168.1.239','localhost','[::1]'])assert.equal(await tlsHost('http://'+host+':3010'),host.replace(/^\[|\]$/g,''));
@@ -69,7 +79,13 @@ test('real Caddy HTTPS preserves CA, proxies CODE, enforces origins, and transfe
   req.on('upgrade',(res,socket)=>{socket.destroy();resolve(res.statusCode)});req.on('response',res=>{res.resume();resolve(res.statusCode)});req.on('error',reject);req.end();
  });
  try{
-  await tls.start();await ready();const ca=await tls.certificate();await tls.prepare(base);
+  await tls.start();await ready();const ca=await tls.certificate();
+  // A healthy admin API and existing CA must not imply a working TLS listener.
+  const config=JSON.parse(await fs.readFile(path.join(temporary,'tls/caddy.json'),'utf8'));
+  const reload=async value=>{const result=await fetch('http://'+config.admin.listen+'/load',{method:'POST',headers:{Origin:'http://'+config.admin.listen,'Content-Type':'application/json'},body:JSON.stringify(value)});assert.equal(result.status,200)};
+  await reload({...config,apps:{...config.apps,http:{servers:{}}}});
+  assert.equal((await tls.status()).ready,false);assert.equal(await tls.certificate(),ca);
+  await reload(config);await ready();await tls.prepare(base);
   const secured=await request('/setup',ca);assert.equal(secured.status,200);assert.match(secured.body,/Choose/);
   assert.equal(secured.headers['referrer-policy'],'strict-origin-when-cross-origin');
   assert.equal((await fetch(base+'/setup')).headers.get('referrer-policy'),'strict-origin-when-cross-origin');
@@ -87,7 +103,8 @@ test('real Caddy HTTPS preserves CA, proxies CODE, enforces origins, and transfe
     checkServerIdentity:(_host,cert)=>nodeTLS.checkServerIdentity('192.168.1.239',cert)},()=>{socket.end();resolve()});
    socket.setTimeout(5000,()=>socket.destroy(Error('No-SNI TLS timed out')));socket.on('error',reject);
   });
-  for(let attempt=0;;attempt++){try{await noSNI();break}catch(error){if(attempt===30)throw error;await delay(100)}}
+  // prepare() must wait for the newly requested leaf certificate, not just the CA/admin API.
+  await noSNI();
   const credential=await access.setRequired(true),cookie='party='+credential;
   assert.equal(await upgrade(ca),403);assert.equal(await upgrade(ca,cookie),101);
   const transfer=await(await fetch(base+'/setup/transfer',{method:'POST',headers:{Origin:base,Cookie:cookie,'Content-Type':'application/json'},body:JSON.stringify({origin:base,placement:'remote',client:'windows-steam'})})).json();

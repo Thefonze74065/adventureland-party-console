@@ -2,8 +2,19 @@
 set -euo pipefail
 image=$1
 arch=$2
-container=$(docker run -d --rm --platform "linux/$arch" "$image")
-trap 'docker logs --tail 60 "$container"; docker stop "$container" >/dev/null' EXIT
+container=$(docker run -d --platform "linux/$arch" "$image")
+cleanup() {
+  result=$?
+  docker logs --tail 60 "$container" || true
+  # Auto-removal after `docker stop` can still be pending when the caller removes
+  # the image. Explicit removal waits until this test container is gone.
+  if ! docker rm --force --volumes "$container" >/dev/null; then
+    echo "Could not remove smoke-test container $container" >&2
+    result=1
+  fi
+  exit "$result"
+}
+trap cleanup EXIT
 for ((attempt=0; attempt<60; attempt++)); do
   # Exercise the gateway, rendered dashboard, and one emitted static asset.
   if docker exec "$container" node --input-type=module -e '

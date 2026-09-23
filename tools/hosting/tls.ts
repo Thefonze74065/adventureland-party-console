@@ -1,11 +1,12 @@
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { randomBytes, X509Certificate } from 'node:crypto';
 import { createServer } from 'node:net';
+import { connect, checkServerIdentity } from 'node:tls';
 import type { IncomingMessage } from 'node:http';
 import path from 'node:path';
 import { caddyPath } from './install-caddy.mts';
 import { Services } from './services.ts';
-import { caddyConfig, httpsOrigin, tlsHost } from './tls-config.ts';
+import { caddyConfig, certificateProbes, httpsOrigin, tlsHost } from './tls-config.ts';
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 export class LocalTLS {
  readonly secret = randomBytes(32).toString('hex');
@@ -44,12 +45,25 @@ export class LocalTLS {
  }
  stop() { this.services.stop(); }
  async certificate() { return readFile(path.join(this.data, 'caddy/pki/authorities/local/root.crt'), 'utf8'); }
+ private handshake(probe: ReturnType<typeof certificateProbes>[number], ca: string) {
+  return new Promise<void>((resolve, reject) => {
+   // Probe locally with the same SNI/no-SNI behavior as browsers.
+   // Caddy's admin endpoint and root CA can be ready before leaf issuance finishes.
+   const socket = connect({ host: probe.host, port: this.port, servername: probe.servername, ca,
+    checkServerIdentity: (_name, cert) => checkServerIdentity(probe.identity, cert),
+   }, () => { socket.destroy(); resolve(); });
+   socket.setTimeout(1500, () => socket.destroy(Error('HTTPS certificate handshake timed out')));
+   socket.once('error', reject);
+  });
+ }
  async status() {
   try {
    if (this.error) throw Error(this.error);
    const response = await fetch(`http://127.0.0.1:${this.admin}/config/`, { headers: { Origin: `http://127.0.0.1:${this.admin}` }, signal: AbortSignal.timeout(1500) });
    if (!response.ok) throw Error('HTTPS service not responding');
-   const fingerprint = new X509Certificate(await this.certificate()).fingerprint256;
+   const ca = await this.certificate();
+   await Promise.all(certificateProbes(this.hosts).map(probe => this.handshake(probe, ca)));
+   const fingerprint = new X509Certificate(ca).fingerprint256;
    return { ready: true, port: this.publicPort, fingerprint, error: '' };
   } catch (error) { return { ready: false, port: this.publicPort, fingerprint: '', error: this.error || 'HTTPS is starting or its port is unavailable: ' + String(error) }; }
  }

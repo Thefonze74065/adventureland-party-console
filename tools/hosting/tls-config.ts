@@ -19,11 +19,23 @@ export async function tlsHost(origin: string): Promise<string> {
  return host;
 }
 export function httpsOrigin(host: string, port: number) { return `https://${host.includes(':') ? '[' + host + ']' : host}:${port}`; }
+function fallbackHost(hosts: string[]) {
+ return [...hosts].reverse().find(host => isIP(host) && host !== '::1' && !host.startsWith('127.')) || '127.0.0.1';
+}
+export function certificateProbes(hosts: string[]) {
+ // An unconfigured loopback address exercises the same no-SNI fallback as Docker NAT.
+ let loopback = 2;
+ while (hosts.includes(`127.0.0.${loopback}`)) loopback++;
+ const probes = hosts.filter(host => !isIP(host) || host === '::1' || host.startsWith('127.'))
+  .map(host => ({ host: isIP(host) ? host : '127.0.0.1', servername: isIP(host) ? '' : host, identity: host }));
+ probes.push({ host: `127.0.0.${loopback}`, servername: '', identity: fallbackHost(hosts) });
+ return probes;
+}
 function connectionPolicies(hosts: string[]) {
  // Browsers omit SNI for IP URLs. Native hosts retain the destination IP;
  // Docker NAT hides it, so use the most recently prepared LAN IP as fallback.
  const addresses = hosts.filter(host => isIP(host));
- const fallback = [...addresses].reverse().find(host => host !== '::1' && !host.startsWith('127.')) || '127.0.0.1';
+ const fallback = fallbackHost(hosts);
  return [
   ...addresses.map(host => ({ match: { local_ip: { ranges: [host] } }, default_sni: host })),
   { default_sni: fallback },
