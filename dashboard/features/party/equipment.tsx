@@ -8,8 +8,9 @@ import { Item } from "./item";
 import { same } from "./same";
 import { StatScrollMark } from "./stat-scroll-mark";
 import { UpgradeMark } from "./upgrade-mark";
+import { memo } from "react";
 
-export function Equipment({
+export const Equipment = memo(function Equipment({
   character,
   upgradeMarks,
   autoUpgradeMarks,
@@ -155,4 +156,4 @@ export function Equipment({
       </div>
     </section>
   );
-}
+});

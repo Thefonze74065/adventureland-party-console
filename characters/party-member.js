@@ -595,9 +595,15 @@
       state.plot.length = 0;
       executor.reset();
     }
+    function trimUncheckedFinal(plot) {
+      const last2 = plot.at(-1), previous = plot.at(-2);
+      if (last2 && previous && !isTransition(last2) && !validation.walk(previous, last2) && distance(previous, state) <= state.edge)
+        return plot.slice(0, -1);
+      return plot;
+    }
     function install(plot, nativeRoute) {
       if (!nativeRoute) plot = repairDoorApproaches(validation, position(), plot);
-      plot = finalApproach(plot, position(), state, journey?.options);
+      plot = trimUncheckedFinal(finalApproach(plot, position(), state, journey?.options));
       const issue = validateRoute(validation, position(), state, plot, state.use_town, state.edge);
       if (issue) {
         if (nativeRoute) throw Error(`Native route rejected: ${issue.reason} between ${JSON.stringify(issue.from)} and ${JSON.stringify(issue.to)}`);
@@ -627,11 +633,7 @@
         j.searches++;
       }
       const plot = planner.tick(ports.now());
-      if (plot) {
-        const last2 = plot.at(-1), previous = plot.at(-2);
-        if (last2 && previous && !isTransition(last2) && !validation.walk(previous, last2) && distance(previous, state) <= state.edge) plot.pop();
-        install(plot, true);
-      }
+      if (plot) install(plot, true);
     }
     function requestPlan(j) {
       if (j.pending) return;

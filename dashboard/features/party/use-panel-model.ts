@@ -2,10 +2,12 @@
 import { levelPriceHistory } from './level-price-history';
 import { occupiedStandSlots } from './stand-inspection';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import { domainOptions, useVisible } from './query-cache';
 import { characterKey } from './dashboard-live';
 import { STAT_SCROLLS } from './stat-scrolls';
 import { aggregateMonsterAchievements } from './monster-achievements';
+import { emptyArray } from './empty-values';
 import type { Char } from './char';
 import type { PartyConsoleModel } from './use-party-console';
 import type { Item } from './item';
@@ -52,35 +54,51 @@ export function usePanelModel<T extends Pick<PartyConsoleModel, 'state' | 'chars
       enabled: visible,
     })),
   });
-  const characters = Object.fromEntries(
-    names.map((name, index) => [
-      name,
-      Object.assign(
-        {},
-        model.state.characters[name],
-        ...subscriptions.map(
-          (_, kind) => values[index * subscriptions.length + kind].data,
-        ),
-      ) as Char,
-    ]),
+  // Rebuilding these per-character merges unconditionally on every render defeats
+  // memo()/useCallback() everywhere downstream, since `state.characters[name]`
+  // would get a new identity even when nothing about that character changed.
+  // Only rebuild when a subscribed field or the base roster actually changed.
+  const valuesData = values.map((value) => value.data);
+  const characters = useMemo(
+    () =>
+      Object.fromEntries(
+        names.map((name, index) => [
+          name,
+          Object.assign(
+            {},
+            model.state.characters[name],
+            ...subscriptions.map(
+              (_, kind) => values[index * subscriptions.length + kind].data,
+            ),
+          ) as Char,
+        ]),
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately keyed
+    // on the flattened query data instead of `values`/`names`/`subscriptions`
+    // themselves, which are rebuilt every render regardless of whether any
+    // subscribed field actually changed.
+    [model.state.characters, subscriptions.length, ...valuesData],
   );
-  const state: PartyState = Object.assign(
-    {},
-    model.state,
-    ...queries.map((query) => query.data),
-    { characters },
+  const queriesData = queries.map((query) => query.data);
+  const state: PartyState = useMemo(
+    () => Object.assign({}, model.state, ...queriesData, { characters }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [model.state, characters, ...queriesData],
   );
-  const quantities: Record<string, number> = {};
-  const add = (item?: Item | null) => {
-    if (item && STAT_SCROLLS.some((entry) => entry.scroll === item.name))
-      quantities[item.name] =
-        (quantities[item.name] || 0) + Math.max(1, Number(item.q) || 1);
-  };
   const merchant = characters[state.merchantCharacter || ''];
-  (merchant?.items || []).forEach((entry) => add(entry?.item));
-  Object.values(state.bank?.packs || {}).forEach((pack) =>
-    pack.forEach((entry) => add(entry?.item)),
-  );
+  const quantities: Record<string, number> = useMemo(() => {
+    const totals: Record<string, number> = {};
+    const add = (item?: Item | null) => {
+      if (item && STAT_SCROLLS.some((entry) => entry.scroll === item.name))
+        totals[item.name] =
+          (totals[item.name] || 0) + Math.max(1, Number(item.q) || 1);
+    };
+    (merchant?.items || []).forEach((entry) => add(entry?.item));
+    Object.values(state.bank?.packs || {}).forEach((pack) =>
+      pack.forEach((entry) => add(entry?.item)),
+    );
+    return totals;
+  }, [merchant?.items, state.bank?.packs]);
   const standObserved = model.standItem
     ? levelPriceHistory(
         state.standPriceHistory?.[model.standItem.entry.item.name],
@@ -105,16 +123,29 @@ export function usePanelModel<T extends Pick<PartyConsoleModel, 'state' | 'chars
           0,
         )
     : 0;
+  const chars = useMemo(
+    () => model.chars.map((char) => characters[char.name]),
+    [model.chars, characters],
+  );
+  const monsterAchievements = useMemo(
+    () => aggregateMonsterAchievements(characters),
+    [characters],
+  );
+  const standListings = state.standListings || emptyArray();
+  const occupiedSlots = useMemo(
+    () => occupiedStandSlots(standListings, state.nativeStand, merchant, state.standBids),
+    [standListings, state.nativeStand, merchant, state.standBids],
+  );
   return {
     ...model,
     state,
-    chars: model.chars.map((char) => characters[char.name]),
+    chars,
     standObserved,
     standMarketCount,
     standMarketReference:
       standObserved?.marketLow || standObserved?.lowest || 0,
     statScrollInventory: quantities,
-    monsterAchievements: aggregateMonsterAchievements(characters),
-    occupiedStandSlots: occupiedStandSlots(state.standListings || [], state.nativeStand, merchant, state.standBids),
+    monsterAchievements,
+    occupiedStandSlots: occupiedSlots,
   };
 }

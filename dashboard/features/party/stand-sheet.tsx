@@ -42,7 +42,7 @@ import {
 
 import { Check, ChevronDown, ChevronRight, Settings, X } from 'lucide-react';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ALDataBuyOrder } from './aldata-buy-order';
 
@@ -110,7 +110,7 @@ import {
 
 import { WTBPriorityInput } from './wtbpriority-input';
 
-export function StandSheet({
+export const StandSheet = memo(function StandSheet({
 
   open,
 
@@ -3753,4 +3753,4 @@ export function StandSheet({
 
   );
 
-}
+});

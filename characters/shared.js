@@ -3280,7 +3280,11 @@
     saveBankSortBuffers([]);
   }
   async function recoverBankSortBeforeWork() {
-    await bankStackService().recover();
+    // Unlike the sort-buffer recovery below, this used to run unconditionally on
+    // every tick regardless of map. A stuck stack buffer (e.g. an incoming item
+    // transfer landing in a slot reserved as a transfer buffer) then blocked the
+    // whole character everywhere, not just while banking. Scope it the same way.
+    if (bankSortMap(character.map)) await bankStackService().recover();
     if (bankSortRecovered || !bankSortMap(character.map)) return;
     if (!bankSortRecoveryFlight) bankSortRecoveryFlight = cleanupBankSortBuffers().then(function() {
       bankSortRecovered = true;
@@ -3770,7 +3774,7 @@
     await request("/merchant/production", {method:"POST",body:{character:character.name,action:journal.request && journal.request.requestId && !journal.issued ? "abort-manual" : "complete",id:journal.id,success:journal.success}});
     root.localStorage.removeItem(productionJournalKey());
   }
-  async function recoverProductionJournal() {
+  async function recoverProductionJournal(slots) {
     var journal = JSON.parse(root.localStorage.getItem(productionJournalKey()) || "null");
     if (!journal) return;
     if (journal.phase === "complete") return finishProductionJournal(journal);
@@ -3785,6 +3789,11 @@
       var live = character.items[journal.slots[0]];
       if (live && live.name === journal.item.name && (live.level || 0) === (journal.item.level || 0)+1) journal.success=true;
       else if (!live || JSON.stringify(fingerprint(live)) === JSON.stringify(journal.item)) journal.success=false;
+      // An item that matches neither the upgraded nor the original fingerprint is a
+      // genuine anomaly worth surfacing, but only for attempts touching that same
+      // slot; leaving it pending here (instead of throwing) lets an unrelated
+      // upgrade/compound proceed rather than being blocked forever by a stale entry.
+      else if (slots && slots.indexOf(journal.slots[0]) < 0) return;
       else throw Error("Production outcome needs review before another attempt: " + journal.item.name);
     }
     journal.phase="complete";root.localStorage.setItem(productionJournalKey(),JSON.stringify(journal));
@@ -3801,7 +3810,7 @@
   }
   async function trackedProduction(kind, slots, automatic, operation, offeringAttempt) {
     if (character.ctype !== "merchant") return operation();
-    await recoverProductionJournal();
+    await recoverProductionJournal(slots);
     await yieldMerchantForEvent();
     if (automatic) await verifyProductionProtection(slots);
     var item=fingerprint(character.items[slots[0]]), id=character.name+":"+Date.now()+":"+Math.random().toString(36).slice(2);

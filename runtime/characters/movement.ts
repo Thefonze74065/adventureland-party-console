@@ -70,9 +70,19 @@ export function installPartyMovement(host: MovementHost, ports: MovementPorts) {
     j.fallback = true; j.native = true; j.pending = false; j.planningAt = ports.now();
     state.found = state.searching = false; state.plot.length = 0; executor.reset();
   }
+  function trimUncheckedFinal(plot: Step[]): Step[] {
+    // Both engines' graph nodes can place an unchecked exact endpoint on the far
+    // side of a thin obstacle. Keep the reachable predecessor instead when it
+    // already satisfies the caller's arrival tolerance, rather than rejecting
+    // (ALClient) or force-walking (native) a route that would otherwise arrive.
+    const last = plot.at(-1), previous = plot.at(-2);
+    if (last && previous && !isTransition(last) && !validation.walk(previous, last) && distance(previous, state) <= state.edge)
+      return plot.slice(0, -1);
+    return plot;
+  }
   function install(plot: Step[], nativeRoute: boolean) {
     if (!nativeRoute) plot = repairDoorApproaches(validation, position(), plot);
-    plot = finalApproach(plot, position(), state, journey?.options);
+    plot = trimUncheckedFinal(finalApproach(plot, position(), state, journey?.options));
     const issue = validateRoute(validation, position(), state, plot, state.use_town, state.edge);
     if (issue) {
       if (nativeRoute) throw Error(`Native route rejected: ${issue.reason} between ${JSON.stringify(issue.from)} and ${JSON.stringify(issue.to)}`);
@@ -86,13 +96,7 @@ export function installPartyMovement(host: MovementHost, ports: MovementPorts) {
   function nativeTick(j: Journey) {
     if (!state.searching) { planner.begin(point(state), state.use_town, ports.now()); state.searching = true; j.searches++; }
     const plot = planner.tick(ports.now());
-    if (plot) {
-      // Native BFS sometimes appends an unchecked exact endpoint. Keep its reachable
-      // predecessor only when it satisfies the caller's explicit arrival tolerance.
-      const last = plot.at(-1), previous = plot.at(-2);
-      if (last && previous && !isTransition(last) && !validation.walk(previous, last) && distance(previous, state) <= state.edge) plot.pop();
-      install(plot, true);
-    }
+    if (plot) install(plot, true);
   }
   function requestPlan(j: Journey) {
     if (j.pending) return;

@@ -13,7 +13,7 @@ function transpile(source) {
     jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022,
   } }).outputText;
 }
-function findSource(file, predicate) {
+function findNode(file, predicate) {
   const source = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   let result;
   function visit(node) {
@@ -22,7 +22,26 @@ function findSource(file, predicate) {
   }
   visit(source);
   assert.ok(result, `Missing source in ${file}`);
-  return result.getText(source);
+  return { node: result, source };
+}
+function findSource(file, predicate) {
+  const { node, source } = findNode(file, predicate);
+  return node.getText(source);
+}
+// The route button is built by a `useCallback` a few lines away from the
+// picker's JSX, not inlined as a JSX attribute; pull out just its callback
+// argument so this stays in sync with connected-character-card.tsx.
+function findCallbackArgument(file, variableName) {
+  const { node, source } = findNode(file, (n) => ts.isVariableDeclaration(n) && n.name.getText() === variableName);
+  let call;
+  function visit(n) {
+    if (call) return;
+    if (ts.isCallExpression(n) && n.expression.getText() === 'useCallback') { call = n; return; }
+    ts.forEachChild(n, visit);
+  }
+  visit(node);
+  assert.ok(call, `Missing useCallback initializer for ${variableName} in ${file}`);
+  return call.arguments[0].getText(source);
 }
 function setup() {
   const timers = new Map(), writes = [], routes = [];
@@ -36,17 +55,20 @@ function setup() {
       if (name === 'react/jsx-runtime') return require('../../dashboard/node_modules/react/jsx-runtime');
       return new Proxy({}, { get: (_, key) => key });
     },
-    state: { leader: 'Leader', followers: {} }, char: { name: 'Leader' },
+    state: { leader: 'Leader', followers: {} }, char: { name: 'Leader' }, name: 'Leader',
     canRouteToMonster, FOLLOWER_ROUTE_MESSAGE,
     setActionError(message) { throw Error(message); },
     setFarmAreaRequest(request) { routes.push(request); },
     MonsterRouteButton: 'RouteButton',
   };
+  // The picker only narrows formation to {leader, followers}; sharing the same
+  // object as `state` keeps the test's live mutation of leader/followers visible.
+  context.routingFormation = context.state;
   vm.createContext(context);
   vm.runInContext(transpile(fs.readFileSync('dashboard/features/party/monster-focus-picker.tsx', 'utf8')), context);
   const findMonster = findSource('dashboard/features/party/use-party-console.tsx', n => ts.isFunctionDeclaration(n) && n.name?.text === 'findMonsterFor');
-  const routeRenderer = findSource('dashboard/features/party/connected-character-card.tsx', n => ts.isJsxAttribute(n) && n.name.text === 'renderRouteButton');
-  vm.runInContext('{\n' + transpile(findMonster + '\nglobalThis.renderRoute = ' + routeRenderer.slice(routeRenderer.indexOf('{') + 1, -1)) + '\n}', context);
+  const routeRenderer = findCallbackArgument('dashboard/features/party/connected-character-card.tsx', 'renderMonsterRouteButton');
+  vm.runInContext('{\n' + transpile(findMonster + '\nglobalThis.renderRoute = ' + routeRenderer) + '\n}', context);
   const props = {
     monsters: [{ id: 'phoenix', name: 'Phoenix' }, { id: 'goo', name: 'Goo' }],
     selected: ['phoenix'], priorities: {}, onPriorityChange() {},

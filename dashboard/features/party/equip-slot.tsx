@@ -22,8 +22,9 @@ import { StatScrollMark } from "./stat-scroll-mark";
 import { UpgradeActions } from "./upgrade-actions";
 import { UpgradeMark } from "./upgrade-mark";
 import { upgradeRuleTiers } from "./upgrade-rule-tiers";
+import { memo } from "react";
 
-export function EquipSlot({
+export const EquipSlot = memo(function EquipSlot({
   slot,
   equipped,
   mark,
@@ -137,4 +138,4 @@ export function EquipSlot({
       </ContextMenuContent>
     </ContextMenu>
   );
-}
+});

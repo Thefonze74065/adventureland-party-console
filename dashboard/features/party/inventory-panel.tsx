@@ -44,7 +44,7 @@ import {
   Truck,
   X,
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { memo, useCallback, useState, type ReactNode } from "react";
 import { AutoCompoundMark } from "./auto-compound-mark";
 import { ClearItemMarks } from "./clear-item-marks";
 import { AutoUpgradeMarks } from "./auto-upgrade-marks";
@@ -82,7 +82,7 @@ import { UpgradeMark } from "./upgrade-mark";
 import { upgradeRuleQuantity } from "./upgrade-rule-quantity";
 import { upgradeRuleTiers } from "./upgrade-rule-tiers";
 
-export function InventoryPanel({
+export const InventoryPanel = memo(function InventoryPanel({
   character,
   sharedRules = false,
   characters,
@@ -491,6 +491,43 @@ export function InventoryPanel({
       </section>
     );
   };
+  const onUnequip = useCallback(
+    (slot: string, item: Item) => onCommand(character.name, "unequip", item, { slot }),
+    [onCommand, character.name],
+  );
+  const onEquipmentUpgrade = useCallback(
+    (slot: string, item: Item, tiers?: number, remove?: boolean) =>
+      onCommand(character.name, "upgrade-mark", item, { slot, equipped: true, tiers, remove }),
+    [onCommand, character.name],
+  );
+  const onEquipmentAutoUpgrade = useCallback(
+    (slot: string, item: Item, tiers?: number, remove?: boolean) =>
+      onCommand(character.name, "auto-upgrade-mark", item, { slot, equipped: true, tiers, remove }),
+    [onCommand, character.name],
+  );
+  const onEquipmentStatScroll = useCallback(
+    (slot: string, item: Item, remove?: boolean) =>
+      onCommand(character.name, "stat-scroll-mark", item, { slot, remove }),
+    [onCommand, character.name],
+  );
+  const hasAutomaticMarks = useCallback(
+    (item: Item) => {
+      const key = `${item.name}@+${item.level || 0}`, commerceKey = automaticCommerceRuleKey(item);
+      return Boolean(autoItemMarks[key] || (!item.level && autoItemMarks[item.name]) || autoUpgradeMarks[key] ||
+        autoCompoundMarks.some(rule => rule.name === item.name) || autoDeconstruction[commerceKey] ||
+        autoNpcSales[sharedRules || character.name === merchant ? commerceKey : JSON.stringify([character.name, commerceKey])] ||
+        (character.name === merchant && (autoStandMarks[commerceKey] || autoExchanges[`${item.name}@${item.level || 0}`] || (merchantWeapon?.item && same(item, merchantWeapon.item)))));
+    },
+    [autoItemMarks, autoUpgradeMarks, autoCompoundMarks, autoDeconstruction, autoNpcSales, sharedRules, character.name, merchant, autoStandMarks, autoExchanges, merchantWeapon],
+  );
+  const onEquipmentClearMarks = useCallback(
+    (slot: string, item: Item) => onCommand(character.name, "clear-item-marks", item, { slot, equipped: true }),
+    [onCommand, character.name],
+  );
+  const onEquipmentBuy = useCallback(
+    (item: Item) => onCommand(character.name, "buy-copy", item),
+    [onCommand, character.name],
+  );
   const clearAutomaticSection = async (section: AutomaticSection) => {
     if (section === "npc" || section === "stand") onClearAutomaticSales(section);
     else if (section === "compound") await onCommand(character.name, "clear-auto-compounds");
@@ -514,35 +551,13 @@ export function InventoryPanel({
         statScrollMarks={statScrollMarks}
         statScrollInventory={statScrollInventory}
         onSelect={onSelect}
-        onUnequip={(slot, item) => onCommand(character.name, "unequip", item, { slot })}
-        onUpgrade={(slot, item, tiers, remove) =>
-          onCommand(character.name, "upgrade-mark", item, {
-            slot,
-            equipped: true,
-            tiers,
-            remove,
-          })
-        }
-        onAutoUpgrade={(slot, item, tiers, remove) =>
-          onCommand(character.name, "auto-upgrade-mark", item, {
-            slot,
-            equipped: true,
-            tiers,
-            remove,
-          })
-        }
-        onStatScroll={(slot, item, remove) =>
-          onCommand(character.name, "stat-scroll-mark", item, { slot, remove })
-        }
-        hasAutomaticMarks={(item) => {
-          const key = `${item.name}@+${item.level || 0}`, commerceKey = automaticCommerceRuleKey(item);
-          return Boolean(autoItemMarks[key] || (!item.level && autoItemMarks[item.name]) || autoUpgradeMarks[key] ||
-            autoCompoundMarks.some(rule => rule.name === item.name) || autoDeconstruction[commerceKey] ||
-            autoNpcSales[sharedRules || character.name === merchant ? commerceKey : JSON.stringify([character.name, commerceKey])] ||
-            (character.name === merchant && (autoStandMarks[commerceKey] || autoExchanges[`${item.name}@${item.level || 0}`] || (merchantWeapon?.item && same(item, merchantWeapon.item)))));
-        }}
-        onClearMarks={(slot, item) => onCommand(character.name, "clear-item-marks", item, { slot, equipped: true })}
-        onBuy={(item) => onCommand(character.name, "buy-copy", item)}
+        onUnequip={onUnequip}
+        onUpgrade={onEquipmentUpgrade}
+        onAutoUpgrade={onEquipmentAutoUpgrade}
+        onStatScroll={onEquipmentStatScroll}
+        hasAutomaticMarks={hasAutomaticMarks}
+        onClearMarks={onEquipmentClearMarks}
+        onBuy={onEquipmentBuy}
       />
       <button
         type="button"
@@ -1325,4 +1340,4 @@ export function InventoryPanel({
       </div>
     </div>
   );
-}
+});

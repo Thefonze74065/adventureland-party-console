@@ -22,6 +22,7 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // dashboard/lib/farming-areas.ts
 var farming_areas_exports = {};
 __export(farming_areas_exports, {
+  defaultPhoenixOrder: () => defaultPhoenixOrder,
   farmingAreas: () => farmingAreas,
   validFarmingLocation: () => validFarmingLocation
 });
@@ -168,6 +169,17 @@ function searchPoints(area) {
 }
 
 // dashboard/lib/farming-areas.ts
+function defaultPhoenixOrder(areas) {
+  const anchors = [
+    { map: "main", x: 641, y: 1803 },
+    { map: "cave", x: -180, y: -1164 },
+    { map: "main", x: -1184, y: 781 },
+    { map: "main", x: 1188, y: -193 },
+    { map: "halloween", x: 8, y: 631 }
+  ];
+  const order = anchors.map((p) => areas.find((a) => a.map === p.map && contains(a, p, 0, 1))?.id);
+  return order.every((id2) => !!id2) && new Set(order).size === 5 ? order : [];
+}
 var key = (a) => JSON.stringify([a.map, a.shapes || a.boundary || [a.x, a.y]]);
 function farmingAreas(catalog, ids) {
   const regions = /* @__PURE__ */ new Map();
@@ -228,12 +240,15 @@ function farmingAreas(catalog, ids) {
     (a, b) => b.monsterIds.length - a.monsterIds.length || a.monsterIds.join(",").localeCompare(b.monsterIds.join(",")) || a.map.localeCompare(b.map) || a.x - b.x || a.y - b.y
   );
 }
-function validFarmingLocation(catalog, ids, location) {
-  if (!Array.isArray(ids) || !ids.length || ids.some(
-    (id2) => typeof id2 !== "string" || !catalog.some((m) => m.id === id2)
-  ))
-    return null;
+function validFarmingLocation(catalog, ids, candidate) {
+  if (!validMonsterIds(catalog, ids)) return null;
+  const location = candidate;
   return farmingAreas(catalog, ids).find(
     (a) => location && a.map === location.map && a.x === location.x && a.y === location.y
   ) || null;
+}
+function validMonsterIds(catalog, ids) {
+  return !(!Array.isArray(ids) || !ids.length || ids.some(
+    (id2) => typeof id2 !== "string" || !catalog.some((m) => m.id === id2)
+  ));
 }

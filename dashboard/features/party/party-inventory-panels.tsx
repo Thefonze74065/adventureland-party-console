@@ -2,7 +2,7 @@
 import { HostingSettings } from "./hosting-settings";
 import { ConsoleUpdateSettings } from './console-updates';
 import { AccountSettings } from "./account-settings";
-import { lazy, useState } from "react";
+import { lazy, useCallback, useState } from "react";
 import { DeconstructionConfirmation, type DeconstructionSelection } from "./deconstruction-confirmation";
 import { DeferredPanel } from "./deferred-panel";
 import { DashboardStateImport } from "./dashboard-state-import";
@@ -37,12 +37,28 @@ import type { PartyConsoleModel } from "./use-party-console";
 
 import { usePanelModel } from "./use-panel-model";
 import { useBankWithdrawal } from "./bank-withdrawal";
+import { useForwardingActions } from "./use-forwarding-actions";
+import { emptyArray, emptyRecord } from "./empty-values";
+import type { InventoryEntry } from "./inventory-entry";
+import type { Item } from "./item";
+import type { ItemMeta } from "./item-meta";
+import type { BankVault } from "./bank-vault";
+import type { StandListing } from "./stand-listing";
+
+// These are plain functions rebuilt on every usePartyConsole() render (not
+// useState setters), so BankSheet/StandSheet would never see stable props
+// without forwarding them through stable wrappers.
+const forwardedActions = ['setStandItem', 'setNpcSaleItem', 'removeStandListing',
+  'saveStandBid', 'buyALDataListing', 'buyPontyListing', 'sellALDataOrder'] as const;
+
 export function PartyInventoryPanels({ model }: { model: PartyConsoleModel }) {
   return model.realmConfirmOpen || model.bankOpen || model.standOpen || model.marketOpen || model.settingsOpen ? <PartyInventoryPanelsConnected base={model} /> : null;
 }
 function PartyInventoryPanelsConnected({ base }: { base: PartyConsoleModel }) {
   const [deconstructionSelection, setDeconstructionSelection] = useState<DeconstructionSelection | null>(null);
   const model = usePanelModel(base, { inventory: true, vitals: true, bank: base.bankOpen, market: base.marketOpen || base.standOpen });
+  const { setStandItem, setNpcSaleItem, removeStandListing, saveStandBid, buyALDataListing,
+    buyPontyListing, sellALDataOrder } = useForwardingActions(base, forwardedActions);
   const {
     bankOpen,
     setBankOpen,
@@ -51,17 +67,10 @@ function PartyInventoryPanelsConnected({ base }: { base: PartyConsoleModel }) {
     detailMeta,
     setActionError,
     post,
-    setStandItem,
-    setNpcSaleItem,
     standOpen,
     setStandOpen,
     marketOpen,
     setMarketOpen,
-    removeStandListing,
-    saveStandBid,
-    buyALDataListing,
-    buyPontyListing,
-    sellALDataOrder,
     settingsOpen,
     setSettingsOpen,
     realmDestination,
@@ -78,114 +87,168 @@ function PartyInventoryPanelsConnected({ base }: { base: PartyConsoleModel }) {
     realmBusy,
     realmSetHome,
     switchRealm,
+    setWtbItem,
   } = model;
-  const bankWithdrawal = useBankWithdrawal(post, setActionError);
+  const { withdraw, confirmation } = useBankWithdrawal(post, setActionError);
+  const standListings = state.standListings || emptyArray();
+  const catalogAllItems = state.merchantCatalog?.allItems || emptyArray();
+  const catalogBuyable = state.merchantCatalog?.buyable || emptyArray();
+  const standPriceHistory = state.standPriceHistory || emptyRecord();
+  const deconstructionCatalog = state.deconstructionCatalog || emptyRecord();
+  const standBids = state.standBids || emptyRecord();
+  const autoStandMarks = state.autoStandMarks || emptyRecord();
+
+  const onBankSelect = useCallback((pack: string, entry: InventoryEntry) =>
+    setSelected({
+      character: `Bank · ${pack}`,
+      entry: { ...entry, meta: detailMeta(entry.item, entry.meta) },
+      source: { kind: "bank", pack },
+    }), [setSelected, detailMeta]);
+  const onWithdraw = useCallback((pack: string, entry: InventoryEntry) =>
+    withdraw(state.merchantCharacter, pack, entry), [withdraw, state.merchantCharacter]);
+  const onWithdrawAll = useCallback((pack: string, entry: InventoryEntry) =>
+    withdraw(state.merchantCharacter, pack, entry, true), [withdraw, state.merchantCharacter]);
+  const onCreateBankboi = useCallback(async () => {
+    const result = await post("/bankbois/create", {});
+    return String((result.bankboi as { name?: string })?.name || "bankboi");
+  }, [post]);
+  const onDeleteBankboi = useCallback(async (name: string) => {
+    try {
+      await post(`/bankbois/${encodeURIComponent(name)}/delete`, {});
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Bankboi deletion failed");
+    }
+  }, [post, setActionError]);
+  const onUnstand = useCallback((pack: string, entry: InventoryEntry) => {
+    const listing = standListings.find((mark) =>
+      mark.bankPack === pack && mark.bankSlot === entry.slot && same(mark.item, entry.item));
+    if (listing) void removeStandListing(listing).catch((error: unknown) =>
+      setActionError(error instanceof Error ? error.message : "Could not unmark stand listing"));
+  }, [standListings, removeStandListing, setActionError]);
+  const onBankStand = useCallback((pack: string, entry: InventoryEntry, all = false) => {
+    const knownMeta = catalogAllItems.find((item) => item.id === entry.item.name)?.meta;
+    const valuedEntry = {
+      ...entry,
+      meta: knownMeta
+        ? { ...entry.meta, ...knownMeta, world: knownMeta.world || entry.meta?.world }
+        : entry.meta,
+    };
+    const existing = standListings.find(
+      (mark) => mark.bankPack === pack && mark.bankSlot === entry.slot && same(mark.item, entry.item),
+    );
+    if (!existing && standListings.length >= 16)
+      return setActionError("Merchant stand is full (16/16)");
+    const value = { defaultPrice: Math.max(1, Number(valuedEntry.meta?.definition.g) || 1) };
+    setStandItem({
+      id: existing?.id,
+      entry: valuedEntry,
+      bankPack: pack,
+      defaultPrice: value.defaultPrice,
+      markAll: all,
+      price: String(existing?.price || value.defaultPrice),
+      quantity: String(existing?.quantity || entry.item.q || 1),
+    });
+  }, [catalogAllItems, standListings, setActionError, setStandItem]);
+  const onBankNpcSale = useCallback((pack: string, entry: InventoryEntry, all = false) => {
+    const targets = all ? bankSaleCopies(state.bank, state.bankbois || [], entry) : undefined;
+    if (targets && !targets.length) return setActionError("No unlocked matching bank items available");
+    setNpcSaleItem({
+      source: "bank",
+      pack,
+      entry,
+      targets,
+      quantity: String(targets ? targets.reduce((sum, target) => sum + Number(target.entry.item.q || 1), 0) : entry.item.q || 1),
+      acknowledged: false,
+    });
+  }, [state.bank, state.bankbois, setActionError, setNpcSaleItem]);
+  const onBankDeconstruction = useCallback((pack: string, entry: InventoryEntry, all: boolean) =>
+    setDeconstructionSelection({ pack, entry, all, auto: false }), []);
+  const onUnlock = useCallback(async (vault: BankVault, kind: "key" | "gold") => {
+    try {
+      await post('/bank/unlock', { pack: vault.pack, kind });
+    } catch (error) { setActionError(error instanceof Error ? error.message : 'Bank unlock failed'); }
+  }, [post, setActionError]);
+
+  const onAutoStandBuys = useCallback(async (enabled: boolean) => {
+    await post("/merchant/native-stand", { action: "configure", enabled });
+  }, [post]);
+  const onStandEdit = useCallback((listing: StandListing) => {
+    const knownMeta = catalogAllItems.find((item) => item.id === listing.item.name)?.meta;
+    const entry = { slot: listing.slot, item: listing.item, meta: knownMeta };
+    const value = { defaultPrice: Math.max(1, Number(entry.meta?.definition.g) || 1) };
+    setStandItem({
+      id: listing.id,
+      entry,
+      bankPack: listing.bankPack,
+      defaultPrice: value.defaultPrice,
+      price: String(listing.price),
+      quantity: String(listing.quantity),
+      markAll: false,
+    });
+  }, [catalogAllItems, setStandItem]);
+  const onEditBuy = useCallback((item: Item, meta?: ItemMeta | null) =>
+    setWtbItem({ item, meta }), [setWtbItem]);
+  const onListForWTB = useCallback((entry: InventoryEntry, bankPack: string | undefined, price: number, quantity: number) => {
+    const valuedEntry = { ...entry, meta: detailMeta(entry.item, entry.meta) };
+    const existing = standListings.find(
+      (mark) => mark.bankPack === bankPack && mark.slot === entry.slot && same(mark.item, entry.item),
+    );
+    const value = { defaultPrice: Math.max(1, Number(valuedEntry.meta?.definition.g) || 1) };
+    setStandItem({
+      id: existing?.id,
+      entry: valuedEntry,
+      bankPack,
+      markAll: false,
+      defaultPrice: value.defaultPrice,
+      price: String(price),
+      quantity: String(Math.max(1, Math.min(quantity, Number(entry.item.q || 1)))),
+    });
+  }, [detailMeta, standListings, setStandItem]);
+  const onStandInspect = useCallback((item: Item, meta: ItemMeta | null | undefined, context: string) =>
+    setSelected({
+      character: context,
+      entry: { slot: -1, item, meta: detailMeta(item, meta) },
+    }), [setSelected, detailMeta]);
+  const onALDataSetup = useCallback(() => { setMarketOpen(false); setSettingsOpen(true); }, [setMarketOpen, setSettingsOpen]);
+
   return (
     <>
-      {bankWithdrawal.confirmation}
+      {confirmation}
       <DeferredPanel active={bankOpen}>
         <BankSheet bankSortState={state} bankboiPrefix={state.bankboiPrefix || ""}
           open={bankOpen}
           onOpenChange={setBankOpen}
           bank={state.bank || null}
-          bankbois={state.bankbois || []}
-          bankboiQueue={state.bankboiQueue || []}
+          bankbois={state.bankbois || emptyArray()}
+          bankboiQueue={state.bankboiQueue || emptyArray()}
           merchant={state.merchantCharacter}
           merchantState={
             state.merchantCharacter ? state.characters[state.merchantCharacter] : undefined
           }
-          vaults={state.bankVaults || []}
-          withdrawals={state.withdrawals || {}}
-          onSelect={(pack, entry) =>
-            setSelected({
-              character: `Bank · ${pack}`,
-              entry: { ...entry, meta: detailMeta(entry.item, entry.meta) },
-              source: { kind: "bank", pack },
-            })
-          }
-          onWithdraw={(pack, entry) => bankWithdrawal.withdraw(state.merchantCharacter, pack, entry)}
-          onWithdrawAll={(pack, entry) => bankWithdrawal.withdraw(state.merchantCharacter, pack, entry, true)}
-          onCreateBankboi={async () => {
-            const result = await post("/bankbois/create", {});
-            return String((result.bankboi as { name?: string })?.name || "bankboi");
-          }}
-          onDeleteBankboi={async (name) => {
-            try {
-              await post(`/bankbois/${encodeURIComponent(name)}/delete`, {});
-            } catch (error) {
-              setActionError(error instanceof Error ? error.message : "Bankboi deletion failed");
-            }
-          }}
-          buyable={state.merchantCatalog?.buyable || []}
-          catalog={state.merchantCatalog?.allItems || []}
-          priceHistory={state.standPriceHistory || {}}
-          autoStandMarks={state.autoStandMarks || {}}
-          standListings={state.standListings || []}
-      standBids={state.standBids || {}}
-          onUnstand={(pack, entry) => {
-            const listing = (state.standListings || []).find((mark) =>
-              mark.bankPack === pack && mark.bankSlot === entry.slot && same(mark.item, entry.item));
-            if (listing) void removeStandListing(listing).catch((error) =>
-              setActionError(error instanceof Error ? error.message : "Could not unmark stand listing"));
-          }}
-          onStand={(pack, entry, all = false) => {
-            const knownMeta = state.merchantCatalog?.allItems?.find(
-              (item) => item.id === entry.item.name,
-            )?.meta;
-            const valuedEntry = {
-              ...entry,
-              meta: knownMeta
-                ? {
-                    ...entry.meta,
-                    ...knownMeta,
-                    world: knownMeta.world || entry.meta?.world,
-                  }
-                : entry.meta,
-            };
-            const existing = (state.standListings || []).find(
-              (mark) =>
-                mark.bankPack === pack &&
-                mark.bankSlot === entry.slot &&
-                same(mark.item, entry.item),
-            );
-            if (!existing && (state.standListings || []).length >= 16)
-              return setActionError("Merchant stand is full (16/16)");
-            const value = { defaultPrice: Math.max(1, Number(valuedEntry.meta?.definition.g) || 1) };
-            setStandItem({
-              id: existing?.id,
-              entry: valuedEntry,
-              bankPack: pack,
-              defaultPrice: value.defaultPrice,
-              markAll: all,
-              price: String(existing?.price || value.defaultPrice),
-              quantity: String(existing?.quantity || entry.item.q || 1),
-            });
-          }}
-          onNpcSale={(pack, entry, all = false) => {
-            const targets = all ? bankSaleCopies(state.bank, state.bankbois || [], entry) : undefined;
-            if (targets && !targets.length) return setActionError("No unlocked matching bank items available");
-            setNpcSaleItem({
-              source: "bank",
-              pack,
-              entry,
-              targets,
-              quantity: String(targets ? targets.reduce((sum, target) => sum + Number(target.entry.item.q || 1), 0) : entry.item.q || 1),
-              acknowledged: false,
-            });
-          }}
-          npcSaleMarks={state.npcSaleMarks || []}
-          deconstructionCatalog={state.deconstructionCatalog || {}}
-          onDeconstruction={(pack, entry, all) => setDeconstructionSelection({ pack, entry, all, auto: false })}
-          onUnlock={async (vault, kind) => {
-            try {
-              await model.post('/bank/unlock', { pack: vault.pack, kind });
-            } catch (error) { model.setActionError(error instanceof Error ? error.message : 'Bank unlock failed'); }
-
-          }}
+          vaults={state.bankVaults || emptyArray()}
+          withdrawals={state.withdrawals || emptyRecord()}
+          onSelect={onBankSelect}
+          onWithdraw={onWithdraw}
+          onWithdrawAll={onWithdrawAll}
+          onCreateBankboi={onCreateBankboi}
+          onDeleteBankboi={onDeleteBankboi}
+          buyable={catalogBuyable}
+          catalog={catalogAllItems}
+          priceHistory={standPriceHistory}
+          autoStandMarks={autoStandMarks}
+          standListings={standListings}
+      standBids={standBids}
+          onUnstand={onUnstand}
+          onStand={onBankStand}
+          onNpcSale={onBankNpcSale}
+          npcSaleMarks={state.npcSaleMarks || emptyArray()}
+          deconstructionCatalog={deconstructionCatalog}
+          onDeconstruction={onBankDeconstruction}
+          onUnlock={onUnlock}
         />
       </DeferredPanel>
-      <DeconstructionConfirmation selection={deconstructionSelection} catalog={state.deconstructionCatalog || {}}
-        items={state.merchantCatalog?.allItems || []} onClose={() => setDeconstructionSelection(null)}
+      <DeconstructionConfirmation selection={deconstructionSelection} catalog={deconstructionCatalog}
+        items={catalogAllItems} onClose={() => setDeconstructionSelection(null)}
         onConfirm={async ({ pack, entry, all }) => {
           await model.post('/deconstruction/mark', { pack, slot: entry.slot, item: entry.item, all });
         }} />
@@ -197,74 +260,29 @@ function PartyInventoryPanelsConnected({ base }: { base: PartyConsoleModel }) {
           onMarketOpenChange={setMarketOpen}
           merchant={state.merchantCharacter ? state.characters[state.merchantCharacter] : undefined}
           bank={state.bank}
-          listings={state.standListings || []}
-          catalog={state.merchantCatalog?.allItems || []}
-          buyable={state.merchantCatalog?.buyable || []}
-          bids={state.standBids || {}}
+          listings={standListings}
+          catalog={catalogAllItems}
+          buyable={catalogBuyable}
+          bids={standBids}
           nativeStand={state.nativeStand}
           autoStandBuys={state.autoStandBuys === true}
           autoBlacklistMerchants={state.autoBlacklistMerchants !== false}
-          onAutoStandBuys={async enabled => { await model.post("/merchant/native-stand", { action: "configure", enabled }); }}
-          priceHistory={state.standPriceHistory || {}}
-          blacklist={state.merchantBlacklist || {}}
-          onEdit={(listing) => {
-            const knownMeta = state.merchantCatalog?.allItems?.find(
-              (item) => item.id === listing.item.name,
-            )?.meta;
-            const entry = {
-              slot: listing.slot,
-              item: listing.item,
-              meta: knownMeta,
-            };
-            const value = { defaultPrice: Math.max(1, Number(entry.meta?.definition.g) || 1) };
-            setStandItem({
-              id: listing.id,
-              entry,
-              bankPack: listing.bankPack,
-              defaultPrice: value.defaultPrice,
-              price: String(listing.price),
-              quantity: String(listing.quantity),
-              markAll: false,
-            });
-          }}
+          onAutoStandBuys={onAutoStandBuys}
+          priceHistory={standPriceHistory}
+          blacklist={state.merchantBlacklist || emptyRecord()}
+          onEdit={onStandEdit}
           onRemove={removeStandListing}
-          onEditBuy={(item, meta) => model.setWtbItem({item,meta})}
+          onEditBuy={onEditBuy}
           onBid={saveStandBid}
-          onListForWTB={(entry, bankPack, price, quantity) => {
-            const valuedEntry = {
-              ...entry,
-              meta: detailMeta(entry.item, entry.meta),
-            };
-            const existing = (state.standListings || []).find(
-              (mark) =>
-                mark.bankPack === bankPack &&
-                mark.slot === entry.slot &&
-                same(mark.item, entry.item),
-            );
-            const value = { defaultPrice: Math.max(1, Number(valuedEntry.meta?.definition.g) || 1) };
-            setStandItem({
-              id: existing?.id,
-              entry: valuedEntry,
-              bankPack,
-              markAll: false,
-              defaultPrice: value.defaultPrice,
-              price: String(price),
-              quantity: String(Math.max(1, Math.min(quantity, Number(entry.item.q || 1)))),
-            });
-          }}
+          onListForWTB={onListForWTB}
           aldata={state.aldata}
-          onALDataSetup={() => { setMarketOpen(false); setSettingsOpen(true); }}
+          onALDataSetup={onALDataSetup}
           ponty={state.ponty}
           automaticWTBEnabled={state.merchantAutomations?.["stand bid purchases"] !== false}
           onBuyALData={buyALDataListing}
           onBuyPonty={buyPontyListing}
           onSellALData={sellALDataOrder}
-          onInspect={(item, meta, context) =>
-            setSelected({
-              character: context,
-              entry: { slot: -1, item, meta: detailMeta(item, meta) },
-            })
-          }
+          onInspect={onStandInspect}
         />
       </DeferredPanel>
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>

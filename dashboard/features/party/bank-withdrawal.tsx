@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PartyActionError } from "./query-actions";
@@ -13,7 +13,7 @@ export function useBankWithdrawal(post: PartyConsoleModel["post"], onError: (mes
   const [confirmationError, setConfirmationError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
-  async function submit(request: Request, confirmed = false) {
+  const submit = useCallback(async (request: Request, confirmed = false) => {
     if (inFlight.current) return;
     setConfirmationError(null);
     inFlight.current = true;
@@ -29,12 +29,12 @@ export function useBankWithdrawal(post: PartyConsoleModel["post"], onError: (mes
       inFlight.current = false;
       setBusy(false);
     }
-  }
-  function withdraw(character: string | null | undefined, pack: string, entry: InventoryEntry, markAll = false) {
+  }, [post, onError]);
+  const withdraw = useCallback((character: string | null | undefined, pack: string, entry: InventoryEntry, markAll = false) => {
     if (!character) return onError("No merchant is configured");
     if (pending) return;
     void submit({ character, type: "withdraw", pack, slot: entry.slot, item: { ...entry.item }, markAll });
-  }
+  }, [pending, onError, submit]);
   function close() { setPending(null); setConfirmationError(null); }
   const confirmation = <Dialog open={!!pending} onOpenChange={open => { if (!open && !busy) close(); }}>
     <DialogContent showCloseButton={false} className="border border-emerald-800 bg-[#091614] text-emerald-50">

@@ -21,11 +21,12 @@ import type { CharacterCardModel, InventoryModel } from './character-card-model'
 import { XpMeter } from './xp-meter';
 import { MonsterRouteButton } from './monster-route-button';
 
-import { memo, useEffect } from 'react';
+import { memo, useCallback, useEffect, useMemo } from 'react';
 import { committedLiveRecord } from './live-metrics';
 import { useCharacterData } from './dashboard-live';
 import { ConnectedInventory } from './connected-inventory';
 import { ConnectedCombatLog } from './connected-combat-log';
+import { emptyRecord } from './empty-values';
 import type { Char } from './char';
 
 export const ConnectedCharacterCard = memo(function ConnectedCharacterCard({
@@ -74,6 +75,26 @@ export const ConnectedCharacterCard = memo(function ConnectedCharacterCard({
     setFocus,
     saveRestock,
   } = model;
+  // MonsterFocusPicker is memoized, but formation={state} would hand it the
+  // whole (frequently-changing) state object even though routing only needs
+  // leader/followers; narrowing it lets unrelated state churn skip a re-render.
+  const routingFormation = useMemo(
+    () => ({ leader: state.leader, followers: state.followers }),
+    [state.leader, state.followers],
+  );
+  const monsterFocusSelected = state.monsterFocusByCharacter?.[name] || selectedFocus;
+  const monsterFocusPriorities = state.monsterPrioritiesByCharacter?.[name] || emptyRecord<number>();
+  const renderMonsterRouteButton = useCallback(
+    (focus: string[]) => (
+      <MonsterRouteButton formation={routingFormation} character={name} onRoute={() => findMonsterFor(name, focus)} />
+    ),
+    [routingFormation, name, findMonsterFor],
+  );
+  const onMonsterFocusChange = useCallback((focus: string[]) => setFocus(name, focus), [setFocus, name]);
+  const onMonsterPriorityChange = useCallback(
+    (priorities: Record<string, number>) => setFocus(name, monsterFocusSelected, priorities),
+    [setFocus, name, monsterFocusSelected],
+  );
   if (!vitals || !diagnostics)
     return (
       <article className="rounded border border-emerald-800 bg-[#0b1916] p-5 text-emerald-100">
@@ -348,26 +369,12 @@ export const ConnectedCharacterCard = memo(function ConnectedCharacterCard({
           </p>
           <div className="flex items-center gap-2">
             <MonsterFocusPicker
-              renderRouteButton={(focus) => (
-                <MonsterRouteButton
-                  formation={state}
-                  character={char.name}
-                  onRoute={() => findMonsterFor(char.name, focus)}
-                />
-              )}
+              renderRouteButton={renderMonsterRouteButton}
               monsters={monsters}
-              selected={
-                state.monsterFocusByCharacter?.[char.name] || selectedFocus
-              }
-              onChange={(focus) => setFocus(char.name, focus)}
-              priorities={state.monsterPrioritiesByCharacter?.[char.name] || {}}
-              onPriorityChange={(priorities) =>
-                setFocus(
-                  char.name,
-                  state.monsterFocusByCharacter?.[char.name] || selectedFocus,
-                  priorities,
-                )
-              }
+              selected={monsterFocusSelected}
+              onChange={onMonsterFocusChange}
+              priorities={monsterFocusPriorities}
+              onPriorityChange={onMonsterPriorityChange}
             />
           </div>
         </div>

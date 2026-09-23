@@ -33,3 +33,9 @@ test('a still-running game operation blocks recovery; an unrelated replacement i
  await assert.rejects(f.c.recoverProductionJournal(),/waiting/);delete f.c.character.q;f.c.character.items[0]={name:'sword',level:0};
  await assert.rejects(f.c.recoverProductionJournal(),/needs review/);assert.equal(f.state.autoUpgradeMarks.M['cap@+0'].quantity,2);assert.equal(f.storage.size,1);
 });
+test('a replacement item needing review only blocks attempts on its own slot',async()=>{
+ const f=fixture(),body={id:'pending',item:{name:'cap',level:0},kind:'upgrade'};beginProduction(f.state,body);
+ f.storage.set('party-production:M',JSON.stringify({id:body.id,item:body.item,slots:[0],phase:'running',request:body}));f.c.character.items[0]={name:'sword',level:0};
+ await f.c.recoverProductionJournal([1]);assert.equal(f.storage.size,1);
+ await assert.rejects(f.c.recoverProductionJournal([0]),/needs review/);
+});

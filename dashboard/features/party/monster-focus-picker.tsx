@@ -4,12 +4,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { X } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import { MonsterChoice } from "./monster-choice";
 import { Sprite } from "./sprite";
 import { SpriteCrop } from "./sprite-crop";
 
-export function MonsterFocusPicker({
+export const MonsterFocusPicker = memo(function MonsterFocusPicker({
   monsters,
   selected,
   onChange,
@@ -229,4 +229,4 @@ export function MonsterFocusPicker({
       </Button>
     </div>
   );
-}
+});

@@ -50,7 +50,7 @@ import { Tooltip, TooltipTrigger } from "@/components/ui/tooltip";
 
 import { DollarSign, RefreshCw, Store, Landmark } from "lucide-react";
 
-import { useRef, useState } from "react";
+import { memo, useRef, useState } from "react";
 
 import { abbreviatedGold } from "./abbreviated-gold";
 
@@ -89,7 +89,7 @@ import { Withdrawal } from "./withdrawal";
 
 
 
-export function BankSheet({
+export const BankSheet = memo(function BankSheet({
 
   open,
 
@@ -1255,4 +1255,4 @@ export function BankSheet({
 
   );
 
-}
+});

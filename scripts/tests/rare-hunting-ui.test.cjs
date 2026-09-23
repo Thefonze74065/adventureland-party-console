@@ -3,7 +3,14 @@ const ts=require('../../node_modules/typescript');
 const {farmingAreas,defaultPhoenixOrder}=require('../../.build/shared/farming-areas.cjs');
 function harness(file,name,extra={}) {
   const source=fs.readFileSync(`dashboard/features/party/${file}.tsx`,'utf8');
-  const body=source.slice(source.indexOf(`export function ${name}(`)).replace('export function','function');
+  // Some components are exported as `const X = memo(function X(...) {...})`
+  // instead of a bare `export function`; strip the memo() wrapper (both the
+  // leading call and its matching trailing paren) so the extracted body is
+  // still a plain top-level function declaration the vm context can see.
+  const memoMarker=`export const ${name} = memo(function ${name}(`;
+  const body=source.includes(memoMarker)
+    ? source.slice(source.indexOf(memoMarker)).replace(`export const ${name} = memo(`,'').replace(/\}\);\s*$/,'}')
+    : source.slice(source.indexOf(`export function ${name}(`)).replace('export function','function');
   const code=ts.transpileModule(body,{compilerOptions:{jsx:ts.JsxEmit.React,target:ts.ScriptTarget.ES2022}}).outputText;
   let cursor=0;const state=[];
   const c=vm.createContext({ React:{createElement:(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity)})},

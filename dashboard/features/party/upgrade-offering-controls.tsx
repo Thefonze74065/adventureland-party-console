@@ -1,5 +1,5 @@
 'use client';
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { ChevronRight, Sparkles, X } from 'lucide-react';
@@ -34,16 +34,20 @@ export function UpgradeOfferingProvider({children, character, executor, stock, r
 }) {
   const [selection, select] = useState<Selection | null>(null);
   const [error, setError] = useState('');
-  const save = (body:Record<string,unknown>) => post('/command', {character, ...body});
-  return <Context.Provider value={{character, executor, stock, rules, catalog, select, remove:async rule => {
+  const save = useCallback((body:Record<string,unknown>) => post('/command', {character, ...body}), [post, character]);
+  const remove = useCallback(async (rule:UpgradeOfferingRule) => {
     try { await save({type:'upgrade-offering-rule', rule:{id:rule.id}, remove:true}); setError(''); }
     catch (e) { setError(e instanceof Error ? e.message : 'Could not remove rule'); }
-  }, clear:async () => {
+  }, [save]);
+  const clear = useCallback(async () => {
     setError('');
     try {
       for (const rule of rules) await save({type:'upgrade-offering-rule', rule:{id:rule.id}, remove:true});
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not clear upgrade rules'); }
-  }}}>
+  }, [rules, save]);
+  const value = useMemo<Controls>(() => ({character, executor, stock, rules, catalog, select, remove, clear}),
+    [character, executor, stock, rules, catalog, select, remove, clear]);
+  return <Context.Provider value={value}>
     {children}
     {error && <p role="alert" className="text-sm text-rose-300">{error}</p>}
     {selection && <OfferingDialog selection={selection} rules={rules} stock={stock} catalog={catalog}
