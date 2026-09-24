@@ -1,6 +1,7 @@
 "use client";
+import { memo } from "react";
 
-export function Meter({
+export const Meter = memo(function Meter({
   label,
   value,
   max,
@@ -29,4 +30,4 @@ export function Meter({
       </div>
     </div>
   );
-}
+});

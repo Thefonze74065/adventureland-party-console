@@ -1,13 +1,13 @@
 "use client";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { useClock } from "@/hooks/use-clock";
 import { durationSignature, reconcileDurations, statusRemaining, type StatusDuration } from "./status-duration";
 import { Condition } from "./condition";
 import { durationLabel } from "./duration-label";
 import { SpriteCrop } from "./sprite-crop";
 
-export function ActiveStatuses({
+export const ActiveStatuses = memo(function ActiveStatuses({
   conditions,
   onSelect,
 }: {
@@ -72,4 +72,4 @@ export function ActiveStatuses({
       ) : null}
     </section>
   );
-}
+});

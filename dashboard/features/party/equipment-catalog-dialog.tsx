@@ -16,13 +16,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useMemo, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import { EQUIPMENT_TYPES } from "./equipment-types";
 import { ItemSprite } from "./item-sprite";
 import { MerchantCatalogItem } from "./merchant-catalog-item";
 import type { InventoryEntry } from "./inventory-entry";
 
-export function EquipmentCatalogDialog({
+// The full equipment catalog can run into the hundreds of items; mounting every
+// row at once (each with a sprite, several labels and an optional compare
+// button) has been observed to freeze the tab for multiple seconds on open.
+// Render a bounded window and let the user page in more.
+const ROW_BATCH = 120;
+
+export const EquipmentCatalogDialog = memo(function EquipmentCatalogDialog({
   open,
   onOpenChange,
   catalog,
@@ -115,6 +121,9 @@ export function EquipmentCatalogDialog({
         return value(b, sort) - value(a, sort) || a.name.localeCompare(b.name);
       });
   }, [equipment, search, sort, types, selectedClasses, exclusiveGear]);
+  const [visibleCount, setVisibleCount] = useState(ROW_BATCH);
+  useEffect(() => setVisibleCount(ROW_BATCH), [rows]);
+  const visibleRows = useMemo(() => rows.slice(0, visibleCount), [rows, visibleCount]);
   const sorts = [
     ["tier", "Tier"],
     ["name", "Name"],
@@ -254,7 +263,10 @@ export function EquipmentCatalogDialog({
           </label>
         </div>
         <p className="font-mono text-[10px] uppercase text-cyan-200/55">
-          {rows.length} item{rows.length === 1 ? "" : "s"} · sorted by{" "}
+          {visibleRows.length === rows.length
+            ? `${rows.length} item${rows.length === 1 ? "" : "s"}`
+            : `Showing ${visibleRows.length} of ${rows.length} items`}
+          {" "}· sorted by{" "}
           {sorts.find(([id]) => id === sort)?.[1]}
           {selectedClasses.length
             ? exclusiveGear
@@ -264,7 +276,7 @@ export function EquipmentCatalogDialog({
         </p>
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
-            {rows.map((item) => {
+            {visibleRows.map((item) => {
               const def = item.meta?.definition || {},
                 primary =
                   sort !== "tier" && !["name", "set", "value"].includes(sort)
@@ -310,8 +322,19 @@ export function EquipmentCatalogDialog({
               );
             })}
           </div>
+          {visibleRows.length < rows.length ? (
+            <div className="mt-3 flex justify-center">
+              <Button
+                variant="outline"
+                onClick={() => setVisibleCount((count) => count + ROW_BATCH)}
+                className="border-cyan-700 bg-black text-cyan-100 hover:bg-cyan-950 hover:text-white"
+              >
+                Show {Math.min(ROW_BATCH, rows.length - visibleRows.length)} more ({rows.length - visibleRows.length} remaining)
+              </Button>
+            </div>
+          ) : null}
         </div>
       </DialogContent>
     </Dialog>
   );
-}
+});

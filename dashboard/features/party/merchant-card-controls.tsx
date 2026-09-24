@@ -15,7 +15,7 @@ import {
   SlidersHorizontal,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { memo, useState } from "react";
 import { usePartyAction } from "./query-actions";
 import { domainOptions, useVisible } from "./query-cache";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
@@ -26,7 +26,7 @@ import { PartyState } from "./party-state";
 import { SendToPartyControl } from "./send-to-party-control";
 import { MerchantCancelJobControl } from "./merchant-cancel-job-control";
 
-export function MerchantCardControls({
+export const MerchantCardControls = memo(function MerchantCardControls({
   state: baseState,
   collectionSettings,
   onBank,
@@ -306,4 +306,4 @@ export function MerchantCardControls({
 
     </section>
   );
-}
+});

@@ -2,7 +2,7 @@
 import { levelPriceHistory } from './level-price-history';
 import { occupiedStandSlots } from './stand-inspection';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { domainOptions, useVisible } from './query-cache';
 import { characterKey } from './dashboard-live';
 import { STAT_SCROLLS } from './stat-scrolls';
@@ -123,10 +123,21 @@ export function usePanelModel<T extends Pick<PartyConsoleModel, 'state' | 'chars
           0,
         )
     : 0;
-  const chars = useMemo(
-    () => model.chars.map((char) => characters[char.name]),
-    [model.chars, characters],
-  );
+  const previousChars = useRef<Char[]>([]);
+  const chars = useMemo(() => {
+    const computed = model.chars.map((char) => characters[char.name]);
+    // model.chars (from usePartyConsole()'s orderCharacters()) is a fresh
+    // array every render even when the roster and order haven't changed.
+    // Reusing the previous reference here when nothing actually differs lets
+    // memoized consumers (InventoryPanel's "Deliver to..." list, etc.) skip
+    // re-rendering on unrelated state changes.
+    const previous = previousChars.current;
+    const unchanged = previous.length === computed.length &&
+      computed.every((char, index) => char === previous[index]);
+    const result = unchanged ? previous : computed;
+    previousChars.current = result;
+    return result;
+  }, [model.chars, characters]);
   const monsterAchievements = useMemo(
     () => aggregateMonsterAchievements(characters),
     [characters],

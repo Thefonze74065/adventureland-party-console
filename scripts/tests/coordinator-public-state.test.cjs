@@ -70,19 +70,19 @@ test('dashboard core keeps the latest bank balance without subscribing to bank c
  assert.equal(read(r,query).bankGold,null);
 });
 
-test('dashboard exposes deconstruction marks, rules and eligibility catalog in core',()=>{
+test('dashboard exposes deconstruction marks, rules and eligibility catalog in config',()=>{
  const r=publicStateRuntime();
  r.party.deconstructionMarks=[{id:'d',owner:'M',state:'ready'}];
  r.party.autoDeconstruction={P:{ring:{item:{name:'ring',level:1}}}};
  r.party.deconstructionCatalog={ring:{compound:true}};
- const result=read(r,{section:'core',dashboard:'1'});
+ const result=read(r,{section:'config',dashboard:'1'});
  for(const key of ['deconstructionMarks','autoDeconstruction','deconstructionCatalog'])
   assert.deepEqual(result[key],r.party[key]);
 });
 
- test('dashboard core publishes the active game version and update health',()=>{
+ test('dashboard config publishes the active game version and update health',()=>{
  const r=publicStateRuntime();r.party.gameVersion=16846;r.party.clientUpdate={phase:'ready',version:16846};
- const result=read(r,{section:'core',catalog:'0'});assert.equal(result.gameVersion,16846);assert.deepEqual(result.clientUpdate,{phase:'ready',version:16846});
+ const result=read(r,{section:'config',catalog:'0'});assert.equal(result.gameVersion,16846);assert.deepEqual(result.clientUpdate,{phase:'ready',version:16846});
  });
 
 test('dashboard core exposes durable bank sort mode and request status',()=>{

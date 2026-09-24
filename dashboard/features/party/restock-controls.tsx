@@ -1,7 +1,7 @@
 "use client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { RestockPolicy } from "./restock-policy";
 
 const defaults: RestockPolicy = {
@@ -9,7 +9,7 @@ const defaults: RestockPolicy = {
   mp: { min: 0, max: 0, item: "mpot1" },
 };
 
-export function RestockControls({
+export const RestockControls = memo(function RestockControls({
   character,
   value,
   onSave,
@@ -69,4 +69,4 @@ export function RestockControls({
       </div>
     </section>
   );
-}
+});

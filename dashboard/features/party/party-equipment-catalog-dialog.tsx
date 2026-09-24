@@ -1,9 +1,11 @@
 "use client";
-import { lazy, useState } from "react";
+import { lazy, useCallback, useMemo, useState } from "react";
+import { emptyArray } from "./empty-values";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { CatalogComparison, comparisonEntry, comparisonButtonClass, type CatalogComparisonEntry } from "./catalog-comparison";
 import { DeferredPanel } from "./deferred-panel";
+import type { MerchantCatalogItem } from "./merchant-catalog-item";
 const EquipmentCatalogDialog = lazy(() =>
   import("./equipment-catalog-dialog").then((module) => ({
     default: module.EquipmentCatalogDialog,
@@ -17,7 +19,7 @@ export function PartyEquipmentCatalogDialog({ model }: { model: PartyConsoleMode
 }
 function PartyEquipmentCatalogDialogConnected({ base }: { base: PartyConsoleModel }) {
   const model = usePanelModel(base, { inventory: true, vitals: true });
-  const { state, setSelected, catalogOpen, setCatalogOpen } = model;
+  const { state, setSelected, catalogOpen, setCatalogOpen, setCatalogComparison } = model;
   const [source, setSource] = useState(model.catalogComparison);
   const [entries, setEntries] = useState<CatalogComparisonEntry[]>(() => model.catalogComparison ? [comparisonEntry(model.catalogComparison)] : []);
   const [viewComparison, setViewComparison] = useState(false);
@@ -26,17 +28,30 @@ function PartyEquipmentCatalogDialogConnected({ base }: { base: PartyConsoleMode
     setEntries(model.catalogComparison ? [comparisonEntry(model.catalogComparison)] : []);
     setViewComparison(false);
   }
-  const finish = () => {
+  const finish = useCallback(() => {
     setCatalogOpen(false);
-    model.setCatalogComparison(null);
+    setCatalogComparison(null);
     setViewComparison(false);
-  };
+  }, [setCatalogOpen, setCatalogComparison]);
+  const onOpenChange = useCallback(
+    (open: boolean) => { if (!open) finish(); else setCatalogOpen(true); },
+    [finish, setCatalogOpen],
+  );
+  const onInspect = useCallback(
+    (item: { id: string; meta?: import("./item-meta").ItemMeta | null }) =>
+      setSelected({
+        character: "Equipment catalog",
+        entry: { slot: -1, item: { name: item.id }, meta: item.meta },
+      }),
+    [setSelected],
+  );
+  const catalogAllItems = useMemo(() => state.merchantCatalog?.allItems || emptyArray<MerchantCatalogItem>(), [state.merchantCatalog]);
   return (
     <DeferredPanel active={catalogOpen}>
       <EquipmentCatalogDialog
         open={catalogOpen && !viewComparison}
-        onOpenChange={(open) => { if (!open) finish(); else setCatalogOpen(true); }}
-        catalog={state.merchantCatalog?.allItems || []}
+        onOpenChange={onOpenChange}
+        catalog={catalogAllItems}
         comparisonSource={source}
         comparison={source && entries.length ? {
           selectedIds: entries.slice(1).map(({ entry }) => entry.item.name),
@@ -50,15 +65,10 @@ function PartyEquipmentCatalogDialogConnected({ base }: { base: PartyConsoleMode
               {String.fromCharCode(66 + index)}: {String(entry.meta?.definition.name || entry.item.name)} ×
             </Button>)}
             <Button variant="outline" className={comparisonButtonClass} disabled={entries.length < 2} onClick={() => setViewComparison(true)}>Compare selected</Button>
-            <Button variant="outline" className={comparisonButtonClass} onClick={() => model.setCatalogComparison(null)}>Cancel comparison</Button>
+            <Button variant="outline" className={comparisonButtonClass} onClick={() => setCatalogComparison(null)}>Cancel comparison</Button>
           </div>,
         } : undefined}
-        onInspect={(item) =>
-          setSelected({
-            character: "Equipment catalog",
-            entry: { slot: -1, item: { name: item.id }, meta: item.meta },
-          })
-        }
+        onInspect={onInspect}
       />
       <Dialog open={catalogOpen && viewComparison} onOpenChange={(open) => { if (!open) finish(); }}>
         <DialogContent className="flex max-h-[92vh] w-[96vw] flex-col border-cyan-800 bg-[#07120f] text-emerald-50 sm:max-w-[1400px]">

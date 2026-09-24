@@ -2,10 +2,10 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Coins, Landmark } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { abbreviatedGold } from "./abbreviated-gold";
 
-export function GoldTargetControl({
+export const GoldTargetControl = memo(function GoldTargetControl({
   character,
   gold,
   target,
@@ -72,4 +72,4 @@ export function GoldTargetControl({
       </Button>
     </div>
   );
-}
+});

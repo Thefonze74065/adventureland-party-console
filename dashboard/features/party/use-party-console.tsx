@@ -149,14 +149,16 @@ export function usePartyConsole() {
   const { mutateAsync } = usePartyAction();
   const post = useCallback((path: ActionPath, body: unknown) => mutateAsync({ path, body }), [mutateAsync]);
   const coreQuery = useDomain("core");
+  const configQuery = useDomain("config");
   const catalogQuery = useDomain("catalog");
   const state = useMemo(() => ({ threshold: 100000, marked: {}, characters: {},
-    ...coreQuery.data, ...catalogQuery.data }) as PartyState, [coreQuery.data, catalogQuery.data]);
+    ...coreQuery.data, ...configQuery.data, ...catalogQuery.data }) as PartyState,
+    [coreQuery.data, configQuery.data, catalogQuery.data]);
   useEffect(() => {
-    if (!thresholdDirty.current && coreQuery.data?.threshold !== undefined) setThreshold(String(coreQuery.data.threshold));
-    if (!itemCollectionThresholdDirty.current && coreQuery.data?.itemCollectionThreshold !== undefined)
-      setItemCollectionThreshold(String(coreQuery.data.itemCollectionThreshold));
-  }, [coreQuery.data?.threshold, coreQuery.data?.itemCollectionThreshold]);
+    if (!thresholdDirty.current && configQuery.data?.threshold !== undefined) setThreshold(String(configQuery.data.threshold));
+    if (!itemCollectionThresholdDirty.current && configQuery.data?.itemCollectionThreshold !== undefined)
+      setItemCollectionThreshold(String(configQuery.data.itemCollectionThreshold));
+  }, [configQuery.data?.threshold, configQuery.data?.itemCollectionThreshold]);
   useEffect(() => {
     const revision = coreQuery.data?.referenceRevision;
     if (!revision) return;
@@ -165,7 +167,10 @@ export function usePartyConsole() {
   }, [client, coreQuery.data?.referenceRevision]);
   async function refresh(includeCatalog = false) {
     if (includeCatalog) await client.query(domainOptions(client, "catalog"));
-    else await client.invalidateQueries({ queryKey: key("core") });
+    else await Promise.all([
+      client.invalidateQueries({ queryKey: key("core") }),
+      client.invalidateQueries({ queryKey: key("config") }),
+    ]);
   }
   async function refreshMarket() {
     await client.invalidateQueries({ queryKey: key("market") });

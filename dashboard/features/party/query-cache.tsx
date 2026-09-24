@@ -16,6 +16,7 @@ import { writeVitals } from './character-cache';
 
 export type Domain =
   | 'core'
+  | 'config'
   | 'fast'
   | 'inventory'
   | 'logs'
@@ -120,6 +121,11 @@ export function useVisible() {
 }
 export const policies = {
   core: [1000, 1000, 300000],
+  // Configuration/rules/marks the dashboard rarely needs fresher than a few
+  // seconds old, split out of 'core' so the fast-changing majority there
+  // doesn't force a full structural diff of this much larger, slower-changing
+  // payload on every 1s poll (and vice versa).
+  config: [15000, 15000, 300000],
   fast: [250, 0, 60000],
   inventory: [2000, 0, 60000],
   logs: [1000, 1000, 60000],

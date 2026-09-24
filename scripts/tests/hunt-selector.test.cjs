@@ -15,7 +15,7 @@ function render(policy, hunt, characterHunt) {
   const jsx = (type, props) => ({ type, props });
   vm.runInNewContext(code, { exports, require(id) {
     if (id === 'react/jsx-runtime') return { jsx, jsxs: jsx };
-    if (id === 'react') return { useId: () => 'follow-description', useState: initial => [initial === false ? true : initial, () => {}] };
+    if (id === 'react') return { useId: () => 'follow-description', useState: initial => [initial === false ? true : initial, () => {}], memo: fn => fn };
     if (id.endsWith('/passive-settings')) return require('../../runtime/coordinator/navigation/passive-settings.ts');
     if (id === './duration-label') return { durationLabel: () => '10m' };
     if (id === './hunt-blacklist-label') return require('../../dashboard/features/party/hunt-blacklist-label.ts');

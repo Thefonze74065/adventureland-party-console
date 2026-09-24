@@ -26,7 +26,7 @@ test('recurring reads do not retry, failed mutations preserve cache and never re
   assert.equal(transientRetry(1, new ReadError(503, 'outage')), false);
 });
 test('action domains are precise and inactive bank and market queries become stale without fetching', async () => {
-  assert.deepEqual(affectedDomains('/formation'), ['core']);
+  assert.deepEqual(affectedDomains('/formation'), ['core', 'config']);
   assert.deepEqual(affectedDomains('/combat-log/A/clear'), ['logs']);
   assert.throws(() => affectedDomains('/unmapped-action'), /Missing action/);
   const client = createDashboardClient(); let reads = 0;

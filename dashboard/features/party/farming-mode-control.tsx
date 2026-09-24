@@ -10,7 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ChevronDown, ChevronRight, Settings } from "lucide-react";
-import { useId, useState, type ComponentProps } from "react";
+import { memo, useId, useState, type ComponentProps } from "react";
 import { durationLabel } from "./duration-label";
 import { FarmingPolicy } from "./farming-policy";
 import { ItemSprite } from "./item-sprite";
@@ -22,7 +22,7 @@ import { MonsterRadiusControl } from './monster-radius-control';
 import {HuntSettingsControl} from "./hunt-settings-control";
 import { huntBlacklistLabel } from './hunt-blacklist-label';
 
-export function FarmingModeControl({
+export const FarmingModeControl = memo(function FarmingModeControl({
   policy, followingLeader, effectivePolicy = policy, settingsOwner,
   effectiveMode,
   hunt,
@@ -253,4 +253,4 @@ export function FarmingModeControl({
       ) : null}
     </section>
   );
-}
+});

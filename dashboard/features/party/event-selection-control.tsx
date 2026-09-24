@@ -1,4 +1,5 @@
 "use client";
+import { memo } from "react";
 import { Settings } from "lucide-react";
 
 import { useClock } from "@/hooks/use-clock";
@@ -7,14 +8,16 @@ import { eventPolicy, selectedEvents, supportedEvents } from "@/lib/event-policy
 import { PartyState } from "./party-state";
 
 export type EventSchedule = { id: string; name: string; live?: boolean; next?: number; expires?: number; stale?: boolean; slotAt?: number; slotKind?: string };
+export type EventSelectionState = Pick<PartyState, "leader" | "merchantCharacter" | "followers" |
+  "eventsByCharacter" | "eventSelectionsByCharacter" | "eventSchedules">;
 export function eventTimeLabel(next: number | undefined, now: number) {
   if (!next || !Number.isFinite(next)) return "Time not announced";
   const ms = next < 1e12 ? next * 1000 : next;
   const remaining = Math.max(0, ms - now);
   return `${new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(ms)} (${Math.floor(remaining / 60000)}m ${Math.floor(remaining / 1000) % 60}s)`;
 }
-export function EventSelectionControl({ state, name, onChange, onAnniversary }: {
-  state: PartyState; name: string; merchant: boolean; onAnniversary: () => void; onChange: (events: string[]) => void;
+export const EventSelectionControl = memo(function EventSelectionControl({ state, name, onChange, onAnniversary }: {
+  state: EventSelectionState; name: string; merchant: boolean; onAnniversary: () => void; onChange: (events: string[]) => void;
 }) {
   const now = useClock(), policy = eventPolicy(state, name), selected = selectedEvents(state, name);
   const catalog: EventSchedule[] = state.eventSchedules?.length ? state.eventSchedules : supportedEvents.map(id => ({ id, name: id }));
@@ -33,4 +36,4 @@ export function EventSelectionControl({ state, name, onChange, onAnniversary }: 
       })}
     </PopoverContent>
   </Popover>;
-}
+});

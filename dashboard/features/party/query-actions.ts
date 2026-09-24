@@ -6,9 +6,15 @@ import {
 import { API } from './api';
 import { authenticationLost, key, type Domain } from './query-cache';
 
-const core = ['core'] as const;
-const inventory = ['core', 'inventory', 'fast'] as const;
-const commerce = ['core', 'inventory', 'fast', 'bank', 'market'] as const;
+// 'config' (rules/marks/configuration) sits alongside 'core' (live operational
+// state) in every one of these groups: most mutations here are dashboard-driven
+// settings changes, and the two domains split what used to be one 'core'
+// payload, so anything that used to be covered by invalidating 'core' alone
+// needs 'config' invalidated too or the user's own change looks stale for up
+// to the config domain's poll interval.
+const core = ['core', 'config'] as const;
+const inventory = ['core', 'config', 'inventory', 'fast'] as const;
+const commerce = ['core', 'config', 'inventory', 'fast', 'bank', 'market'] as const;
 export const actionDomains = {
   '/merchant/bank-sort': core,
   '/config': core,
@@ -22,13 +28,13 @@ export const actionDomains = {
   '/town-party': core,
   '/restock': core,
   '/escape': core,
-  '/bank-party': ['core', 'bank'],
+  '/bank-party': ['core', 'config', 'bank'],
   '/realm/switch': inventory,
   '/steam/action': inventory,
   '/steam/recover': inventory,
   '/roster/create': core,
-  '/bankbois/create': ['core', 'bank'],
-  '/bank/unlock': ['bank', 'core'],
+  '/bankbois/create': ['core', 'config', 'bank'],
+  '/bank/unlock': ['bank', 'core', 'config'],
   '/merchant/clear': core,
   '/merchant/force-stand': core,
   '/merchant/gather': core,
@@ -55,11 +61,11 @@ export const actionDomains = {
   '/merchant/donate': inventory,
   '/merchant/join-giveaway': inventory,
   '/merchant/send-mail': [...commerce, 'mail'],
-  '/mail/collect': ['mail', 'inventory', 'bank', 'core'],
+  '/mail/collect': ['mail', 'inventory', 'config', 'bank', 'core'],
   '/mail/delete': ['mail'],
   '/mail/refresh': ['mail'],
   '/aldata/key': core,
-  '/aldata/refresh': ['market', 'core'],
+  '/aldata/refresh': ['market', 'core', 'config'],
   '/anniversary/chat-advertise': core,
 } satisfies Record<string, readonly Domain[]>;
 export type ActionPath =
@@ -78,7 +84,7 @@ export function affectedDomains(
     return /travel|town|gold-target/.test(type) ? core : inventory;
   }
   if (/^\/slots\/\d+\/(spawn|logout)$/.test(path)) return inventory;
-  if (/^\/bankbois\/[^/]+\/delete$/.test(path)) return ['core', 'bank'];
+  if (/^\/bankbois\/[^/]+\/delete$/.test(path)) return ['core', 'config', 'bank'];
   if (/^\/combat-log\/[^/]+\/clear$/.test(path)) return ['logs'];
   const domains = actionDomains[path as keyof typeof actionDomains];
   if (!domains) throw new Error(`Missing action cache policy: ${path}`);

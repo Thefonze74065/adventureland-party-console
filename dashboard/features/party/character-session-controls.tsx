@@ -1,5 +1,5 @@
 'use client';
-import { useRef, useState } from 'react';
+import { memo, useRef, useState } from 'react';
 import { LogOut, Monitor, Server } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dialog';
 import type { ActiveSlot } from './active-slot';
 
-export function CharacterSessionControls({
+export const CharacterSessionControls = memo(function CharacterSessionControls({
   name,
   slot,
   primaryCharacter,
@@ -223,4 +223,4 @@ export function CharacterSessionControls({
       </Dialog>
     </>
   );
-}
+});

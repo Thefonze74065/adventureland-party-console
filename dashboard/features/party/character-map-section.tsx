@@ -1,7 +1,7 @@
 "use client";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ChevronDown, ChevronRight, Maximize2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { API } from "./api";
 import { Char } from "./char";
 import { MapCanvas } from "./map-canvas";
@@ -11,7 +11,12 @@ import { receiveMapFrame, type MapRenderBuffer } from "./map-render-buffer";
 import { useCharacterData } from './dashboard-live';
 import { committedLiveRecord } from './live-metrics';
 
-export function CharacterMapSection({ char: base }: { char: Char }) {
+// Beyond the initial fallback, only `char.name` matters here: map/x/y come
+// from this component's own live `position` subscription below, so a fresh
+// `char` object on every vitals-driven parent render (map/x/y get overwritten
+// anyway once position data arrives) would otherwise force this fairly
+// expensive live-map component to re-render for data it never actually uses.
+export const CharacterMapSection = memo(function CharacterMapSection({ char: base }: { char: Char }) {
   const position = useCharacterData(base.name, 'position');
   useEffect(() => { committedLiveRecord(base.name, 'position'); }, [base.name, position]);
   const char = { ...base, ...position };
@@ -111,4 +116,4 @@ export function CharacterMapSection({ char: base }: { char: Char }) {
       </Dialog>
     </div>
   );
-}
+}, (previous, next) => previous.char.name === next.char.name);

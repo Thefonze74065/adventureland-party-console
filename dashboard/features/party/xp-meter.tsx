@@ -1,7 +1,8 @@
 "use client";
+import { memo } from "react";
 import { abbreviatedGold } from "./abbreviated-gold";
 
-export function XpMeter({ value, max }: { value: number; max: number }) {
+export const XpMeter = memo(function XpMeter({ value, max }: { value: number; max: number }) {
   const percent = Math.max(0, Math.min(100, max ? (value / max) * 100 : 0));
   return (
     <div className="mt-2 w-44 max-w-full">
@@ -19,4 +20,4 @@ export function XpMeter({ value, max }: { value: number; max: number }) {
       </div>
     </div>
   );
-}
+});
