@@ -70,16 +70,6 @@ export function installPartyMovement(host: MovementHost, ports: MovementPorts) {
     j.fallback = true; j.native = true; j.pending = false; j.planningAt = ports.now();
     state.found = state.searching = false; state.plot.length = 0; executor.reset();
   }
-  function trimUncheckedFinal(plot: Step[]): Step[] {
-    // Both engines' graph nodes can place an unchecked exact endpoint on the far
-    // side of a thin obstacle. Keep the reachable predecessor instead when it
-    // already satisfies the caller's arrival tolerance, rather than rejecting
-    // (ALClient) or force-walking (native) a route that would otherwise arrive.
-    const last = plot.at(-1), previous = plot.at(-2);
-    if (last && previous && !isTransition(last) && !validation.walk(previous, last) && distance(previous, state) <= state.edge)
-      return plot.slice(0, -1);
-    return plot;
-  }
   function install(plot: Step[], nativeRoute: boolean) {
     if (!nativeRoute) plot = repairDoorApproaches(validation, position(), plot);
     plot = trimUncheckedFinal(finalApproach(plot, position(), state, journey?.options));

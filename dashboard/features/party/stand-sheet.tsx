@@ -285,7 +285,7 @@ export const StandSheet = memo(function StandSheet({
   const saleRows = standSaleRows(listings, merchant, nativeStand);
   const occupancy = standOccupancy(listings, nativeStand, merchant, bids);
 
-  const buyRows = standBuyRows(bids, nativeStand, merchant, listings);
+  const buyRows = standBuyRows(bids, nativeStand, merchant);
 
   const [marketQuantities, setMarketQuantities] = useState<
 
@@ -1795,12 +1795,7 @@ export const StandSheet = memo(function StandSheet({
 
             <DialogDescription className="sr-only">Manage sales and buy orders.</DialogDescription>
 
-            <div className="flex flex-wrap items-center gap-3">
-              <h2 className="text-base font-semibold text-amber-200">Items for sale · {occupancy.sales}/16 slots</h2>
-              <span className={`rounded border px-2 py-1 text-xs font-semibold ${merchant?.standOpen ? 'border-emerald-600 bg-emerald-950 text-emerald-100' : 'border-red-600 bg-red-950 text-red-100'}`}>
-                {merchant?.standOpen ? 'Stand open' : 'Stand closed'}
-              </span>
-            </div>
+            <h2 className="text-base font-semibold text-amber-200">Items for sale · {occupancy.sales}/16 slots</h2>
 
             <DialogClose aria-label="Close stand" render={<Button size="icon-sm" variant="outline" className="absolute right-0 top-0 border-slate-600 bg-black text-slate-100 hover:bg-slate-800 hover:text-white" />}><X /></DialogClose>
 
@@ -1974,7 +1969,7 @@ export const StandSheet = memo(function StandSheet({
 
                         </span>
 
-                        {status !== 'Queued' && <span
+                        <span
 
                           className={`rounded border px-1.5 py-0.5 font-mono text-[9px] uppercase ${status === 'Live' ? 'border-emerald-700 text-emerald-300' : 'border-rose-800 text-rose-300'}`}
 
@@ -1982,7 +1977,7 @@ export const StandSheet = memo(function StandSheet({
 
                           {status}
 
-                        </span>}
+                        </span>
 
                         </button>
                       <Button size="sm" variant="outline" aria-label={`Edit sale price for ${configured.item.name}`} className="border-amber-600 bg-black font-mono text-amber-100 hover:bg-amber-950 hover:text-white" disabled={!editable} onClick={() => onEdit(configured)}>
@@ -2063,11 +2058,11 @@ export const StandSheet = memo(function StandSheet({
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
 
-            {buyRows.map(({ key, id, bid, offer, observed, level, price, quantity }) => {
+            {buyRows.map(({ id, bid, offer, observed, level }) => {
 
               const item = catalogById.get(id);
 
-              return <div key={key} className="relative min-w-0 space-y-3 rounded border border-violet-800 bg-black p-3">
+              return <div key={id} className="relative min-w-0 space-y-3 rounded border border-violet-800 bg-black p-3">
 
                 <button type="button" onClick={() => onInspect({ name: id, level }, item?.meta, 'Your stand buy order')} className="flex w-full items-center gap-3 pr-12 text-left text-emerald-50 hover:text-violet-200">
 
@@ -2078,25 +2073,25 @@ export const StandSheet = memo(function StandSheet({
                 </button>
 
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-sm text-violet-100">{(bid?.quantity ?? quantity).toLocaleString()} wanted</span>
-                  <Button size="sm" variant="outline" disabled={!bid} aria-label={`Edit buy price for ${item?.name || id}`} onClick={() => onEditBuy({name:id,level},item?.meta)} className="border-violet-600 bg-black font-mono text-violet-100 hover:bg-violet-950 hover:text-white">{price.toLocaleString()}g</Button>
+                  <span className="text-sm text-violet-100">{bid.quantity.toLocaleString()} wanted</span>
+                  <Button size="sm" variant="outline" aria-label={`Edit buy price for ${item?.name || id}`} onClick={() => onEditBuy({name:id,level},item?.meta)} className="border-violet-600 bg-black font-mono text-violet-100 hover:bg-violet-950 hover:text-white">{bid.price.toLocaleString()}g</Button>
                 </div>
 
-                {bid && observed && Number(observed.item.q || 1) !== bid.quantity && <p className="text-sm text-slate-300">Native batch: {Number(observed.item.q || 1).toLocaleString()}</p>}
+                {observed && Number(observed.item.q || 1) !== bid.quantity && <p className="text-sm text-slate-300">Native batch: {Number(observed.item.q || 1).toLocaleString()}</p>}
 
-                {bid && <label className="flex items-center gap-2 text-xs text-violet-200">Priority
+                <label className="flex items-center gap-2 text-xs text-violet-200">Priority
                   <WTBPriorityInput className="h-8 w-24 font-mono" value={standPriorityDrafts[id] ?? (bid.priorityOverride == null ? '' : String(bid.priorityOverride))} disabled={Boolean(savingBid)} onChange={value => setStandPriorityDrafts(previous => ({...previous,[id]:value}))} onBlur={() => void saveStandPriority(id,bid)} onKeyDown={event => {if(event.key === 'Enter') event.currentTarget.blur(); if(event.key === 'Escape') setStandPriorityDrafts(previous => {const next={...previous};delete next[id];return next;});}} />
-                </label>}
+                </label>
 
                 {offer?.auto && <span title={autoStandExplanation} className="absolute right-3 top-3 rounded border border-cyan-600 bg-cyan-950 px-2 text-xs text-cyan-100">Auto</span>}
 
-                {bid && <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
 
                   <WTBPreference label="Use stand" description={standBuyExplanation} checked={bid.useStandSlot === true} disabled={Boolean(savingBid)} onChange={(useStandSlot) => void replacement.save((replaceStandEntry) => onBid(id, bid.price, bid.quantity, bid.minimumQuality, false, bid.priorityOverride, { useStandSlot, replaceStandEntry, preferencesOnly: true }))} />
 
                   {cancelControl(id)}
 
-                </div>}
+                </div>
 
               </div>;
 

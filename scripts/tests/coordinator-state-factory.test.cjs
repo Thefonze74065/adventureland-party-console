@@ -12,8 +12,7 @@ test('typed state factory preserves the complete legacy initialization and clock
  expected.activeConvoy.routeProtocol=4;
  // Hunt trip persistence was added after the frozen legacy initializer. Verify
  // its defaults explicitly, then retain the complete legacy parity assertion.
- const {convoyCompletionReceipts,upgradeOfferingRules,merchantRules,production,passiveHunting,bankSortMode,bankSortRequest,gameVersion,clientUpdate,bankboiPrefix,anniversaryAutoChat,autoBlacklistMerchants,nativeStand,autoStandBuys,farmingProfiles,huntSettings,huntFailures,huntEventTrips,combatEventHandoff,returnProgress,merchantHomeReturnAt,luckyUpgradeSlots,luckySlotTracking,...legacyActual}=actual;
- assert.deepEqual(convoyCompletionReceipts,{});
+ const {upgradeOfferingRules,merchantRules,production,passiveHunting,bankSortMode,bankSortRequest,gameVersion,clientUpdate,bankboiPrefix,anniversaryAutoChat,autoBlacklistMerchants,nativeStand,autoStandBuys,farmingProfiles,huntSettings,huntFailures,huntEventTrips,combatEventHandoff,returnProgress,merchantHomeReturnAt,luckyUpgradeSlots,luckySlotTracking,...legacyActual}=actual;
  assert.deepEqual(upgradeOfferingRules,[]);assert.equal(merchantRules,null);assert.deepEqual(production,{attempts:{}});assert.deepEqual(passiveHunting,{version:1,rules:{},useFieldGenerators:true});
  assert.equal(bankSortMode,"automatic");assert.equal(bankSortRequest,null);
  assert.equal(gameVersion,0);assert.equal(clientUpdate,null);
