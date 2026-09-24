@@ -595,12 +595,6 @@
       state.plot.length = 0;
       executor.reset();
     }
-    function trimUncheckedFinal(plot) {
-      const last2 = plot.at(-1), previous = plot.at(-2);
-      if (last2 && previous && !isTransition(last2) && !validation.walk(previous, last2) && distance(previous, state) <= state.edge)
-        return plot.slice(0, -1);
-      return plot;
-    }
     function install(plot, nativeRoute) {
       if (!nativeRoute) plot = repairDoorApproaches(validation, position(), plot);
       plot = trimUncheckedFinal(finalApproach(plot, position(), state, journey?.options));
