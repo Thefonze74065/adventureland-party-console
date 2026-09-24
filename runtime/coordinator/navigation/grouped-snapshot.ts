@@ -2,6 +2,8 @@ import type { Group, Member } from "../../combat/grouped.ts";
 import type { StoredCombatLogEntry } from "../telemetry/combat-log.ts";
 import { retireTravelTargets, travelCombatFor, type TravelState } from "./travel-defense.ts";
 import { phoenixCandidates } from './phoenix-candidates.ts';
+import {huntDefense, outboundHunt, type HuntTravelConvoy} from '../../combat/hunt-travel.ts';
+import {passingIdentity} from '../../combat/passing.ts';
 interface GroupedState {
   phoenixPatrolActive?: boolean;
   farmingPolicy?: string;
@@ -13,7 +15,7 @@ interface GroupedState {
   groupedCombat?: Group | null;
   groupedCombatResetAt?: number;
   partyFarmingMode: string;
-  activeConvoy?: { phase: string } | null;
+  activeConvoy?: HuntTravelConvoy & { phase: string } | null;
   headlessSlots: (string | null)[];
   steamMembers: string[];
   followers: Record<string, unknown>;
@@ -133,6 +135,7 @@ function evaluateParticipants(
     status: state.statuses[name],
   }));
   members = patrolMembers(state,ports,members) as typeof members;
+  members = huntDefenseMembers(state,members) as typeof members;
   retireEventTargets(state, members, ports.now());
   const travelling = names.some(name => travelCombatFor(state as TravelState, name));
   // Apply travel restrictions here, before death-recovery preparation. A saved
@@ -153,6 +156,17 @@ function evaluateParticipants(
   if (changed(previous, group)) logFormation(state, leader, group, ports.now);
   logUnseenRelease(state, leader, previous, group);
   return group;
+}
+function huntDefenseMembers(state: GroupedState, members: Member[]): Member[] {
+  const c=state.activeConvoy;
+  if(!c || !(outboundHunt(c) || c.huntTravel?.reason) || !huntDefense(c))return members;
+  const targets=[...(c.huntTravel?.committed||[]),...(c.huntTravel?.primary?[c.huntTravel.primary]:[])];
+  return members.map(m=> {
+    const s=m.status,g=s?.groupedCombat;
+    if(!s || !g)return m;
+    const seen=(g.sightings||[]).filter(t=>targets.some(primary=>passingIdentity({...t,server:s.server})===passingIdentity(primary)));
+    return {...m,status:{...s,groupedCombat:{...g,huntDefense:true,threats:[...(g.threats||[]),...seen]}}};
+  });
 }
 function travelPrevious(state: GroupedState, members: Member[], leader: string, travelling: boolean, now: number): Group | null {
   if (!travelling) return state.groupedCombat || null;
@@ -180,7 +194,7 @@ function defensiveMembers(members: Member[], now: number): Member[] {
   return members.map(m => {
     const group = m.status?.groupedCombat;
     if (!m.status || !group) return m;
-    const attackers = group.currentAttackers || [];
+    const attackers = group.huntDefense ? [...(group.currentAttackers || []), ...(group.threats || [])] : group.currentAttackers || [];
     const active = new Set(attackers.map(t => t.id));
     return { ...m, status: { ...m.status, groupedCombat: { ...group, candidates: [], retentionPaused: true,
       threats: attackers, evidence: group.evidence?.filter(e => active.has(e.id)),

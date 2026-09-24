@@ -40,6 +40,7 @@ export * from "./hunt/tick.ts";
 export * from "./hunt/convoy.ts";
 export * from "./hunt/quests.ts";
 export * from "./hunt/lifecycle.ts";
+export * from "./hunt/retreat-restart.ts";
 export * from "./navigation/convoy.ts";
 export * from "./http/shared-convoy-route.ts";
 export * from "./navigation/farm-areas.ts";

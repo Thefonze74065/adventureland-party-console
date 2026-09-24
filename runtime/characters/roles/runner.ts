@@ -1,3 +1,4 @@
+import {passiveStopRequired} from '../../combat/passive-travel.ts';
 import {installCombatTrace} from "../../combat/trace.ts";
 import {createEntityRefresh} from "../../combat/entity-refresh.ts";
 import { installPorcupineEquipment } from "./porcupine-equipment-runtime.ts";
@@ -16,6 +17,7 @@ export function installRoleRunner(
   classRole: Partial<Role>,
   root = globalThis as unknown as CombatRoot,
 ) {
+  (root as any).partyPassiveStopRequired = passiveStopRequired;
   (root as any).partyMerchantAnniversaryControl = merchantAnniversaryControl;
   root.partyRoleRunner?.stop();
   let equipment: ReturnType<typeof installPorcupineEquipment> | null = null;

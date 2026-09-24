@@ -1,10 +1,13 @@
+import {passiveStopRequired, type PassiveTravelSettings} from './passive-travel.ts';
 import { collectPassing, passingIdentity, type PassingEncounter } from './passing.ts';
 import type { Member } from './grouped.ts';
+import {updateHuntTravel, type HuntTravelConvoy, type HuntTravelControl} from './hunt-travel.ts';
 
 export interface PassingControl {
   scope: string;
   ready: boolean;
   admitted: string[];
+  hunt?: HuntTravelControl;
 }
 export interface PassingAcknowledgement { scope: string; tokens: string[]; at: number }
 const freshAcknowledgement = (ack:PassingAcknowledgement|undefined,now:number) =>
@@ -21,16 +24,18 @@ function memberReady(m:Member,scope:string,now:number):boolean {
 
 /** Reservations precede the game attack. Every participant must have installed
  * the exact encounter before the sender may fire; this never gates movement. */
-export function passingControl(members: Member[], convoy: unknown, now: number): PassingControl {
+export function passingControl(members: Member[], convoy: unknown, now: number, huntConvoy?: HuntTravelConvoy | null, settings?: PassiveTravelSettings): PassingControl {
   const ordered = [...members].sort((a, b) => a.name.localeCompare(b.name));
   const scope = JSON.stringify([convoy, ordered.map(m => [m.name, m.revision,
     m.status?.combatSelection?.runtimeId, m.status?.server, m.status?.map, m.status?.in])]);
   const ready = ordered.length > 0 && ordered.every(m => memberReady(m,scope,now));
   const encounters = collectPassing(ordered, [], now);
+  const hunt=huntConvoy ? updateHuntTravel(huntConvoy,ordered,now,scope,settings) : undefined;
   const admitted = ready ? encounters.filter(e => e.admission?.scope === scope &&
+    (!hunt || !hunt.reason && !passiveStopRequired(settings,e.mtype) && !hunt.defending && !!hunt.primary && passingIdentity(e)===passingIdentity(hunt.primary)) &&
     ordered.every(m => m.status?.groupedCombat?.passingAcknowledgement?.tokens.includes(e.admission!.token)))
     .map(e => e.admission!.token) : [];
-  return { scope, ready, admitted };
+  return { scope, ready, admitted, ...(hunt ? {hunt} : {}) };
 }
 
 export function createPassingAdmission(ports: {
@@ -50,6 +55,7 @@ export function createPassingAdmission(ports: {
   function prepare(target: PassingEncounter, present?: PassingEncounter[]): boolean {
     if (!control || !freshControl()) return false;
     const key = passingIdentity(target);
+    if(control.hunt && (control.hunt.defending || control.hunt.reason || control.hunt.primary && passingIdentity(control.hunt.primary)!==key))return false;
     let proposal = proposals.get(key);
     const token=proposal?.token;
     if (!proposal || proposal.scope !== control.scope || present && !present.some(e=>e.admission?.token===token)) {

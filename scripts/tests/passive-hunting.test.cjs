@@ -22,12 +22,12 @@ function fixture(){
  const c=vm.createContext({Date,Math,Object,String,Number,Promise,passingEncounters:{},peerPassingEncounters:[],passiveGeneratorAttempt:null,
   character:{name:'W',ctype:'warrior',map:'main',in:'main',x:0,y:0,items:[]},parent:{entities:{bee}},root:{},groupedCombat:null,
   passiveHunting:{rules:{bee:{enabled:true,keepMoving:true,priority:100}},useFieldGenerators:false},monsterPriorities:{},passiveRareHunts:{},
-  navigationIntent:{},coordinatorClockOffset:0,partyTownActive:false,banking:false,stocking:false,upgrading:false,gatheringActive:false,
+  fightDeaths:[],currentTravelAttackers:()=>[],navigationIntent:{},coordinatorClockOffset:0,partyTownActive:false,banking:false,stocking:false,upgrading:false,gatheringActive:false,
   forceTraveling:false,townTraveling:false,eventTraveling:false,joinedEvent:false,partyThreats:[],partyPositions:[],
   escapeOwns:()=>false,combatRecoveryActive:()=>false,activeCombatEvent:()=>false,rareActive:()=>false,unfinishedFight:()=>false,
   reunionRealm:()=> 'USII',get_entity:id=>Object.values(c.parent.entities).find(e=>e.id===id),is_in_range:e=>Math.hypot(e.x,e.y)<=100,
   isExternallyClaimedMonster:e=>!!e.claimed,currentPartyList:()=>['W'],sameEventTeamMember:()=>true,equip:()=>{throw Error('unexpected deployment');},rareFields:()=>[]});
- const names=['returnDepartureDefense','committedHuntEncounter','passingKey','passingEncounterReport','isPassingEncounter','passingTravelAllowed','passingTarget','beginPassingAttack','groupedEntityReport','monsterPriority','passiveRareCandidate','isPartyThreat','isAttackingPartyMember','rareAttackAllowed'];
+ const names=['passiveStopRequired','passiveTravelInterruptible','travelStopCandidates','outboundHuntTravel','huntTravelDefense','huntTravelControl','huntTravelExtraAggro','returnDepartureDefense','committedHuntEncounter','passingKey','passingEncounterReport','isPassingEncounter','passingTravelAllowed','passingTarget','beginPassingAttack','groupedEntityReport','monsterPriority','passiveRareCandidate','isPartyThreat','isAttackingPartyMember','rareAttackAllowed'];
  vm.runInContext(names.map(n=>namedFunction(source,n)).join('\n'),c);
  return {c,bee};
 }
@@ -206,6 +206,7 @@ test('a pending passing attack burst cannot send again after the return starts p
 test('outbound Hunt attacks its in-range target without passive settings and never during route preparation',()=>{
  const {c,bee}=fixture();c.passiveHunting.rules={};c.convoyRuntimeId='runtime';c.navigationIntent.revision=3;
  c.convoyTraveling={id:'hunt',epoch:2,commandId:4,navigationRevision:3,purpose:'monster-hunt',huntTarget:'bee',phase:'travelling'};
+ c.root.__partyHuntTravel={id:'hunt',epoch:2,primary:null,defending:false};c.root.__partyHuntTravelAt=Date.now();
  c.convoySignal={id:'hunt',epoch:2,commandId:4,runtimeId:'runtime',phase:'travel',validUntil:Date.now()+10000};
  c.unfinishedFight=()=>true;c.groupedCombat={target:bee};
  assert.equal(c.passingTarget(),bee);
@@ -217,4 +218,17 @@ test('outbound Hunt attacks its in-range target without passive settings and nev
  }
  c.convoyTraveling.phase='travelling';c.movement={transition:()=> 'transport'};assert.equal(c.passingTarget(),null);
  c.movement.transition=()=>null;c.convoySignal.epoch++;assert.equal(c.passingTarget(),null);
+});
+
+test('outbound Phoenix stop setting excludes passing attacks and reports eligible neutral sightings',()=>{
+ const {c,bee}=fixture();bee.mtype='phoenix';c.root.partyPassiveStopRequired=require('../../runtime/combat/passive-travel.ts').passiveStopRequired;
+ c.passiveHunting.rules={phoenix:{enabled:true,keepMoving:false,priority:100}};
+ c.convoyRuntimeId='runtime';c.navigationIntent.revision=3;
+ c.convoyTraveling={id:'hunt',epoch:2,commandId:4,navigationRevision:3,purpose:'monster-hunt',huntTarget:'phoenix',phase:'travelling'};
+ c.convoySignal={id:'hunt',epoch:2,commandId:4,runtimeId:'runtime',phase:'travel',validUntil:Date.now()+10000};
+ c.root.__partyHuntTravel={id:'hunt',epoch:2,primary:null};c.root.__partyHuntTravelAt=Date.now();
+ assert.equal(c.passingTarget(),null);assert.equal(c.travelStopCandidates()[0].id,bee.id);
+ c.beginPassingAttack(bee);assert.equal(c.isPassingEncounter(bee),false);
+ bee.target='W';c.currentTravelAttackers=()=>[bee];assert.equal(c.huntTravelExtraAggro(),true);
+ bee.target='outsider';assert.equal(c.travelStopCandidates().length,0);
 });

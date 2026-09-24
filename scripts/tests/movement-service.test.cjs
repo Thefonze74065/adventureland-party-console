@@ -159,6 +159,34 @@ test('precision arrival rejects a blocked connector in both planners',async()=>{
  await r.ticks(14);await failed;assert.equal(r.calls.length,0);r.dispose();
 });
 
+for(const native of [false,true])test('blocked final waypoint within tolerance is trimmed for '+(native?'native':'ALClient'),async()=>{
+ const plot=[{map:'main',x:40,y:0},{map:'main',x:50,y:0}];
+ const r=fixture({collision:true,plot,nativePlot:plot});
+ const p=r.service.move({map:'main',x:50,y:0},undefined,{native});
+ await r.ticks(14);await p;
+ assert.equal(r.c.x,40);assert.equal(r.calls.some(c=>c[0]==='move'&&c[1]===50),false);
+ assert.equal(r.searches,native?1:0);assert.equal(r.logs.some(l=>l.phase==='ALClient route rejected'),false);
+ assert.equal(plot.length,2,'planner result is not mutated');r.dispose();
+});
+
+for(const options of [{arrivalTolerance:1},{shared:true},{}])test('blocked endpoint cannot bypass precision, shared, or distance requirements '+JSON.stringify(options),async()=>{
+ const previous=Object.keys(options).length?40:20;
+ const plot=[{map:'main',x:previous,y:0},{map:'main',x:50,y:0}],r=fixture({collision:true,plot,nativePlot:plot});
+ const p=r.service.move({map:'main',x:50,y:0},undefined,options),failed=assert.rejects(p,/collisions/);
+ await r.ticks(14);await failed;assert.equal(r.calls.length,0);r.dispose();
+});
+
+test('endpoint trim never removes a final transition or conceals an earlier collision',async()=>{
+ for(const plot of [
+  [{map:'main',x:40,y:0},{map:'main',x:50,y:0,town:true}],
+  [{map:'main',x:50,y:0},{map:'main',x:40,y:0},{map:'main',x:50,y:0}],
+ ]) {
+  const r=fixture({collision:true,plot,nativePlot:plot});
+  const p=r.service.move({map:'main',x:50,y:0}),failed=assert.rejects(p,/Native route rejected/);
+  await r.ticks(14);await failed;assert.equal(r.calls.length,0);r.dispose();
+ }
+});
+
 test('cancellation prevents dispatching the precision final approach',async()=>{
  const r=fixture({plot:[{map:'main',x:85,y:0}]});
  const p=r.service.move({map:'main',x:100,y:0},undefined,{arrivalTolerance:1}),failed=assert.rejects(p);

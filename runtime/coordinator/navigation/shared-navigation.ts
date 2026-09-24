@@ -1,4 +1,5 @@
 import { recordConvoyHistory } from "./convoy-history.ts";
+import { createCommunicationRecovery } from './communication-recovery.ts';
 import { beginGeometryRepair, geometryMismatch, geometryRepairReady, geometryReloadSignal } from './geometry-repair.ts';
 import { reconcileReturnArrival } from './return-arrival.ts';
 import { departureIssue, readinessIssue, readinessExpired, readinessFailure, recoveryPlanner } from './shared-departure.ts';
@@ -151,6 +152,13 @@ function terminalCommand(state: SharedState, c: SharedConvoy, name: string): Sha
 /** Existing Town/itinerary/defense barriers delegate here for every walking leg. */
 export function createSharedConvoyNavigation(legacy: ConvoyNavigationPlatform,
   defense: (state: SharedState, now: number, command: typeof sharedCommand) => boolean = () => false): ConvoyNavigationPlatform {
+  const communication = createCommunicationRecovery({ owned: authorizedHold, fail: terminal, resume: begin,
+    hold: (state, c) => {
+      c.completed = [];
+      clearSharedRoute(c); delete c.readinessStartedAt; delete c.arrivalReadySince;
+      c.runtimes = Object.fromEntries(c.participants.map(n => [n, characterRuntime(state.statuses[n]) || '']));
+      issue(state, c, 'shared-hold');
+    } });
   function terminal(state: SharedState, reason: string, code: string): boolean {
     const c = state.activeConvoy;
     if (c?.routeProtocol !== 4) return legacy.hold(state, reason, code);
@@ -327,6 +335,8 @@ export function createSharedConvoyNavigation(legacy: ConvoyNavigationPlatform,
   function step(input: Parameters<ConvoyNavigationPlatform["step"]>[0], now = Date.now()): boolean {
     const state = input as SharedState, c = state.activeConvoy;
     if (c?.routeProtocol !== 4) return legacy.step(state, now);
+    const communicationChanged = communication(state, c, now);
+    if (communicationChanged !== null) return communicationChanged;
     if (refreshReturnTown(state,c,now))return true;
     const interruption = stepMerchantInterruption(state, now, {
       hold: name => sharedCommand(state, c, "shared-hold", name),

@@ -19,7 +19,7 @@ exports.passingContext = values => {
     activeCombatEvent: () => false, rareActive: () => false, unfinishedFight: () => false,
     reunionRealm: () => 'USII', ...values,
   });
-  functions(context, ['returnDepartureDefense', 'committedHuntEncounter', 'passingKey', 'isPassingEncounter', 'passingTravelAllowed', 'passingTarget']);
+  functions(context, ['passiveStopRequired','passiveTravelInterruptible','travelStopCandidates','outboundHuntTravel', 'huntTravelDefense', 'huntTravelControl', 'huntTravelExtraAggro', 'returnDepartureDefense', 'committedHuntEncounter', 'passingKey', 'isPassingEncounter', 'passingTravelAllowed', 'passingTarget']);
   return context;
 };
 

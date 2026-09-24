@@ -110,18 +110,28 @@ export function sharedArrivalReady(input: unknown, now: number): boolean {
   const state = input as SharedState, c = state.activeConvoy;
   if (!c) return false;
   return c.participants.every(name => {
-    if (c.completed.includes(name)) return true;
     const status = state.statuses[name];
-    if (!status || status.seenAt < now - 3000 || !reportMatches(state, name)) return false;
+    if (!arrivalStatus(status, now) || !arrivalOwned(state, c, name)) return false;
+    if (c.completed.includes(name)) return true;
+    if (!reportMatches(state, name)) return false;
     if (status.convoyNavigation?.phase !== "arrived" || status.convoyNavigation.routeVersion !== c.routeVersion) return false;
     return arrivedPosition(c, status);
   });
 }
 
+function arrivalStatus(s: SharedState['statuses'][string], now: number): s is NonNullable<SharedState['statuses'][string]> {
+  return !!s && !s.rip && s.hp !== 0 && !s.moving && s.seenAt >= now - 3000 && s.seenAt <= now + 500;
+}
+function arrivalOwned(state: SharedState, c: SharedConvoy, name: string): boolean {
+  const status = state.statuses[name]!, intent = state.navigationIntents?.[name];
+  if (status.server !== c.routeServer || characterRuntime(status) !== c.runtimes?.[name]) return false;
+  return !intent || !intent.cancelled && intent.revision === c.expected?.[name]?.revision;
+}
 function arrivedPosition(c: SharedConvoy, status: import('./shared-route-types.ts').SharedStatus): boolean {
+  if (c.purpose === 'monster-hunt' && !samePlace(c.location, status)) return false;
   if (c.purpose === 'monster-hunt' && c.huntTarget) {
     const destination = sharedRoute(c)?.destination;
-    return !!destination && !status.rip && status.hp !== 0 && samePlace(destination, status) &&
+    return !!destination && samePlace(destination, status) &&
       Math.hypot(status.x - destination.x, status.y - destination.y) <= 50;
   }
   return c.purpose === 'franky-exit' ? status.map === 'main' : contains(c.location, status, 0, 100);

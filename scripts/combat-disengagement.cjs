@@ -131,6 +131,7 @@ module.exports = function createCombatDisengagement(party, hooks) {
         r.phase='cancelled';r.reason='Recovery superseded by new activity';hooks.releaseEscape();hooks.persist();return;
       }
       if(names.some(n=>event(party.statuses[n])))return;
+      if(hooks.restartFailedHunt?.())return;
       if(r.phase==='returning-to-farm') {
         if(deaths.length) {r.resumeReset=false;r.returnConvoyId=null;escape(r,'Another death during farm return');}
         else returnToFarm(r);

@@ -3,7 +3,7 @@ import type { StoredCombatLogEntry } from "../telemetry/combat-log.ts";
 
 export interface ConvoyHistoryState {
   combatLogs?: Record<string, StoredCombatLogEntry[] | undefined>;
-  monsterHunt?: { stage?: string; target?: string | null; returnTown?: import('./return-town.ts').ReturnTownPolicy; travelCheckpoint?: import('./continuous-return.ts').HuntTravelCheckpoint } | null;
+  monsterHunt?: { convoyId?: string | null; stage?: string; target?: string | null; returnTown?: import('./return-town.ts').ReturnTownPolicy; travelCheckpoint?: import('./continuous-return.ts').HuntTravelCheckpoint } | null;
 }
 type Convoy = Pick<PartyConvoy, "id" | "phase"> & Partial<PartyConvoy>;
 

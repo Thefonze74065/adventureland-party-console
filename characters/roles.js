@@ -167,6 +167,12 @@
     chooseTarget: () => sharedRoutine.getEventTarget()
   };
 
+  // runtime/combat/passive-travel.ts
+  function passiveStopRequired(settings, mtype) {
+    const rule = settings?.rules[mtype];
+    return !!rule?.enabled && rule.keepMoving === false;
+  }
+
   // runtime/combat/trace.ts
   function installCombatTrace(root, shared) {
     const entries = root.__partyCombatTrace || [];
@@ -1785,6 +1791,7 @@
     function prepare(target, present) {
       if (!control || !freshControl()) return false;
       const key = passingIdentity(target);
+      if (control.hunt && (control.hunt.defending || control.hunt.reason || control.hunt.primary && passingIdentity(control.hunt.primary) !== key)) return false;
       let proposal = proposals.get(key);
       const token = proposal?.token;
       if (!proposal || proposal.scope !== control.scope || present && !present.some((e) => e.admission?.token === token)) {
@@ -1923,7 +1930,7 @@
       if (busy2) return;
       const report = shared.queueReport();
       report.groupedCombat.evidence = reportEvidence(report.groupedCombat.deaths).filter((e) => e.server === report.server && e.map === character.map && e.in === character.in);
-      const next = JSON.stringify([report.x, report.y, report.hp, report.rip, report.lastDeath, report.groupedCombat.epoch, report.groupedCombat.passingAcknowledgement, report.groupedCombat.passingEncounters, report.groupedCombat.formationRecovery, report.groupedCombat.pursuitAck, report.groupedCombat.lootPending, report.groupedCombat.claims?.map((c) => [c.id, c.map, c.in, c.server, c.external]), report.groupedCombat.candidates, report.groupedCombat.threats, report.groupedCombat.sightings, report.groupedCombat.evidence, report.groupedCombat.deaths, report.groupedCombat.queueAck, report.groupedCombat.ack]);
+      const next = JSON.stringify([report.x, report.y, report.hp, report.rip, report.lastDeath, report.groupedCombat.epoch, report.groupedCombat.currentAttackers, report.groupedCombat.travelCandidates, report.groupedCombat.huntDefense, report.groupedCombat.passingAcknowledgement, report.groupedCombat.passingEncounters, report.groupedCombat.formationRecovery, report.groupedCombat.pursuitAck, report.groupedCombat.lootPending, report.groupedCombat.claims?.map((c) => [c.id, c.map, c.in, c.server, c.external]), report.groupedCombat.candidates, report.groupedCombat.threats, report.groupedCombat.sightings, report.groupedCombat.evidence, report.groupedCombat.deaths, report.groupedCombat.queueAck, report.groupedCombat.ack]);
       if (next === signature && Date.now() - sentAt < 1e3) return;
       signature = next;
       sentAt = Date.now();
@@ -2273,6 +2280,7 @@
 
   // runtime/characters/roles/runner.ts
   function installRoleRunner(classRole, root = globalThis) {
+    root.partyPassiveStopRequired = passiveStopRequired;
     root.partyMerchantAnniversaryControl = merchantAnniversaryControl;
     root.partyRoleRunner?.stop();
     let equipment2 = null;

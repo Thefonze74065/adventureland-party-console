@@ -305,3 +305,13 @@ test('committed passive sighting interrupts eligible grouped travel; passing sig
   assert.equal(r.starts(),0,'movement ownership hands to the existing combat queue');
  }
 });
+
+for(const mtype of ['phoenix','tinyp'])test(mtype+' committed by travel retains its convoy and avoids a competing farming return',()=>{
+ const r=fixture();const target=groupRare(r,mtype,'engaged');
+ const convoy={id:'travel-stop',purpose:'monster-hunt',phase:'defending',huntTravel:{reason:'passive-setting'}};
+ r.party.activeConvoy=convoy;r.sight(mtype);
+ assert.equal(r.party.activeConvoy,convoy);assert.equal(r.party.rareHuntReturn,null);assert.equal(r.starts(),0);
+ r.party.groupedCombat.fights=[];r.party.groupedCombat.target=null;
+ r.party.groupedCombat.deaths=[{...target,at:r.time(),partyEngaged:true}];
+ r.controller.tick();assert.equal(r.party.activeConvoy,convoy);assert.equal(r.starts(),0);
+});

@@ -2,11 +2,12 @@ import { classifyTravelDefense, normalTravel, type DefenseState } from "./travel
 import { returnWalking, type ReturnTownPolicy } from './return-town.ts';
 import { collectPassing, passingIdentity, type PassingEncounter } from '../../combat/passing.ts';
 import type { Member } from '../../combat/grouped.ts';
+import {outboundHunt, huntDefense, type HuntTravelConvoy} from '../../combat/hunt-travel.ts';
 export { classifyTravelDefense } from "./travel-defense.ts";
 interface Loot { id: string; after: number; realm: string; map: string; in: string; x: number; y: number; complete: boolean; progress?: Progress }
 interface Progress { id: string; observedAt: number; realm: string; map: string; in: string; complete: boolean; error?: string }
 interface Status { seenAt: number; rip?: boolean; hp: number; map: string; in?: string; region?: string; server: string; x: number; y: number; convoyLoot?: Progress; activeEvent?: unknown; joinedEvent?: unknown; mapEvent?: unknown }
-interface Convoy {
+interface Convoy extends HuntTravelConvoy {
   defenseTargets?: PassingEncounter[];
   continuousReturn?: number; huntTarget?: string; returnTown?: ReturnTownPolicy; townRetry?: boolean;
   returnTownRally?: {map:string;x:number;y:number};
@@ -56,6 +57,7 @@ function lootComplete(p: Party, c: Convoy, now: number): boolean {
   return false;
 }
 function resume(c: Convoy): void {
+  if(huntDefense(c))delete c.huntTravel;
   delete c.defenseTargets;
   c.townRetry = false;
   delete c.farmingEngagement;
@@ -97,7 +99,7 @@ function defend(c: Convoy, now: number, message: string): boolean {
 }
 function ownedConvoy(p: Party): Convoy | null {
   const c = p.activeConvoy;
-  return c && !(c.purpose === 'monster-hunt' && c.huntTarget) && !c.continuousReturn && !returnWalking(c) && eligible(p, c) && !cancelled(p, c) && !superseded(p, c) && !casualty(p, c) ? c : null;
+  return c && !c.continuousReturn && !returnWalking(c) && eligible(p, c) && !cancelled(p, c) && !superseded(p, c) && !casualty(p, c) ? c : null;
 }
 function superseded(p: Party, c: Convoy): boolean {
   return c.participants.some(name => {
@@ -144,6 +146,7 @@ function stoppedCauses(c: Convoy, reports: DefenseReport[]): PassingEncounter[] 
   return causes.length ? causes : null;
 }
 function obsoleteDefense(p: Party, c: Convoy, now: number): boolean {
+  if(outboundHunt(c) || c.huntTravel?.reason)return false;
   const members=c.participants.map(name=>({name,ctype:'',revision:0,status:p.statuses[name] as Member['status']}));
   const passing=new Set(collectPassing(members,[],now).map(passingIdentity));
   const reports=stoppedReports(p,c);
@@ -160,14 +163,18 @@ function resumePassingDefense<S,C>(input:S,p:Party,c:Convoy,state:string,now:num
   return true;
 }
 function rememberDefenseTargets(p:Party,c:Convoy,attackers:PassingEncounter[]):void {
+  if(c.huntTravel)c.huntTravel.reason ||= 'extra-aggro';
   if(attackers.length)c.defenseTargets=[...new Map([...(c.defenseTargets||[]),...attackers].map(t=>[passingIdentity(t),t])).values()];
   else c.defenseTargets=stoppedCauses(c,stoppedReports(p,c))||undefined;
+}
+function defenseParticipants(c: Convoy): string[] {
+  return outboundHunt(c) ? c.participants : c.participants.filter(name=>!c.completed.includes(name));
 }
 /** All route implementations share this barrier and keep their own command identities. */
 export function step<S, C>(input: S, now: number, commandFor: (state: S, convoy: C, phase: string, name: string) => unknown): boolean {
   const p = input as Party, c = ownedConvoy(p);
   if (!c) return false;
-  const decision = classifyTravelDefense(p, c.participants.filter(name => !c.completed.includes(name)), now);
+  const decision = classifyTravelDefense(p, defenseParticipants(c), now);
   if (farmingEngagementPending(p,c,now)) return true;
   if (decision.state === "waiting-for-observations") return observeHold(input, p, c, decision.message, commandFor);
   if(resumePassingDefense(input,p,c,decision.state,now,commandFor))return true;

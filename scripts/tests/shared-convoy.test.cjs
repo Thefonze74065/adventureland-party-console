@@ -392,6 +392,25 @@ test('failure context changes only diagnostics, retaining the original failure a
  }
  assert.deepEqual(runs[1],runs[0]);
 });
+test('Hunt signal expiry stops the native route and reports a communication hold without failing movement',async()=>{
+ const p=party(),e=engine();p.activeConvoy.purpose='monster-hunt';e.step(p,1000);
+ const r=client('L',p),started=await r.start(p.commands.L);await r.ready();
+ r.context.convoySignal.validUntil=999;r.setNow(5000);r.tick();await settle();await settle();
+ assert.equal(r.context.convoyTraveling.phase,'communication-hold');
+ assert.equal(r.context.convoyTraveling.communication.operation,'/status');
+ assert.equal(r.context.convoyTraveling.communication.kind,'expired-signal');
+ assert.equal(r.calls.some(c=>c[0]==='request'&&c[1]==='/convoy-failed'),false);
+ const moves=r.moves().length;r.setNow(500000);r.tick();await settle();assert.equal(r.moves().length,moves);
+ await r.cancel();await started.promise;
+});
+test('Hunt conflicting signal identity remains a genuine failure',async()=>{
+ const p=party(),e=engine();p.activeConvoy.purpose='monster-hunt';e.step(p,1000);
+ const r=client('L',p),started=await r.start(p.commands.L);await r.ready();
+ r.context.convoySignal.runtimeId='replacement';r.setNow(5000);r.tick();await settle();await settle();
+ assert.equal(r.context.convoyTraveling.phase,'failed');assert.equal(r.context.convoyTraveling.communication,undefined);
+ assert.ok(r.calls.some(c=>c[0]==='request'&&c[1]==='/convoy-failed'));
+ await r.cancel();await started.promise;
+});
 test('paused leader retains the issued waypoint and regroups using native fallback after a route failure',async()=>{
  const p=party(),e=engine();e.step(p,1000);const r=client('L',p,{nativeMovingFlag:true});
  const first=await r.start(p.commands.L);await r.ready();

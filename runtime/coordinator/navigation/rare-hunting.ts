@@ -197,6 +197,7 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
     };
   }
   function restore(e: Encounter, travel = true) {
+    if(e.convoyId){party.rareHuntReturn=null;return;}
     if (!validIntent(e)) return;
     party.location = e.returnLocation;
     if (patrol) {
@@ -338,15 +339,24 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
     const checkpoint=party.monsterHunt?.travelCheckpoint;
     if(checkpoint)checkpoint.interruption={at:now(),reason:'rare:'+target.mtype};
   }
+  function retainTravelConvoy(): string | undefined {
+    const id=party.activeConvoy?.huntTravel?.reason ? party.activeConvoy.id : undefined;
+    if(!id)hooks.cancelConvoy();
+    return id;
+  }
+  function retainRareReturn(e: Encounter): void {
+    party.rareHuntReturn=e.convoyId ? null : {...capture(),returnLocation:e.returnLocation,hunt:!!e.hunt,cycleId:e.hunt?.cycleId};
+  }
   function begin(target: Sight) {
     recordHuntInterruption(target);
     diagnostic('Rare sighting handed to combat', {id:target.id,mtype:target.mtype,reporter:target.reporter});
     const old = encounter;
     if (old) cooldowns.set(key(old.target), now() + 3000);
-    hooks.cancelConvoy();
+    const convoyId=retainTravelConvoy();
     if (patrol) patrol.progressPosition = undefined;
     encounter = {
       ...capture(),
+      convoyId,
       id: `rare-${now()}-${++serial}`,
       target,
       start: now(),
@@ -360,12 +370,7 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
       hunt: old?.hunt ?? party.monsterHunt,
       message: `Pursuing ${passiveName(target.mtype)}`,
     };
-    party.rareHuntReturn = {
-      ...capture(),
-      returnLocation: encounter.returnLocation,
-      hunt: !!encounter.hunt,
-      cycleId: encounter.hunt?.cycleId,
-    };
+    retainRareReturn(encounter);
     hooks.persist();
     party.partyFarmingMode = "default";
     party.scatterBreakTarget = null;

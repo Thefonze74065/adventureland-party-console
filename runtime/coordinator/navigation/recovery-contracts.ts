@@ -23,6 +23,7 @@ export interface CombatRecovery {
   at: number;
   deaths: string[];
   resumeReset?: boolean;
+  restartedEscapeId?: string;
   returnConvoyId?: string;
 }
 

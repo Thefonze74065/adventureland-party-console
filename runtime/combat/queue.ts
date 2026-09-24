@@ -9,12 +9,13 @@ import {releaseUnseenPrimary} from './unseen-primary.ts';
 export interface Candidate extends Target {priority?: number; passiveRare?: boolean}
 export interface Evidence extends Target {server: string|undefined; at: number; startedAt?: number; action: string; state: 'pending' | 'engaged' | 'rejected'}
 export function reconcileQueue(old: Group | undefined | null, members: Member[], leader: string, now: number, key: string, resetAt=0, pullsPaused=false, huntTarget: string | null = null) {
+  const huntDefense=members.some(m=>m.status && now-m.status.seenAt<=3000 && m.status.groupedCombat?.huntDefense);
   const defending = new Set(members.flatMap(m => m.status && now-m.status.seenAt<=3000 && m.status.groupedCombat?.returnDefense
     ? (m.status.groupedCombat.currentAttackers || []).map(t => passingIdentity({...t,server:m.status!.server})) : []));
   // A farming Hunt takes ownership of its target, including attacks made en route.
   // Drop cached peer reports too: their normal expiry can otherwise block the pull.
   const passingEncounters=collectPassing(members,old?.passingEncounters||[],now)
-    .filter(t=>t.mtype!==huntTarget && !defending.has(passingIdentity(t)));
+    .filter(t=>!huntDefense && t.mtype!==huntTarget && !defending.has(passingIdentity(t)));
   const passing=new Set(passingEncounters.map(passingIdentity));
   const failedRecovery=old?.formationRecovery;
   if(old && failedRecovery?.phase==='failed' && members.every(m=>m.status && now-m.status.seenAt<=3000 && m.status.groupedCombat?.formationRecovery?.ack===failedRecovery.id))

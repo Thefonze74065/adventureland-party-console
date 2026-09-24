@@ -113,6 +113,7 @@ export const settingsFields = [
   "mluckCastAt",
   "activeRealm",
   "activeConvoy",
+  "convoyCompletionReceipts",
   "navigationEpoch",
 ] as const;
 

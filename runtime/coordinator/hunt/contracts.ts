@@ -113,6 +113,10 @@ export interface LootProgress {
   error?: string;
 }
 interface HuntConvoyState {
+  communicationHold?: import('../navigation/convoy.ts').PartyConvoy['communicationHold'];
+  failureDetails?: unknown;
+  communicationLegacyRecovered?: boolean;
+  location?: ReturnLocation;
   geometryRepair?: import('../navigation/shared-route-types.ts').SharedConvoy['geometryRepair'];
   nativeFallback?: boolean;
   participants?: string[];

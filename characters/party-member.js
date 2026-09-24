@@ -626,6 +626,11 @@
       executor.reset();
       return true;
     }
+    function trimUncheckedFinal(plot) {
+      if (journey?.options.shared) return plot;
+      const last2 = plot.at(-1), previous = plot.at(-2);
+      return last2 && previous && !isTransition(last2) && last2.map === previous.map && !validation.walk(previous, last2) && distance(previous, state) <= state.edge ? plot.slice(0, -1) : plot;
+    }
     function nativeTick(j) {
       if (!state.searching) {
         planner.begin(point(state), state.use_town, ports.now());

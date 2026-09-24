@@ -1,5 +1,6 @@
 import {collectPassing} from '../../combat/passing.ts';
 import {passingControl} from '../../combat/passing-admission.ts';
+import {outboundHunt} from '../../combat/hunt-travel.ts';
 import { merchantEventRecoveryReserved } from '../merchant/event-control.ts';
 import type {Member} from '../../combat/grouped.ts';
 import { monsterFocus, needsCatalog, partyResponse } from "./response-party.ts";
@@ -157,9 +158,9 @@ export function createHeartbeatResponse(state: HeartbeatState, ports: HeartbeatR
   }
   function passingAdmission() {
     const convoy=state.activeConvoy;
-    const names=[...new Set([...ports.activeNames().filter(name=>name!==state.merchantCharacter),...(convoy?.participants||[])])];
+    const names=outboundHunt(convoy) ? convoy!.participants : [...new Set([...ports.activeNames().filter(name=>name!==state.merchantCharacter),...(convoy?.participants||[])])];
     const members=names.map(name=>({name,ctype:'',revision:ports.navigationRevision(name),status:state.statuses[name]})) as Member[];
-    return passingControl(members,convoy ? [convoy.id,convoy.epoch] : null,ports.now());
+    return passingControl(members,convoy ? [convoy.id,convoy.epoch] : null,ports.now(),convoy,state.passiveHunting);
   }
   function response(name: string, mode?: "combat"): Record<string, unknown> {
     // Combat polls never deliver commands: do not consume or decorate them here.

@@ -1570,6 +1570,14 @@ export function startCoordinatorApplication(
     });
     travelClock.startTravel();
 
+    const restartFailedHunt = coordinatorPolicies.createHuntRetreatRestart(party, {
+      now: Date.now,
+      intent: name => farmingNavigation.intent(name),
+      participants: huntParticipants,
+      releaseEscape: () => escapeControl.release(),
+      begin: beginMonsterHuntCycle,
+      persist: persistSettings,
+    });
     const recoveryHooks = coordinatorPolicies.createCoordinatorRecoveryHooks(party, {
       huntParticipants,
       members: () => farmingNavigation.members(),
@@ -1582,6 +1590,7 @@ export function startCoordinatorApplication(
       releaseEscape: () => escapeControl.release(),
       abandonRare: () => rareControl.abandon(),
       resumeHunt: () => monsterHuntTick(),
+      restartFailedHunt,
     });
     const rareControl = rareHunting.createRareHunting(party, {...recoveryHooks.rare,
       routeDistance: createRareRouteDistance(request=>movementPlanner.plan(request),

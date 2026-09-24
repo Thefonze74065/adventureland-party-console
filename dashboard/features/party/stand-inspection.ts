@@ -4,33 +4,31 @@ import type { StandBid } from './stand-bid';
 import type { PartyState } from './party-state';
 import type { Item } from './item';
 
+const validStandSlot = (slot: string) => /^trade(?:[1-9]|1[0-6])$/.test(slot);
 const identity = (a: Item, b: Item) => a.name === b.name && Number(a.level || 0) === Number(b.level || 0) && a.p === b.p && a.stat_type === b.stat_type && JSON.stringify(a.data) === JSON.stringify(b.data);
 function standOccupants(listings: StandListing[], native: PartyState['nativeStand'], merchant?: Partial<Char>) {
-  const slots = new Map<string, { kind: 'sale' | 'buy'; item?: Item; itemId?: string; listing?: StandListing }>();
-  const valid = (slot: string) => /^trade(?:[1-9]|1[0-6])$/.test(slot);
+  const slots = new Map<string, { kind: 'sale' | 'buy'; item?: Item; itemId?: string; listing?: StandListing; offer?: NonNullable<PartyState['nativeStand']>['offers'][string] }>();
   for (const [slot, entry] of Object.entries(merchant?.slots || {}))
-    if (valid(slot) && entry) slots.set(slot, {kind: entry.item.b ? 'buy' : 'sale', item: entry.item});
+    if (validStandSlot(slot) && entry) slots.set(slot, {kind: entry.item.b ? 'buy' : 'sale', item: entry.item});
   if (!merchant?.standOpen) {
     for (const offer of Object.values(native?.offers || {}))
-      if (valid(offer.slot) && !slots.has(offer.slot) && ['live','removing'].includes(offer.phase)) slots.set(offer.slot,{kind:'buy',itemId:offer.itemId});
+      if (validStandSlot(offer.slot) && !slots.has(offer.slot) && ['live','removing'].includes(offer.phase)) slots.set(offer.slot,{kind:'buy',itemId:offer.itemId,offer});
     for (const listing of listings)
-      if (listing.tradeSlot && valid(listing.tradeSlot) && !slots.has(listing.tradeSlot) && listing.state === 'live')
+      if (listing.tradeSlot && validStandSlot(listing.tradeSlot) && !slots.has(listing.tradeSlot) && listing.state === 'live')
         slots.set(listing.tradeSlot,{kind:'sale',item:listing.item,listing});
   }
   return slots;
 }
-export function standOccupancy(listings: StandListing[], native: PartyState['nativeStand'], merchant?: Partial<Char>, bids: Record<string, StandBid> = {}) {
+export function standOccupancy(listings: StandListing[], native: PartyState['nativeStand'], merchant?: Partial<Char>, _bids: Record<string, StandBid> = {}) {
   const slots = standOccupants(listings,native,merchant);
   const sales = [...slots.values()].filter(entry=>entry.kind === 'sale').length;
-  const placedBuys = new Set([...slots.values()].filter(entry=>entry.kind === 'buy').map(entry=>entry.item?.name || entry.itemId));
-  const reserved = Object.entries(bids).filter(([id,bid])=>bid.useStandSlot && !placedBuys.has(id)).length;
-  return {sales, buys:slots.size-sales+reserved, total:slots.size+reserved};
+  return {sales, buys:slots.size-sales, total:slots.size};
 }
 export function occupiedStandSlots(listings: StandListing[], native: PartyState['nativeStand'], merchant?: Partial<Char>, bids: Record<string, StandBid> = {}) {
   return standOccupancy(listings,native,merchant,bids).total;
 }
 export function standSaleRows(listings: StandListing[], merchant?: Char, native?: PartyState['nativeStand']) {
-  const slots = Object.entries(merchant?.slots || {}).filter(([slot, entry]) => slot.startsWith('trade') && entry && !entry.item.b);
+  const slots = Object.entries(merchant?.slots || {}).filter(([slot, entry]) => validStandSlot(slot) && entry && !entry.item.b);
   const occupants = standOccupants(listings,native,merchant);
   const used = new Set<string>();
   const rows = listings.map((configured, index) => {
@@ -46,16 +44,20 @@ export function standSaleRows(listings: StandListing[], merchant?: Char, native?
   }
   return rows;
 }
-export function standBuyRows(bids: Record<string, StandBid>, native: PartyState['nativeStand'], merchant?: Char) {
+export function standBuyRows(bids: Record<string, StandBid>, native: PartyState['nativeStand'], merchant?: Char, listings: StandListing[] = []) {
   const offers = Object.values(native?.offers || {});
-  return Object.entries(bids).filter(([id, bid]) => bid.useStandSlot || offers.some(offer => offer.itemId === id && offer.auto)).map(([id, bid]) => {
-    const offer = offers.find(offer => offer.itemId === id);
-    const level = offer?.level ?? Number(bid.minimumQuality || 0);
-    const entry = offer ? merchant?.slots?.[offer.slot] : undefined;
-    const observed = entry?.item.b === true && entry.item.name === id && Number(entry.item.level || 0) === level && Number(entry.item.price) === (offer?.price ?? bid.price) ? entry : undefined;
-    const problem = native?.problems[id] || offer?.problem;
-    const status = problem || (merchant?.standOpen && observed ? 'Live' : !merchant?.standOpen ? 'Queued · stand closed' : offer?.phase === 'removing' ? 'Removing' : 'Queued');
-    return { id, bid, offer, observed, level, status };
-  });
+  return [...standOccupants(listings, native, merchant)]
+    .filter(([, occupant]) => occupant.kind === 'buy')
+    .sort(([a], [b]) => Number(a.slice(5)) - Number(b.slice(5)))
+    .map(([slot, occupant]) => {
+      const observed = merchant?.slots?.[slot];
+      const id = occupant.item?.name || occupant.itemId!;
+      const offer = occupant.offer || offers.find(candidate => candidate.slot === slot && candidate.itemId === id &&
+        Number(occupant.item?.level || 0) === candidate.level && Number(occupant.item?.price) === candidate.price);
+      const level = Number(occupant.item?.level ?? offer?.level ?? 0);
+      const price = Number(occupant.item?.price ?? offer?.price ?? 0);
+      const quantity = Number(occupant.item?.q ?? (offer ? Math.max(0, Number(offer.quantity || 1) - Number(offer.acknowledged || 0)) : 1));
+      const bid: StandBid | undefined = bids[id];
+      return { key: slot, id, bid, offer, observed, level, price, quantity };
+    });
 }
-

@@ -19,6 +19,7 @@ interface RecoveryPorts {
   releaseEscape: () => void;
   abandonRare: () => void;
   resumeHunt: () => unknown;
+  restartFailedHunt?: () => boolean;
 }
 
 /** Bind recovery transitions without capturing a stale Hunt, Escape participant list or command map. */
@@ -62,6 +63,7 @@ export function createCoordinatorRecoveryHooks(state: RecoveryState, ports: Reco
       returnToFarm: (location: ReturnLocation, names: string[]) =>
         ports.convoy(location, "Returning after party death", names, "death-recovery"),
       resumeHunt: ports.resumeHunt,
+      restartFailedHunt: ports.restartFailedHunt,
     },
   };
 }

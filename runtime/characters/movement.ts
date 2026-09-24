@@ -93,6 +93,15 @@ export function installPartyMovement(host: MovementHost, ports: MovementPorts) {
     if (journey) { journey.distance = walking; journey.transitions = transitions; }
     state.plot.splice(0, state.plot.length, ...plot); state.searching = false; state.found = true; executor.reset(); return true;
   }
+  function trimUncheckedFinal(plot: Step[]): Step[] {
+    // Both planners may append an exact endpoint across a thin obstacle.
+    // Shared routes retain their exact, coordinator-owned endpoints.
+    if (journey?.options.shared) return plot;
+    const last = plot.at(-1), previous = plot.at(-2);
+    return last && previous && !isTransition(last) && last.map === previous.map &&
+      !validation.walk(previous, last) && distance(previous, state) <= state.edge
+      ? plot.slice(0, -1) : plot;
+  }
   function nativeTick(j: Journey) {
     if (!state.searching) { planner.begin(point(state), state.use_town, ports.now()); state.searching = true; j.searches++; }
     const plot = planner.tick(ports.now());

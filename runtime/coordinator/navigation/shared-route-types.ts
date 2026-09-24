@@ -1,5 +1,6 @@
 import type { ConvoyHistoryState } from "./convoy-history.ts";
 import type { PartyConvoy } from "./convoy.ts";
+import type { CompletionReceipts } from './completion-receipts.ts';
 
 export interface RoutePoint { map: string; x: number; y: number; in?: string | number }
 export interface RouteWaypoint extends RoutePoint { town?: boolean; transport?: boolean; s?: number; method?: string; key?: string }
@@ -13,6 +14,7 @@ export interface SharedRoute {
   source: "search" | "remainder" | "itinerary";
 }
 export interface SharedReport {
+  communication?: { operation: string; kind: string; since: number } | null;
   transitionMap?: string;
   townAttempt?: import('./return-town.ts').ReturnTownAttempt;
   id: string; epoch: number; commandId: number; navigationRevision: number;
@@ -45,6 +47,7 @@ export interface SharedCommand {
   deferRendezvous?: boolean;
 }
 export interface SharedConvoy extends PartyConvoy {
+  failureDetails?: unknown;
   geometryRepair?: { id: string; startedAt: number; expected: {version: number; fingerprint: string}; runtimes: Record<string,string>; phase: 'waiting' | 'complete' | 'failed' };
   arrivalReadySince?: number;
   preparationBlocker?: string;
@@ -72,7 +75,7 @@ export interface SharedConvoy extends PartyConvoy {
   runtimes?: Record<string, string> | null; origins?: Record<string, RoutePoint>;
   observedPhase?: string | null; assembledSince?: number;
 }
-export interface SharedState extends ConvoyHistoryState {
+export interface SharedState extends ConvoyHistoryState, CompletionReceipts {
   activeConvoy: SharedConvoy | null;
   commands: Record<string, SharedCommand | undefined>;
   statuses: Record<string, SharedStatus | undefined>;

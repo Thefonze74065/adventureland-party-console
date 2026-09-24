@@ -147,7 +147,7 @@ test('restart invalidates both routes separately and never recovers an old runti
  root.farmingPolicy=solo.farmingPolicy='hunt'; service(root).lifecycle.begin('auto',farm); service(solo).lifecycle.begin('auto',farm);
  const restored=initial({farmingProfiles:JSON.parse(JSON.stringify(root.farmingProfiles))});
  const next=createFarmingScopes(restored,()=>NOW+1000), r=next.view('R');
- assert.equal(restored.activeConvoy.phase,'failed'); assert.equal(r.activeConvoy.phase,'failed');
+ assert.equal(restored.activeConvoy.phase,'communication-hold'); assert.equal(r.activeConvoy.phase,'communication-hold');
  assert.equal(r.activeConvoy.restartRecovery,true); assert.notEqual(r.activeConvoy.id,restored.activeConvoy.id);
  assert.deepEqual(restored.commands,{}); assert.deepEqual(r.monsterHunt.participants,['R']);
 });

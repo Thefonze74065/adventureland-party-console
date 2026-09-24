@@ -94,7 +94,7 @@ export type PartyState = {
   standBids?: Record<string, StandBid>;
   autoStandBuys?: boolean;
   autoBlacklistMerchants?: boolean;
-  nativeStand?: { offers: Record<string, { itemId: string; auto: boolean; phase: string; slot: string; level?: number; price?: number; quantity?: number; problem?: string }>; problems: Record<string, string> };
+  nativeStand?: { offers: Record<string, { itemId: string; auto: boolean; phase: string; slot: string; level?: number; price?: number; quantity?: number; acknowledged?: number; problem?: string }>; problems: Record<string, string> };
   standPriceHistory?: Record<string, StandPriceHistory>;
   standSearch?: StandSearchState;
   upgrades?: Record<string, UpgradeMark[]>;

@@ -31,14 +31,15 @@ test('navigation engagement uses the replaced Hunt target and passes the current
  assert.equal(t.calls.at(-1)[4],'grouped-approach');
 });
 
-test('Franky exit acknowledgements allocate Town from the live counter and preserve it against stale completion',()=>{
+test('Franky exit acknowledgements allocate Town once and preserve it against replayed completion',()=>{
  const t=fixture();t.state.activeConvoy={id:'exit',phase:'travel',departAt:1,purpose:'franky-exit',participants:['F']};
  t.state.eventReturn={exitConvoyId:'exit',cycleId:'cycle',event:'franky',checkpoint:t.location,pending:['F']};
  t.state.commands={F:{id:1,type:'convoy-move'}};t.state.nextCommandId=90;
  assert.equal(t.invoke(t.service.acknowledgements.complete,{character:'F',convoyId:'exit'}).code,200);
  assert.deepEqual(t.state.commands.F,{id:90,type:'event-return-town',cycleId:'cycle',event:'franky',checkpoint:t.location});
  assert.equal(t.state.nextCommandId,91);assert.equal(t.state.activeConvoy,null);
- assert.equal(t.invoke(t.service.acknowledgements.complete,{character:'F',convoyId:'exit'}).code,409);
+ assert.equal(t.invoke(t.service.acknowledgements.complete,{character:'F',convoyId:'exit'}).code,200);
+ assert.equal(t.invoke(t.service.acknowledgements.complete,{character:'F',convoyId:'older-exit'}).code,409);
  assert.equal(t.state.commands.F.id,90);
 });
 

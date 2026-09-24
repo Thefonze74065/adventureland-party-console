@@ -7,6 +7,27 @@ from the commits merged into `main`.
 
 ### Fixed
 
+- Invisible rogue recipients reveal themselves for merchant servicing, then resume
+  their normal invisibility behavior. ([#10](https://github.com/Ryan-Haines/adventureland-party-console/pull/10))
+
+- Enabled passive targets with “keep moving” off now interrupt outbound travel
+  for coordinated combat, including neutral Phoenix sightings and targets already
+  admitted as passing attacks. Explicit stop rules override Hunt travel exceptions.
+
+- Outbound Hunts share one attack target while moving. Additional aggro pauses the
+  party for coordinated defense and kiting, then resumes travel to the original
+  Hunt destination after the encounter and loot are resolved.
+- Hunt automatically restarts its cycle when a participant exhausts retreat routes,
+  preserving blacklists and logging the failed character, location, and reason.
+- ALClient routes now accept a reachable final waypoint within the requested arrival
+  tolerance when the exact endpoint is blocked, matching native routing behavior.
+  ([#16](https://github.com/Ryan-Haines/adventureland-party-console/issues/16))
+- Monster Hunt convoys pause safely during communication outages and resume after
+  stable party reports without consuming movement retries. Arrival acknowledgements
+  retry transient failures, and saved completion receipts tolerate lost responses
+  and coordinator restarts.
+- Warriors skip emergency Stomp when no compatible basher is equipped, preventing
+  repeated wrong-weapon errors while allowing their normal routine to continue.
 - Keep-moving combat shares encounter ownership before attacking, preventing
   retaliation from repeatedly stopping convoys and releasing obsolete defensive holds.
 - Marked merchant deliveries now schedule their own visits by default. Merchant
@@ -30,6 +51,11 @@ from the commits merged into `main`.
 - Merchant collection reservations and routine cancellation recover correctly.
 
 ### Changed
+
+- Merchants can independently select supported events, fight with their equipped
+  weapon, and resume merchant work after returning. Ordinary merchant jobs,
+  gathering, and stand work yield while event participation owns the merchant.
+  ([#12](https://github.com/Ryan-Haines/adventureland-party-console/pull/12))
 
 - Reduced dashboard status traffic and isolated position updates from character
   cards while preserving live controls and inventory updates. ([#17](https://github.com/Ryan-Haines/adventureland-party-console/issues/17))

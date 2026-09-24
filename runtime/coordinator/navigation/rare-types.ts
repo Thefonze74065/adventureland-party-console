@@ -21,6 +21,7 @@ export interface Sight extends Point {
   partyEngaged?: boolean;
 }
 export interface Encounter extends Owner {
+  convoyId?: string;
   id: string;
   target: Sight;
   start: number;
@@ -113,7 +114,7 @@ export interface Party {
   monsterPrioritiesByCharacter?: Record<string, Record<string, number>>;
   farmingPolicy: string;
   commands: Record<string, { type?: string; purpose?: string }>;
-  activeConvoy?: { purpose?: string; phase: string; failureCode?: string } | null;
+  activeConvoy?: { id?: string; huntTravel?: {reason?: string}; purpose?: string; phase: string; failureCode?: string } | null;
   combatRecovery?: { phase: string };
   eventReturn?: unknown;
   anniversary?: {eventCycle?: {returnCompletedAt?: number; supersededAt?: number; combatHandoffAt?: number} | null};

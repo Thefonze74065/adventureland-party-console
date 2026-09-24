@@ -65,6 +65,39 @@ launcher tests execute the bundle with Windows and Linux directory inputs.
 
 ## Manual edit, build and restart
 
+Terminal Hunt retreat failures restart the Hunt cycle once per failed Escape ID.
+Only a fresh matching `recoveryFailed` report under the captured navigation ownership
+can trigger this reset; newer commands, manual cancellation, and events take priority.
+The reset releases Escape/death recovery and selects current-party quests while
+preserving blacklist history, settings, backup destination, and pending loot.
+The leader's combat log records `restarting hunting routine due to failure` with
+the character, position, error, and old/new cycle identities. The handled Escape ID
+is retained in persisted combat recovery to prevent replay after restart.
+Validate `hunt-retreat-restart`, `combat-disengagement`, Hunt composition, and Escape
+tests. ALClient/native endpoint trimming also requires `movement-service` and shared
+convoy checks: only a blocked final walking point within arrival tolerance is omitted;
+precision and shared endpoints remain protected. Publish character and coordinator
+assets with the full restart below, then verify fresh runtimes and Hunt progression.
+
+Protocol-4 Hunt travel keeps communication outages separate from movement failure.
+Missing heartbeats or an expired matching signal stop the party in a persisted
+communication hold without spending movement or Hunt retry budgets. All members
+must acknowledge the current hold and provide five seconds of fresh, living,
+stopped reports before a new route generation is prepared; repeated resumptions
+are spaced at least thirty seconds apart. Restart discards stability observations,
+and runtime replacement requires new acknowledgements. Manual navigation wins.
+
+Arrival remains `arrived` while transient completion HTTP failures retry (one
+request at a time, five-second timeout, jittered 1/2/5/10-second backoff). The
+existing verified-arrival fallback still applies, and persisted latest completion
+receipts make response-loss replays harmless. Only captured legacy completion
+network failures at their destination enter the one-time migration path; real
+movement failure counters remain intact. Existing convoy history records outage
+and recovery transitions rather than every retry. Validate `convoy-communication`,
+shared convoy, Hunt return, restart, and acknowledgement tests. Publish character
+and coordinator assets together with the ordinary full restart below, then verify
+fresh runtimes and actual Hunt advancement through Daisy processing.
+
 Convoy failure messages include a snapshot taken before cancellation: phase,
 position, destination, route identifiers, signal expiry or mismatched identity
 fields, and recent status-response/failure timing. Two context lines accompany
@@ -96,15 +129,38 @@ sets remain available for the normal exchange menu. Publish character and coordi
 assets together when retiring the legacy cake routine; snapshot `craftReady` stays
 false for older clients. Validate anniversary snapshots and merchant exchange tests.
 
-Outbound Monster Hunt convoys retain their installed path until all members reach
-its endpoint. Sightings cannot hand off movement or adopt an earlier spawn. Only
-in-range basic attacks run during an owned travelling phase; preparation and map
-transitions suppress them. Completion records verified origin arrival before free
+Enabled passive targets with `keepMoving: false` take precedence over outbound
+Hunt moving attacks, including when the passive type matches the Hunt species.
+Fresh eligible sightings can nominate a committed travel encounter before aggro;
+passing reservations cannot suppress that encounter. The shared convoy retains its
+original destination while normal combat, rare support, and kiting run. Rare support
+must not cancel that convoy or create a competing farming return. Turning keep-moving
+back on does not abandon an already committed fight. Protected returns and Escape
+remain separate. Validate passive admission, Hunt travel defense, and rare support.
+
+Local development starts `tools/game/watch.mts`: source edits can publish and reload
+character assets automatically even without an explicit build. Make coordinated
+character/coordinator changes in an isolated checkout; stop the supervised local host
+before transferring validated sources. Killing the watcher alone is insufficient
+because the service host respawns it. Publish both components with the full restart
+below, and verify fresh character generations plus the coordinator process.
+
+Outbound Monster Hunt convoys share one coordinator-authorized encounter while
+walking. Basic attacks remain in range and cannot switch to another monster merely
+because the primary falls out of range. Raw target observations remain visible even
+for passing encounters. A second attacker pauses the whole convoy for normal
+defensive combat and kiting; the original encounter and additional attackers retain
+combat ownership until death or bounded lost-target recovery, followed by the
+existing loot barrier. Regrouping resumes travel to the original destination under
+a new route epoch. Return and emergency escape policies remain separate.
+Sightings cannot adopt an earlier spawn. Preparation and map transitions suppress
+passing attacks. Completion records verified origin arrival before free
 combat resumes. Premature persisted farming states return to their saved origin.
 On entering farming, the Hunt target sheds passing-attack ownership from travel,
 including cached peer reports, so it can enter the normal combat queue. Unrelated
 passing encounters retain their movement restrictions.
-Validate Hunt route acquisition, passive hunting, shared convoy endpoint arrival,
+Validate Hunt travel defense, passing admission, travel defense, Hunt route acquisition,
+passive hunting, shared convoy endpoint arrival,
 and Hunt composition tests. Publish both character and coordinator assets with
 the full restart, then verify every member reaches the destination before farming.
 

@@ -7,16 +7,16 @@ const { standSaleRows, standBuyRows, occupiedStandSlots, standOccupancy } = requ
 const bid = {price: 100, quantity: 15000, minimumQuality: 2, useStandSlot: true};
 const entry = (name, b=false) => ({item:{name, level:2, price:100, q:99, b}});
 
-test('twelve sales plus two reserved buys stay fourteen as offers are placed or withdrawn',()=>{
+test('only placed buys count, not pending explicit reservations',()=>{
  const sales=Array.from({length:12},(_,i)=>({tradeSlot:`trade${i+1}`,state:'live'}));
  const bids={vitscroll:bid,slice_blueberry:bid,shopping:{...bid,useStandSlot:false}};
  const offers={offers:{v:{itemId:'vitscroll',slot:'trade13',phase:'live'},b:{itemId:'slice_blueberry',slot:'trade14',phase:'live'}}};
  for(const native of [{offers:{}},offers])
-  assert.deepEqual(standOccupancy(sales,native,{standOpen:false},bids),{sales:12,buys:2,total:14});
+  assert.deepEqual(standOccupancy(sales,native,{standOpen:false},bids),{sales:12,buys:native === offers ? 2 : 0,total:native === offers ? 14 : 12});
  const slots=Object.fromEntries(sales.map(s=>[s.tradeSlot,entry('sale')]));
  slots.trade13=entry('vitscroll',true);slots.trade14=entry('slice_blueberry',true);
  assert.equal(occupiedStandSlots(sales,offers,{standOpen:true,slots},bids),14);
- assert.equal(occupiedStandSlots(sales,{offers:{}},{standOpen:false},{slice_blueberry:bid}),13);
+ assert.equal(occupiedStandSlots(sales,{offers:{}},{standOpen:false},{slice_blueberry:bid}),12);
 });
 
 test('twelve sales and four buys exclude a paused stale seventeenth listing',()=>{
@@ -52,15 +52,15 @@ test('sales exclude buys, consume matches once, retain queued/paused and unmatch
  assert.equal(rows[3].editable,false);
  assert.equal(standSaleRows(listings,{...merchant,standOpen:false})[0].status,'Queued');
 });
-test('buys include explicit waiting and automatic batches; live requires matching observed open slot',()=>{
+test('buys include observed explicit and automatic batches, excluding waiting orders',()=>{
  const bids={cap:bid,auto:{...bid,useStandSlot:false},waiting:bid,shopping:{...bid,useStandSlot:false}};
  const native={offers:{a:{itemId:'cap',slot:'trade1',auto:false,phase:'live',level:2,price:100},b:{itemId:'auto',slot:'trade2',auto:true,phase:'placing',level:2,price:100}},problems:{waiting:'Price exceeds limit'}};
  const merchant={standOpen:true,slots:{trade1:entry('cap',true),trade2:entry('auto',true)}};
  const rows=standBuyRows(bids,native,merchant);
- assert.equal(rows.length,3); assert.equal(rows[0].status,'Live');assert.equal(rows[0].observed.item.q,99); assert.equal(rows[0].bid.quantity,15000);
- assert.equal(rows[1].offer.auto,true);assert.equal(rows[1].bid.useStandSlot,false);assert.equal(rows[2].status,'Price exceeds limit');
- assert.match(standBuyRows(bids,native,{...merchant,standOpen:false})[0].status,/closed/);
- assert.equal(standBuyRows(bids,native,{...merchant,slots:{trade1:entry('cap')}})[0].status,'Queued');
+ assert.equal(rows.length,2);assert.equal(rows[0].observed.item.q,99); assert.equal(rows[0].bid.quantity,15000);
+ assert.equal(rows[1].offer.auto,true);assert.equal(rows[1].bid.useStandSlot,false);
+ assert.equal(standBuyRows(bids,native,{...merchant,standOpen:false}).length,2);
+ assert.equal(standBuyRows(bids,native,{...merchant,slots:{trade1:entry('cap')}}).length,0);
 });
 const React = require('../../dashboard/node_modules/react');
 const renderer = require('../../dashboard/node_modules/react-test-renderer');
@@ -78,7 +78,7 @@ const context={exports:{},require(name){
  return new Proxy({}, {get:(_,key)=>String(key)});
 }};
 vm.runInNewContext(code,context);
-const props=()=>({open:true,marketOpen:true,onOpenChange(){},onMarketOpenChange(){},catalog:[{id:'cap',name:'Cap'}],buyable:[],bids:{cap:bid},listings:[],priceHistory:{},blacklist:{},onBid:async()=>{},onInspect(){}});
+const props=()=>({open:true,marketOpen:true,merchant:{standOpen:true,slots:{trade1:entry('cap',true)}},onOpenChange(){},onMarketOpenChange(){},catalog:[{id:'cap',name:'Cap'}],buyable:[],bids:{cap:bid},listings:[],priceHistory:{},blacklist:{},onBid:async()=>{},onInspect(){}});
 
 test('WTB catalog is a narrow name-and-add picker opening the regular order editor',async()=>{
  const p=props(),opened=[];let saves=0,root;
@@ -132,7 +132,7 @@ test('both cancellation views require two clicks, reset on close/order removal, 
  await renderer.act(async()=>{root.unmount()});
 });
 test('selecting another order resets confirmation; successful submission locks all cancellation controls', async()=>{
- let calls=[];let finish;const p=props();p.bids={cap:bid,other:bid};p.onBid=(...args)=>{calls.push(args);return new Promise(resolve=>{finish=resolve})};let root;
+ let calls=[];let finish;const p=props();p.bids={cap:bid,other:bid};p.merchant.slots.trade2=entry('other',true);p.onBid=(...args)=>{calls.push(args);return new Promise(resolve=>{finish=resolve})};let root;
  await renderer.act(async()=>{root=renderer.create(React.createElement(context.exports.StandSheet,p))});
  const controls=()=>root.root.findAll(n=>n.type==='Button' && n.props.className?.includes('border-rose-700'));
  await renderer.act(async()=>{controls()[0].props.onClick()});
@@ -151,7 +151,7 @@ test('pending price edits do not duplicate the observed sale',()=>{
  assert.equal(rows.length,1);assert.equal(rows[0].status,'Queued');
 });
 test('empty stand keeps section headings and only the header close control',async()=>{
- const p={...props(),bids:{},catalog:[]};let root;
+ const p={...props(),merchant:undefined,bids:{},catalog:[]};let root;
  await renderer.act(async()=>{root=renderer.create(React.createElement(context.exports.StandSheet,p))});
  const dialog=root.root.findAll(n=>n.type==='DialogContent')[0];
  assert.equal(dialog.props.showCloseButton,false);
@@ -178,8 +178,69 @@ test('queued sales render between occupied sales and buy orders',async()=>{
  p.listings=[{id:'live',slot:0,item:{name:'cap',level:2},price:100,state:'live',tradeSlot:'trade1'},{id:'paused',slot:1,item:{name:'pants'},price:10,state:'paused',tradeSlot:'trade1'}];
  let root;await renderer.act(async()=>root=renderer.create(React.createElement(context.exports.StandSheet,p)));
  const dialog=root.root.findAllByType('DialogContent')[0];
- assert.deepEqual(dialog.findAllByType('h2').map(n=>n.children.join('')),['Items for sale · 1/16 slots','Queued sales for stand','Buy orders · 2/16 slots']);
+ assert.deepEqual(dialog.findAllByType('h2').map(n=>n.children.join('')),['Items for sale · 1/16 slots','Queued sales for stand','Buy orders · 1/16 slots']);
  const sections=dialog.findAllByType('section');assert.equal(sections.length,2);
  assert.equal(sections[0].findAllByType('Tooltip').length,1);assert.equal(sections[1].findAllByType('Tooltip').length,1);
+ await renderer.act(async()=>root.unmount());
+});
+
+function fullStandFixture() {
+ const listings=Array.from({length:12},(_,i)=>({id:`sale${i}`,tradeSlot:`trade${i+1}`,state:'live',item:{name:'sale'+i,level:2},price:100}));
+ const bids=Object.fromEntries(Array.from({length:6},(_,i)=>['buy'+i,{...bid,useStandSlot:i>=4}]));
+ const offers=Object.fromEntries(Array.from({length:6},(_,i)=>[i,{itemId:'buy'+i,slot:'trade'+(i<4?13+i:i-3),phase:i<4?'live':i===4?'placing':'blocked',auto:true,level:2,price:100,quantity:99,acknowledged:0}]));
+ const slots=Object.fromEntries(Array.from({length:16},(_,i)=>['trade'+(i+1),entry(i<12?'sale'+i:'buy'+(i-12),i>=12)]));
+ return {listings,bids,native:{offers,problems:{}},slots};
+}
+test('twelve sale slots and four buy slots show exactly four of six candidate buys open or closed',()=>{
+ const {listings,bids,native,slots}=fullStandFixture();
+ for(const merchant of [{standOpen:true,slots},{standOpen:false,slots},{standOpen:false,slots:{}}]) {
+  const rows=standBuyRows(bids,native,merchant,listings);
+  assert.equal(rows.length,4);
+  assert.deepEqual(rows.map(r=>r.id),['buy0','buy1','buy2','buy3']);
+  assert.deepEqual(standOccupancy(listings,native,merchant,bids),{sales:12,buys:rows.length,total:16});
+ }
+});
+test('slot collisions, stale offers and invalid slots cannot add buy cards',()=>{
+ const {listings,bids,native,slots}=fullStandFixture();
+ native.offers.extra={...native.offers[0],slot:'trade1',itemId:'buy4'};
+ native.offers.invalid={...native.offers[0],slot:'trade17'};
+ slots.trade17=entry('buy4',true);
+ for(const standOpen of [true,false]) {
+  const merchant={standOpen,slots};
+  assert.equal(standBuyRows(bids,native,merchant,listings).length,4);
+  assert.equal(standSaleRows(listings,merchant,native).filter(r=>r.occupied).length,12);
+ }
+ native.offers[0].phase='removing';
+ assert.equal(standBuyRows(bids,native,{standOpen:false},listings).find(r=>r.key==='trade13').offer.phase,'removing');
+ assert.equal(standBuyRows(bids,native,{standOpen:true,slots:{}},listings).length,0);
+});
+test('observed buy slots survive missing orders and duplicate item names with distinct keys',()=>{
+ const merchant={standOpen:true,slots:{trade1:entry('unknown',true),trade2:entry('unknown',true)}};
+ const rows=standBuyRows({},undefined,merchant);
+ assert.deepEqual(rows.map(r=>r.key),['trade1','trade2']);
+ assert.ok(rows.every(r=>!r.bid && r.price===100 && r.quantity===99));
+});
+test('stand dialog matches four occupied cards and renders open/closed badges without queued sale badges',async()=>{
+ const {listings,bids,native,slots}=fullStandFixture();let root;
+ for(const standOpen of [true,false]) {
+  const p={...props(),listings,bids,nativeStand:native,merchant:{standOpen,slots:standOpen?slots:{}}};
+  await renderer.act(async()=>{root=renderer.create(React.createElement(context.exports.StandSheet,p))});
+  const dialog=root.root.findAllByType('DialogContent')[0];
+  assert.deepEqual(dialog.findAllByType('h2').map(n=>n.children.join('')),['Items for sale · 12/16 slots','Buy orders · 4/16 slots']);
+  assert.equal(dialog.findAllByType('WTBPreference').length,4);
+  assert.equal(dialog.findAllByType('span').filter(n=>n.children.includes('Queued')).length,0);
+  const badge=dialog.findAllByType('span').find(n=>n.children.includes(standOpen?'Stand open':'Stand closed'));
+  assert.ok(badge.props.className.includes(standOpen?'bg-emerald-950':'bg-red-950'));
+  await renderer.act(async()=>root.unmount());
+ }
+});
+test('unconfigured occupied buys display terms without editable order controls',async()=>{
+ let root;const p={...props(),bids:{}};
+ await renderer.act(async()=>root=renderer.create(React.createElement(context.exports.StandSheet,p)));
+ const dialog=root.root.findAllByType('DialogContent')[0];
+ assert.equal(dialog.findAllByType('WTBPreference').length,0);
+ assert.equal(dialog.findAllByType('WTBPriorityInput').length,0);
+ assert.equal(dialog.findAllByType('Button').find(n=>n.props['aria-label']==='Edit buy price for Cap').props.disabled,true);
+ assert.ok(dialog.findAllByType('span').some(n=>n.children.join('')==='99 wanted'));
  await renderer.act(async()=>root.unmount());
 });

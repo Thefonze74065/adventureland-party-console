@@ -2,7 +2,7 @@ const test = require('node:test'), assert = require('node:assert/strict');
 const fs = require('node:fs'), vm = require('node:vm');
 const source = fs.readFileSync('characters/shared.js', 'utf8');
 const helpers = source.slice(source.indexOf('  function diagnosticText('), source.indexOf('  function rareSightings('));
-const tick = source.slice(source.indexOf('  async function tick()'), source.indexOf('  function eventStatus()'));
+const tick = source.slice(source.indexOf('  var merchantVisibilityUntil'), source.indexOf('  function eventStatus()'));
 function fixture() {
   let now = 1000, response = {}, failure = null;
   const requests = [], logs = [];

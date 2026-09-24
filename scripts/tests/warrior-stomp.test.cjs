@@ -6,8 +6,8 @@ const source = fs.readFileSync(require('node:path').join(__dirname, '../../chara
 function setup() {
   let casts = 0;
   const c = vm.createContext({
-    character: { name: 'Warrior', ctype: 'warrior', map: 'main', in: 'main', x: 0, y: 0, mp: 120, max_mp: 1000 },
-    G: { skills: { stomp: { mp: 120, range: 400 } } }, farmingMode: 'default', unfinishedFight:()=>false,
+    character: { name: 'Warrior', ctype: 'warrior', map: 'main', in: 'main', x: 0, y: 0, mp: 120, max_mp: 1000, slots: { mainhand: { name: 'basher' } } },
+    G: { skills: { stomp: { mp: 120, range: 400 } }, items: { basher: { wtype: 'basher' }, fireblade: { wtype: 'short_sword' } } }, farmingMode: 'default', unfinishedFight:()=>false,
     parent: { entities: { m: { type: 'monster', visible: true, target: 'Ally', x: 20, y: 0 } } },
     partyPositions: [{ name: 'Ally', map: 'main', in: 'main', hp: 59, max_hp: 100, seenAt: Date.now() }],
     currentPartyList: () => ['Warrior', 'Ally'], is_on_cooldown: () => false, can_use: () => true,
@@ -40,7 +40,7 @@ test('self kiting, ally kiting, and two own attackers each trigger independently
   delete c.parent.entities.n;
   assert.equal(await c.emergencyWarriorStomp(), false);
 });
-test('cooldown, insufficient MP, unusable weapon, scatter, stale/distant party and empty range do not cast', async () => {
+test('cooldown, insufficient MP, unusable skill, scatter, stale/distant party and empty range do not cast', async () => {
   for (const change of [c => c.is_on_cooldown = () => true, c => c.character.mp = 119,
     c => c.can_use = () => false, c => c.farmingMode = 'scatter',
     c => c.partyPositions[0].seenAt = 1, c => c.partyPositions[0].in = 'other',
@@ -50,6 +50,36 @@ test('cooldown, insufficient MP, unusable weapon, scatter, stale/distant party a
     assert.equal(await c.emergencyWarriorStomp(), false);
     assert.equal(casts(), 0);
   }
+});
+
+test('incompatible or missing weapon data skips Stomp even when can_use returns true', async () => {
+  for (const change of [
+    c => c.character.slots.mainhand = { name: 'fireblade' },
+    c => c.character.slots.mainhand = null,
+    c => delete c.character.slots,
+    c => c.character.slots.mainhand = { name: 'unknown' },
+    c => delete c.G.items,
+    c => delete c.G.items.basher.wtype,
+  ]) {
+    const { c, casts } = setup();
+    change(c);
+    assert.equal(c.can_use('stomp'), true);
+    assert.equal(await c.emergencyWarriorStomp(), false);
+    assert.equal(casts(), 0);
+  }
+});
+
+test('Stomp rechecks the equipped weapon after every swap', async () => {
+  const { c, casts } = setup();
+  c.character.slots.mainhand = { name: 'fireblade' };
+  assert.equal(await c.emergencyWarriorStomp(), false);
+  assert.equal(casts(), 0);
+  c.character.slots.mainhand = { name: 'basher' };
+  assert.equal(await c.emergencyWarriorStomp(), true);
+  assert.equal(casts(), 1);
+  c.character.slots.mainhand = { name: 'fireblade' };
+  assert.equal(await c.emergencyWarriorStomp(), false);
+  assert.equal(casts(), 1);
 });
 
 test('defensive stomp is withheld when it would include a neutral monster',async()=>{
