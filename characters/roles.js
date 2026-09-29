@@ -27,6 +27,7 @@
     name: "priest",
     combat: true,
     beforeTarget: async function() {
+      if (sharedRoutine.frankyCombatActive?.() && await sharedRoutine.frankySpamPartyHeal?.()) return true;
       if (await sharedRoutine.absorbSinsBelow(1)) return true;
       return await sharedRoutine.healPartyBelow(0.9);
     },
@@ -99,6 +100,19 @@
       throw error;
     }
   }
+  async function scare(target) {
+    const id = sharedRoutine.queueEvidence?.(target, "pending") || void 0;
+    try {
+      await use_skill("scare");
+      sharedRoutine.queueEvidence?.(target, "engaged", id);
+    } catch (error) {
+      if (id) sharedRoutine.queueEvidence?.(target, "rejected", id);
+      throw error;
+    }
+  }
+  function scareReady(target) {
+    return character.mp >= (G.skills.scare?.mp ?? 0) && !is_on_cooldown("scare") && is_in_range(target, "scare") && can_use("scare");
+  }
   function partyTarget() {
     return sharedRoutine.getEventTarget() || sharedRoutine.getNearestPartyAttacker() || sharedRoutine.getNearestPartyTarget() || (sharedRoutine.shouldFollowLeader() ? sharedRoutine.getLeaderTarget() || sharedRoutine.getEngagedTarget() : sharedRoutine.getPreferredTarget());
   }
@@ -120,7 +134,13 @@
       return partyTarget();
     },
     beforeAttack: async function(target) {
-      if (sharedRoutine.frankyCombatActive?.()) return false;
+      if (sharedRoutine.frankyCombatActive?.()) {
+        if (target.target !== character.name && scareReady(target)) {
+          await scare(target);
+          return true;
+        }
+        return false;
+      }
       if (target.mtype === "porcupine" && mayTaunt(target)) {
         await taunt(target);
         return true;
@@ -1335,7 +1355,7 @@
       if (returnExcluded.has(d.skill)) return true;
       return !!world().skills[d.skill]?.hostile && d.targets.some((t) => !shared.returnAttacker?.(t));
     }
-    const frankyExcluded = /* @__PURE__ */ new Set(["agitate", "charge", "dash", "blink", "scare", "stomp", "cleave", "fanofknives"]);
+    const frankyExcluded = /* @__PURE__ */ new Set(["agitate", "charge", "dash", "blink", "stomp", "cleave", "fanofknives"]);
     function frankySkillBlocked(id, targets) {
       if (!shared.frankyCombatActive?.()) return false;
       return frankyExcluded.has(id) || !!world().skills[id]?.hostile && targets.some((t) => t.type !== "monster" || t.mtype !== "franky" || !shared.skillTargetAllowed?.(t));

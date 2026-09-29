@@ -12194,6 +12194,18 @@
     } finally { healingBusy = false; }
   }
 
+  // At the gear level this event is being run, Franky's damage output requires
+  // continuous party-wide healing rather than the normal reactive threshold
+  // (two members critically injured). This bypasses that gate entirely while
+  // Franky combat is active and casts partyheal on cooldown.
+  async function frankySpamPartyHeal() {
+    if (character.ctype !== "priest" || character.rip) return false;
+    if (!G.skills.partyheal || character.mp < Number(G.skills.partyheal.mp || 0)) return false;
+    if (is_on_cooldown("partyheal") || !can_use("partyheal")) return false;
+    await use_skill("partyheal");
+    return true;
+  }
+
   async function energizeLowestMana(reserveRatio) {
     if (character.ctype !== "mage" || character.max_mp <= 0) return false;
     reserveRatio = reserveRatio == null ? 0.35 : reserveRatio;
@@ -14140,6 +14152,8 @@
   }
 
   var kiteState = { targetId: null, center: null, offset: 0, lastMoveAt: 0 };
+  var frankyLastKnown = null;
+  var frankyFleeState = { phase: "none", homeMap: null, since: 0 };
 
   function isCurrentlyKiting() {
     var target = kiteState.targetId && get_entity(kiteState.targetId);
@@ -15092,26 +15106,180 @@
     // collision-checked steps, retaining all secondary-attacker safeguards.
     return false;
   }
-  function frankyMovementTick(target) {
-    if (!frankyCombatActive()) return false;
-    if (!frankyTargetAllowed(target) || is_in_range(target)) {
-      resetCombatMovement();
-      root.partyCombatPosition = { at: Date.now(), mode: target ? "franky-holding" : "franky-waiting",
-        movementOwner: "combat", target: target && target.id || null,
-        reason: target ? "Franky is in attack range" : "Waiting for Franky" };
-      return true;
-    }
-    var destination = combatApproachPoint(target);
-    var dx = destination.x - character.x, dy = destination.y - character.y;
+  function frankyExitDoor(mapName) {
+    // The door shared with the room's ordinary entrance, eastmost among those
+    // (see frankySafeCorner). Also used as the literal way out when fleeing:
+    // its own target map/spawn are what a real map transition needs.
+    var map = G.maps && G.maps[mapName];
+    var doors = (map && map.doors) || [];
+    if (!doors.length) return null;
+    var counts = {};
+    doors.forEach(function (door) { counts[door[4]] = (counts[door[4]] || 0) + 1; });
+    var primary = Object.keys(counts).reduce(function (best, key) {
+      return !best || counts[key] > counts[best] ? key : best;
+    }, null);
+    return doors.filter(function (door) { return door[4] === primary; })
+      .reduce(function (best, door) {
+        return !best || door[0] > best[0]
+          ? { x: door[0], y: door[1], map: door[4], spawn: Number(door[5] || 0) } : best;
+      }, null);
+  }
+  function frankySafeCorner() { return frankyExitDoor(character.map); }
+  function frankyReturnSpawn(awayMap, homeMap) {
+    // Best-effort: the eastmost door on the away map that leads back to home.
+    // If the room has more than one door back, this may not be the exact one
+    // we left through, but it lands back inside the same room either way.
+    var doors = (G.maps && G.maps[awayMap] && G.maps[awayMap].doors) || [];
+    return doors.filter(function (door) { return door[4] === homeMap; })
+      .reduce(function (best, door) { return !best || door[0] > best[0] ? Number(door[5] || 0) : best; }, null);
+  }
+  function frankyMoveToward(moveTarget, point, mode) {
+    var dx = point.x - character.x, dy = point.y - character.y;
     var step = Math.min(Math.hypot(dx, dy), Math.max(1, Number(character.speed || 40) * 0.6));
     var angle = Math.atan2(dy, dx);
     for (var offsets = [0, 0.4, -0.4, 0.8, -0.8], i = 0; i < offsets.length; i++) {
+      var p = { x: character.x + Math.cos(angle + offsets[i]) * step, y: character.y + Math.sin(angle + offsets[i]) * step };
+      if (typeof can_move_to === "function" && can_move_to(p.x, p.y)) return sendCombatMove(moveTarget, p, mode);
+    }
+    return false;
+  }
+  function frankyFleeTick() {
+    if (frankyFleeState.phase === "toDoor") {
+      var door = frankyExitDoor(frankyFleeState.homeMap);
+      if (!door) { frankyFleeState.phase = "none"; return false; }
+      if (Math.hypot(character.x - door.x, character.y - door.y) <= 20) {
+        frankyFleeState.phase = "leaving";
+        return frankyFleeTick();
+      }
+      if (frankyMoveToward({ id: "franky-flee-door", x: door.x, y: door.y }, door, "franky-fleeing")) return true;
+      resetCombatMovement();
+      root.partyCombatPosition = { at: Date.now(), mode: "blocked", movementOwner: "combat",
+        target: null, reason: "No terrain-clear path to the exit door" };
+      return true;
+    }
+    if (frankyFleeState.phase === "leaving") {
+      if (!frankyFleeState.since) {
+        frankyFleeState.since = Date.now();
+        var exit = frankyExitDoor(frankyFleeState.homeMap);
+        if (!exit) { frankyFleeState.phase = "none"; return false; }
+        Promise.resolve(transport(exit.map, exit.spawn)).then(function () {
+          frankyFleeState.phase = "away"; frankyFleeState.since = Date.now();
+        }).catch(function () { frankyFleeState.phase = "none"; });
+      }
+      resetCombatMovement();
+      root.partyCombatPosition = { at: Date.now(), mode: "franky-fleeing", movementOwner: "combat",
+        target: null, reason: "Leaving the room" };
+      return true;
+    }
+    if (frankyFleeState.phase === "away") {
+      if (Date.now() - frankyFleeState.since < 3000) {
+        resetCombatMovement();
+        root.partyCombatPosition = { at: Date.now(), mode: "franky-fleeing", movementOwner: "combat",
+          target: null, reason: "Waiting outside the room for Franky to lose interest" };
+        return true;
+      }
+      frankyFleeState.phase = "returning"; frankyFleeState.since = 0;
+      return frankyFleeTick();
+    }
+    if (frankyFleeState.phase === "returning") {
+      if (!frankyFleeState.since) {
+        frankyFleeState.since = Date.now();
+        var spawn = frankyReturnSpawn(character.map, frankyFleeState.homeMap);
+        Promise.resolve(transport(frankyFleeState.homeMap, spawn == null ? undefined : spawn)).then(function () {
+          frankyFleeState.phase = "none";
+        }).catch(function () { frankyFleeState.phase = "none"; });
+      }
+      resetCombatMovement();
+      root.partyCombatPosition = { at: Date.now(), mode: "franky-fleeing", movementOwner: "combat",
+        target: null, reason: "Returning to the room" };
+      return true;
+    }
+    frankyFleeState.phase = "none";
+    return false;
+  }
+  function frankyMovementTick(target) {
+    if (!frankyCombatActive()) { frankyLastKnown = null; frankyFleeState.phase = "none"; frankyFleeState.since = 0; return false; }
+    // A flee sequence runs to completion once started, since Franky's aggro
+    // isn't observable while briefly off on the adjacent map.
+    if (frankyFleeState.phase !== "none") return frankyFleeTick();
+    if (frankyTargetAllowed(target)) frankyLastKnown = { x: target.x, y: target.y, at: Date.now() };
+    var safeSpot = frankySafeCorner();
+    if (!frankyTargetAllowed(target)) {
+      // Franky isn't a currently-loaded entity, most likely because he's out
+      // of network range wherever we spawned in. Standing still here is how a
+      // character gets worked over by nerfedmummies while never closing the
+      // distance: chase his last known position while that memory is fresh,
+      // otherwise fall back to waiting at the safe corner rather than idling
+      // wherever we happened to stop.
+      var fresh = frankyLastKnown && Date.now() - frankyLastKnown.at <= 30000;
+      var seekAt = fresh ? frankyLastKnown : safeSpot;
+      if (!seekAt || Math.hypot(character.x - seekAt.x, character.y - seekAt.y) <= 40) {
+        resetCombatMovement();
+        root.partyCombatPosition = { at: Date.now(), mode: "franky-waiting", movementOwner: "combat",
+          target: null, reason: fresh ? "At Franky's last known position; waiting for him to load in" : "Waiting in the safe corner for Franky" };
+        return true;
+      }
+      if (frankyMoveToward({ id: "franky-seek-point", x: seekAt.x, y: seekAt.y }, seekAt, fresh ? "franky-seeking" : "franky-retreating")) return true;
+      resetCombatMovement();
+      root.partyCombatPosition = { at: Date.now(), mode: "blocked", movementOwner: "combat",
+        target: null, reason: "No terrain-clear path toward Franky" };
+      return true;
+    }
+    if (target.target === character.name) {
+      // Fragile gear: don't try to tank him. Actually leave the room through
+      // its exit door and wait a few seconds for the human tank to reclaim
+      // aggro, then come back, rather than just backing off to the doorway.
+      frankyFleeState.phase = "toDoor"; frankyFleeState.homeMap = character.map; frankyFleeState.since = 0;
+      return frankyFleeTick();
+    }
+    if (!target.target) {
+      // Nobody has aggro yet: wait at the safe corner instead of walking in cold.
+      if (!safeSpot || Math.hypot(character.x - safeSpot.x, character.y - safeSpot.y) <= 40) {
+        resetCombatMovement();
+        root.partyCombatPosition = { at: Date.now(), mode: "franky-waiting", movementOwner: "combat",
+          target: target.id, reason: "Waiting in the safe corner for Franky to engage someone" };
+        return true;
+      }
+      if (frankyMoveToward(target, safeSpot, "franky-retreating")) return true;
+      resetCombatMovement();
+      root.partyCombatPosition = { at: Date.now(), mode: "blocked", movementOwner: "combat",
+        target: target.id, reason: "No terrain-clear path to the safe corner" };
+      return true;
+    }
+    // Someone else has aggro: stack tight on Franky rather than fighting at our
+    // own weapon range, so a human off-tank rotation, Scare uptime and
+    // partyheal all stay effective. Ranged classes are capped down to
+    // near-melee distance instead of hanging back at their own range.
+    var stackRange = Math.min(desiredCombatRange(), 30);
+    if (combatDistance(target) <= stackRange + 5) {
+      resetCombatMovement();
+      root.partyCombatPosition = { at: Date.now(), mode: "franky-holding", movementOwner: "combat",
+        target: target.id, reason: "Standing with Franky" };
+      return true;
+    }
+    var destination = combatApproachPoint(target, stackRange);
+    var dx = destination.x - character.x, dy = destination.y - character.y;
+    var step = Math.min(Math.hypot(dx, dy), Math.max(1, Number(character.speed || 40) * 0.6));
+    var angle = Math.atan2(dy, dx);
+    // Prefer whichever terrain-clear offset keeps the most distance from other
+    // party members already stacked on Franky, so attacks that splash a small
+    // radius don't chain across the whole group.
+    var minSeparation = 25;
+    var allies = formationMembers().filter(function (member) { return member.name !== character.name; });
+    var candidates = [];
+    for (var offsets = [0, 0.4, -0.4, 0.8, -0.8, 1.2, -1.2], i = 0; i < offsets.length; i++) {
       var point = { x: character.x + Math.cos(angle + offsets[i]) * step,
         y: character.y + Math.sin(angle + offsets[i]) * step };
-      // Only terrain constrains this approach. Adds and healer coverage must not
-      // cause a retreat or prevent closing on Franky.
-      if (typeof can_move_to === "function" && can_move_to(point.x, point.y))
-        return sendCombatMove(target, point, "franky-approaching");
+      if (typeof can_move_to !== "function" || !can_move_to(point.x, point.y)) continue;
+      var clearance = allies.reduce(function (min, ally) {
+        return Math.min(min, Math.hypot(point.x - ally.x, point.y - ally.y));
+      }, Infinity);
+      candidates.push({ point: point, clearance: clearance });
+    }
+    if (candidates.length) {
+      var spaced = candidates.filter(function (c) { return c.clearance >= minSeparation; });
+      var chosen = (spaced.length ? spaced : candidates).sort(function (a, b) { return b.clearance - a.clearance; })[0];
+      return sendCombatMove(target, chosen.point, "franky-stacking");
     }
     resetCombatMovement();
     root.partyCombatPosition = { at: Date.now(), mode: "blocked", movementOwner: "combat",
@@ -15364,6 +15532,7 @@
     smartLoot: smartLoot,
     absorbSinsBelow: absorbSinsBelow,
     healPartyBelow: healPartyBelow,
+    frankySpamPartyHeal: frankySpamPartyHeal,
     energizeLowestMana: energizeLowestMana,
     rejoinActiveEventAfterRespawn: rejoinActiveEventAfterRespawn,
     beginFarmReunion: beginFarmReunion,

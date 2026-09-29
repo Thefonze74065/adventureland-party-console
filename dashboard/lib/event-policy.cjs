@@ -33,7 +33,7 @@ function selectedEvents(party, name) {
   const source = eventPolicy(party, name).source;
   const saved = party.eventSelectionsByCharacter?.[source];
   const selections = saved ?? ["anniversary", ...party.eventsByCharacter?.[source] ? supportedEvents.filter((id) => id !== "anniversary") : []];
-  return selections.filter((id) => supportedEvents.includes(id) && (name !== party.merchantCharacter || id === "anniversary"));
+  return selections.filter((id) => supportedEvents.includes(id));
 }
 function eventEnabled(party, name, event) {
   return selectedEvents(party, name).includes(event);

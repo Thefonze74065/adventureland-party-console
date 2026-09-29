@@ -13,6 +13,9 @@ export const role: Partial<Role> = {
   name: "priest",
   combat: true,
   beforeTarget: async function () {
+    // At this gear level Franky's damage needs continuous AoE healing, not the
+    // normal reactive threshold: spam partyheal whenever it's off cooldown.
+    if (sharedRoutine.frankyCombatActive?.() && await sharedRoutine.frankySpamPartyHeal?.()) return true;
     if (await sharedRoutine.absorbSinsBelow(1)) return true;
     return await sharedRoutine.healPartyBelow(0.9);
   },

@@ -60,6 +60,7 @@ export interface SharedCombat {
   }): Promise<boolean>;
   absorbSinsBelow(ratio: number): Promise<boolean>;
   healPartyBelow(ratio: number): Promise<boolean>;
+  frankySpamPartyHeal?(): Promise<boolean>;
   isPartyHealthy(ratio: number): boolean;
   monsterPriority?(this: void, target: Target): number;
   isCurrentPartyTarget(target: Target): boolean;

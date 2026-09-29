@@ -24,6 +24,7 @@ var partyFarmingZones = (() => {
   var farming_zones_exports = {};
   __export(farming_zones_exports, {
     bounds: () => bounds,
+    candidates: () => candidates,
     contains: () => contains,
     distance: () => distance,
     id: () => id,
@@ -33,6 +34,7 @@ var partyFarmingZones = (() => {
     searchPoints: () => searchPoints,
     segmentDistance: () => segmentDistance,
     shapeDistance: () => shapeDistance,
+    withinRadius: () => withinRadius,
     zones: () => zones
   });
   function polygon(shape) {
@@ -84,6 +86,14 @@ var partyFarmingZones = (() => {
       return false;
     const shaped = area.shapes || area.boundary || area.polygon || area.allOf;
     return distance(area, p) <= (shaped ? (margin || 0) + 1e-3 : (radius || 400) + (margin || 0));
+  }
+  function candidates(area, targets, radius = 400) {
+    if (!area) return targets;
+    const bounded = targets.filter((target) => contains(area, target, 0, radius));
+    return bounded.length ? bounded : targets.filter((target) => withinRadius(area, target, radius));
+  }
+  function withinRadius(area, target, radius = 400) {
+    return (!target.map || target.map === area.map) && Math.hypot(target.x - area.x, target.y - area.y) <= radius;
   }
   function bounds(area) {
     const points = (area.shapes || [area]).flatMap(polygon);

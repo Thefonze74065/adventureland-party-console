@@ -68,7 +68,9 @@ export function installSkillRuntime(root: CombatRoot) {
     return !!world().skills[d.skill]?.hostile && d.targets.some(t=>!shared.returnAttacker?.(t as Target));
   }
   // Area effects and movement skills cannot honor strict boss-only, hold-position combat.
-  const frankyExcluded = new Set<string>(['agitate','charge','dash','blink','scare','stomp','cleave','fanofknives']);
+  // Scare stays allowed: warrior.ts casts it directly (it's untargeted) as how
+  // an off-tank mitigates Franky's damage without contesting the tank's aggro.
+  const frankyExcluded = new Set<string>(['agitate','charge','dash','blink','stomp','cleave','fanofknives']);
   function frankySkillBlocked(id: SkillId, targets: Combatant[]): boolean {
     if (!shared.frankyCombatActive?.()) return false;
     return frankyExcluded.has(id) || !!world().skills[id]?.hostile &&

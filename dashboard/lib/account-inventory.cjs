@@ -31,7 +31,7 @@ function inventoryCounts(characters = [], bank = null, bankbois = [], byLevel = 
   const add = (entry) => {
     if (!entry?.item) return;
     const item = entry.item;
-    const key = byLevel ? `${item.name}@${item.level || 0}` : item.name;
+    const key = byLevel ? `${item.name}@${item.level || 0}` : String(item.name);
     totals[key] = (totals[key] || 0) + Math.max(1, Number(item.q) || 1);
   };
   characters.filter((entry) => entry && !storageNames.has(entry.name)).forEach((entry) => (entry.items || []).forEach(add));
