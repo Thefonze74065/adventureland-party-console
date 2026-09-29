@@ -10,6 +10,7 @@ import { CharacterMapSection } from './character-map-section';
 import { MonsterDetailsDialog } from './monster-details-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { FarmingModeControl } from './farming-mode-control';
+import { FrankyDialog } from './franky-dialog';
 import { farmingContext } from './farming-context';
 import { GoldTargetControl } from './gold-target-control';
 import { MerchantCardControls } from './merchant-card-controls';
@@ -21,7 +22,7 @@ import type { CharacterCardModel, InventoryModel } from './character-card-model'
 import { XpMeter } from './xp-meter';
 import { MonsterRouteButton } from './monster-route-button';
 
-import { memo, useCallback, useEffect, useMemo, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { committedLiveRecord } from './live-metrics';
 import { useCharacterData } from './dashboard-live';
 import { ConnectedInventory } from './connected-inventory';
@@ -61,6 +62,8 @@ export const ConnectedCharacterCard = memo(function ConnectedCharacterCard({
     monsters,
     post,
     setFarmingPolicy,
+    setEncounterMode,
+    setEncounterAutoLimit,
     setSelectedCondition,
     command,
     bankParty,
@@ -206,6 +209,16 @@ export const ConnectedCharacterCard = memo(function ConnectedCharacterCard({
     (mode: FarmingPolicy) => void setFarmingPolicy(mode, name),
     [setFarmingPolicy, name],
   );
+  const onSelectFrankyRoutine = useCallback(
+    (mode: string) => setEncounterMode('franky', mode, name),
+    [setEncounterMode, name],
+  );
+  const onFrankyAutoDeathLimit = useCallback(
+    (deathLimit: number) => setEncounterAutoLimit('franky', deathLimit, name),
+    [setEncounterAutoLimit, name],
+  );
+  const [frankyOpen, setFrankyOpen] = useState(false);
+  const onFranky = useCallback(() => setFrankyOpen(true), [setFrankyOpen]);
   const collectionSettings = useMemo(
     () => ({
       thresholdError, itemCollectionThresholdError, onClearErrors: clearCollectionErrors,
@@ -321,6 +334,7 @@ export const ConnectedCharacterCard = memo(function ConnectedCharacterCard({
             <span>Follow</span>
           </label>
           <EventSelectionControl onAnniversary={onAnniversary}
+            onFranky={char.ctype !== 'merchant' ? onFranky : undefined}
             state={eventState}
             name={char.name}
             merchant={char.ctype === 'merchant'}
@@ -384,6 +398,19 @@ export const ConnectedCharacterCard = memo(function ConnectedCharacterCard({
             hunt={farming.hunt}
             characterHunt={char.monsterHunt}
             onSelect={onSelectFarmingPolicy}
+          />
+        ) : null}
+        {char.ctype !== 'merchant' ? (
+          <FrankyDialog
+            open={frankyOpen}
+            onOpenChange={setFrankyOpen}
+            character={char.name}
+            mode={farming.frankyRoutine}
+            inherited={!!farming.followingLeader}
+            onSelect={onSelectFrankyRoutine}
+            autoDeathLimit={farming.frankyAutoDeathLimit}
+            autoDeaths={farming.frankyAutoDeaths}
+            onAutoDeathLimitChange={onFrankyAutoDeathLimit}
           />
         ) : null}
         {char.name === state.merchantCharacter ? (

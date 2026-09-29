@@ -7,7 +7,7 @@ export default defineConfig({
   projects: [
     { name: 'debug', testMatch: ['**/debug-instance.spec.ts', '**/debug-container.spec.ts'] },
     { name: 'console', testMatch: ['**/console.spec.ts', '**/hunt.spec.ts'] },
-    { name: 'live', testMatch: ['**/live-game.spec.ts', '**/live-economy.spec.ts', '**/live-catalog.spec.ts', '**/live-franky.spec.ts', '**/live-franky-party.spec.ts', '**/live-hunt-*.spec.ts', '**/live-solo-ranger.spec.ts', '**/live-merchant-config.spec.ts'],
+    { name: 'live', testMatch: ['**/live-game.spec.ts', '**/live-economy.spec.ts', '**/live-catalog.spec.ts', '**/live-franky.spec.ts', '**/live-franky-party.spec.ts', '**/live-franky-encounter-mode.spec.ts', '**/live-hunt-*.spec.ts', '**/live-solo-ranger.spec.ts', '**/live-merchant-config.spec.ts'],
       use: { trace: { mode: 'on', snapshots: false, screenshots: false, sources: true } } },
   ],
   fullyParallel: false,

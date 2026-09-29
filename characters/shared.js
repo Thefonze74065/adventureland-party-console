@@ -409,6 +409,7 @@
   var monsterSearchRadius = 400;
   var farmingMode = "default";
   var farmingPolicy = "auto";
+  var frankyRoutine = "auto";
   var huntCombatTarget = null;
   var farmingModeResetUntil = 0;
   var scatterMonsterTypes = {};
@@ -10005,6 +10006,20 @@
         if (typeof monsterType === "string") scatterMonsterTypes[monsterType] = true;
       });
       farmingPolicy = typeof state.farmingPolicy === "string" ? state.farmingPolicy : "auto";
+      // Auto mode tries the tank engagement first; after enough deaths while doing so
+      // (configurable, matching runtime/coordinator/events/franky-auto-tank.ts's
+      // defaultFrankyAutoTankDeathLimit) it falls back to off-tank for good. A
+      // death limit of 0 skips the tank attempt entirely.
+      var savedFrankyMode = state.encounterRoutines && typeof state.encounterRoutines.franky === "string"
+        ? state.encounterRoutines.franky : "auto";
+      if (savedFrankyMode === "auto") {
+        var frankyAutoDeathLimit = state.encounterAutoDeathLimits && typeof state.encounterAutoDeathLimits.franky === "number"
+          ? state.encounterAutoDeathLimits.franky : 3;
+        var frankyAutoDeaths = (state.encounterAutoDeaths && state.encounterAutoDeaths.franky) || 0;
+        frankyRoutine = frankyAutoDeathLimit > 0 && frankyAutoDeaths < frankyAutoDeathLimit ? "tank" : "offtank";
+      } else {
+        frankyRoutine = savedFrankyMode;
+      }
       huntCombatTarget = state.huntCombatTarget || null;
       farmingMode = character.ctype !== "merchant" && state.partyFarmingMode === "scatter" ? "scatter" : "default";
       partyFarmingMonsterType = typeof state.partyFarmingMonsterType === "string" ? state.partyFarmingMonsterType : null;
@@ -15199,6 +15214,14 @@
   }
   function frankyMovementTick(target) {
     if (!frankyCombatActive()) { frankyLastKnown = null; frankyFleeState.phase = "none"; frankyFleeState.since = 0; return false; }
+    if (frankyRoutine === "tank") {
+      // A party that can actually tank Franky engages him like any other
+      // combat target instead of running the off-tank/support state machine
+      // below (stacking on someone else's aggro, fleeing when targeted).
+      frankyFleeState.phase = "none"; frankyFleeState.since = 0;
+      if (frankyTargetAllowed(target)) frankyLastKnown = { x: target.x, y: target.y, at: Date.now() };
+      return engageMovementTick(target);
+    }
     // A flee sequence runs to completion once started, since Franky's aggro
     // isn't observable while briefly off on the adjacent map.
     if (frankyFleeState.phase !== "none") return frankyFleeTick();
@@ -15287,8 +15310,9 @@
     return true;
   }
 
-  async function approachCombatTarget(target) {
-    if (typeof frankyCombatActive === "function" && frankyCombatActive()) return frankyMovementTick(target);
+  // Shared by ordinary combat and the Franky "tank" routine: approach and hold
+  // at this character's own weapon range, regardless of who currently has aggro.
+  function engageMovementTick(target) {
     if (!target || target.dead) return false;
     var delta = combatDistance(target) - desiredCombatRange();
     var tolerance = Math.min(3, Math.max(0.5, Number(character.range) * 0.01));
@@ -15308,6 +15332,11 @@
       blockingAttacker: blockedKite && blockedKite.mode === "blocked" ? blockedKite.blockingAttacker : null,
       reason: "No collision-safe combat approach satisfying attacker clearance" };
     return false;
+  }
+
+  async function approachCombatTarget(target) {
+    if (typeof frankyCombatActive === "function" && frankyCombatActive()) return frankyMovementTick(target);
+    return engageMovementTick(target);
   }
 
   root.sharedRoutine = {

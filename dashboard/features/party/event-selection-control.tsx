@@ -17,8 +17,8 @@ export function eventTimeLabel(next: number | undefined, now: number) {
   const remaining = Math.max(0, ms - now);
   return `${new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(ms)} (${Math.floor(remaining / 60000)}m ${Math.floor(remaining / 1000) % 60}s)`;
 }
-export const EventSelectionControl = memo(function EventSelectionControl({ state, name, onChange, onAnniversary }: {
-  state: EventSelectionState; name: string; merchant: boolean; onAnniversary: () => void; onChange: (events: string[]) => void;
+export const EventSelectionControl = memo(function EventSelectionControl({ state, name, onChange, onAnniversary, onFranky }: {
+  state: EventSelectionState; name: string; merchant: boolean; onAnniversary: () => void; onFranky?: () => void; onChange: (events: string[]) => void;
 }) {
   const now = useClock(), policy = eventPolicy(state, name), selected = selectedEvents(state, name);
   const catalog: EventSchedule[] = state.eventSchedules?.length ? state.eventSchedules : supportedEvents.map(id => ({ id, name: id }));
@@ -34,6 +34,7 @@ export const EventSelectionControl = memo(function EventSelectionControl({ state
             className="accent-emerald-500" onChange={e => onChange(e.target.checked ? [...selected, event.id] : selected.filter(id => id !== event.id))} />
           <span>{event.name} — {!supported ? "Unsupported" : event.live ? "LIVE" : event.next ? eventTimeLabel(event.next, now) : event.slotAt ? `Next chance: ${eventTimeLabel(event.slotAt, now)}` : "Time not announced"}{event.stale ? " · timing stale" : ""}</span>
           {event.id === "anniversary" && <button type="button" aria-label="Anniversary settings" onClick={onAnniversary} className="ml-auto rounded border border-slate-500 bg-slate-950 p-2 text-pink-200 hover:bg-slate-800"><Settings className="size-4" /></button>}
+          {event.id === "franky" && onFranky && <button type="button" aria-label="Franky routine settings" onClick={onFranky} className="ml-auto rounded border border-slate-500 bg-slate-950 p-2 text-amber-200 hover:bg-slate-800"><Settings className="size-4" /></button>}
         </div>;
       })}
     </PopoverContent>

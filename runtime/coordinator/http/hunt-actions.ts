@@ -2,10 +2,12 @@ import {createHuntSettingsRoute} from "./hunt-settings.ts";
 import { createHuntModeRoute } from "./hunt-mode.ts";
 import type { Catalog } from "../../../dashboard/lib/farming-zones.ts";
 import { createHuntControlRoutes, createHuntBlacklistRoute } from "./hunt-control.ts";
+import { createEncounterModeRoute } from "./encounter-mode.ts";
 
 type HuntState = Parameters<typeof createHuntModeRoute>[0] &
   Parameters<typeof createHuntControlRoutes>[0] &
-  Parameters<typeof createHuntBlacklistRoute>[0] & { monsterChoices?: Catalog | null };
+  Parameters<typeof createHuntBlacklistRoute>[0] &
+  Parameters<typeof createEncounterModeRoute>[0] & { monsterChoices?: Catalog | null };
 type ModePorts = Parameters<typeof createHuntModeRoute>[1];
 type HuntPorts = Omit<ModePorts, "fighting" | "cancelled" | "validLocation"> &
   Omit<Parameters<typeof createHuntControlRoutes>[1], "cancelled"> & {
@@ -30,5 +32,6 @@ export function createCoordinatorHuntActions(state: HuntState, ports: HuntPorts)
   const blacklist = createHuntBlacklistRoute(state, shared);
   const controls = createHuntControlRoutes(state, shared);
   const settings = createHuntSettingsRoute(state, shared);
-  return { mode, blacklist, controls, settings };
+  const encounterMode = createEncounterModeRoute(state, shared);
+  return { mode, blacklist, controls, settings, encounterMode };
 }

@@ -643,6 +643,7 @@ export function startCoordinatorApplication(
       blacklist: huntBlacklistRoute,
       settings: huntSettingsRoute,
       controls: huntControlRoutes,
+      encounterMode: encounterModeRoute,
     } = coordinatorPolicies.createCoordinatorHuntActions(party, {
       now: () => Date.now(),
       fighting: (state, names) => convoyDefense.fighting(state, names),
@@ -986,7 +987,13 @@ export function startCoordinatorApplication(
         persist: persistSettings,
         abtesting: resolveAbtestingStrategy,
         activeNames,
-        events: report => (soloFor(report.name)?.eventObservations || eventObservations).observe(report),
+        events: report => {
+          (soloFor(report.name)?.eventObservations || eventObservations).observe(report);
+          coordinatorPolicies.recordFrankyAutoTankDeath(report, {
+            profile: name => farmingScopes.profile(farmingScopes.owner(name)),
+            persist: persistSettings,
+          });
+        },
         publish: scheduleALDataPublish,
         convoyStep: stepAllConvoys,
         merchantScheduling: merchantScheduling.observe,
@@ -1775,6 +1782,7 @@ export function startCoordinatorApplication(
       blacklist: huntBlacklistRoute,
       settings: huntSettingsRoute,
       controls: huntControlRoutes,
+      encounterMode: encounterModeRoute,
     } = coordinatorPolicies.createCoordinatorHuntActions(party, {
       now: () => Date.now(),
       fighting: (state, names) => convoyDefense.fighting(state, names),
@@ -1832,7 +1840,7 @@ export function startCoordinatorApplication(
         allowed: (activity: string) => ["town-return", "event-return"].includes(activity) || !huntTurnInOwnsTravel(party.monsterHunt),
       };
       return { state: party, eventReturns, eventObservations, eventRecoveryRoutes, focusRoute, farmingNavigation, partyConvoys, huntTick, farmAreaNavigation, heartbeatResponse,
-        huntModeRoute, huntBlacklistRoute, huntSettingsRoute, huntControlRoutes,
+        huntModeRoute, huntBlacklistRoute, huntSettingsRoute, huntControlRoutes, encounterModeRoute,
         eventAcknowledgementRoutes, convoyEngagementRoutes, farmingReturnRoute, convoyAcknowledgementRoutes, walks };
     }
     function independentServices() {
@@ -2113,6 +2121,7 @@ export function startCoordinatorApplication(
               huntBlacklistRoute: scopedRoute(huntBlacklistRoute, service => service.huntBlacklistRoute, true),
               huntSettingsRoute: scopedRoute(huntSettingsRoute, service => service.huntSettingsRoute, true),
               huntModeRoute: scopedRoute(huntModeRoute, service => service.huntModeRoute, true, true),
+              encounterModeRoute: scopedRoute(encounterModeRoute, service => service.encounterModeRoute, true),
               huntControlRoutes: { permission: scopedRoute(huntControlRoutes.permission, service => service.huntControlRoutes.permission), retryReturn: scopedRoute(huntControlRoutes.retryReturn, service => service.huntControlRoutes.retryReturn), interactionComplete: scopedRoute(huntControlRoutes.interactionComplete, service => service.huntControlRoutes.interactionComplete) },
               eventRecoveryRoutes: { disabled: scopedRoute(eventRecoveryRoutes.disabled, service => service.eventRecoveryRoutes.disabled), ended: scopedRoute(eventRecoveryRoutes.ended, service => service.eventRecoveryRoutes.ended) },
               eventAcknowledgementRoutes: { progress: scopedRoute(eventAcknowledgementRoutes.progress, service => service.eventAcknowledgementRoutes.progress), townComplete: scopedRoute(eventAcknowledgementRoutes.townComplete, service => service.eventAcknowledgementRoutes.townComplete), returnComplete: scopedRoute(eventAcknowledgementRoutes.returnComplete, service => service.eventAcknowledgementRoutes.returnComplete), resumeComplete: scopedRoute(eventAcknowledgementRoutes.resumeComplete, service => service.eventAcknowledgementRoutes.resumeComplete) },

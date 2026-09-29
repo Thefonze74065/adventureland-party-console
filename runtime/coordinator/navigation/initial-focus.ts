@@ -5,6 +5,12 @@ function focus(settings: SavedFarmingSelections, selections: SavedFarmingSelecti
   if (Array.isArray(settings.monsterFocus)) return settings.monsterFocus;
   return typeof settings.monsterFocus === "string" ? [settings.monsterFocus] : ["goo"];
 }
+function pick<T>(selected: T | null | undefined, saved: T | null | undefined, fallback: T): T {
+  return selected || saved || fallback;
+}
+function farmingPolicyOf(settings: SavedFarmingSelections): string {
+  return ["auto", "default", "scatter", "hunt"].includes(settings.farmingPolicy!) ? settings.farmingPolicy! : "auto";
+}
 
 /** Explicit empty focus arrays remain authoritative across the legacy settings migration. */
 export function initialFarmingSelections(
@@ -13,14 +19,12 @@ export function initialFarmingSelections(
 ): FarmingSelections {
   return {
     monsterFocus: focus(settings, selections),
-    monsterFocusByCharacter:
-      selections.monsterFocusByCharacter || settings.monsterFocusByCharacter || {},
-    monsterPrioritiesByCharacter:
-      selections.monsterPrioritiesByCharacter || settings.monsterPrioritiesByCharacter || {},
-    monsterSearchRadiusByCharacter:
-      selections.monsterSearchRadiusByCharacter || settings.monsterSearchRadiusByCharacter || {},
-    farmingPolicy: ["auto", "default", "scatter", "hunt"].includes(settings.farmingPolicy!)
-      ? settings.farmingPolicy!
-      : "auto",
+    monsterFocusByCharacter: pick(selections.monsterFocusByCharacter, settings.monsterFocusByCharacter, {}),
+    monsterPrioritiesByCharacter: pick(selections.monsterPrioritiesByCharacter, settings.monsterPrioritiesByCharacter, {}),
+    monsterSearchRadiusByCharacter: pick(selections.monsterSearchRadiusByCharacter, settings.monsterSearchRadiusByCharacter, {}),
+    farmingPolicy: farmingPolicyOf(settings),
+    encounterRoutines: pick(selections.encounterRoutines, settings.encounterRoutines, {}),
+    encounterAutoDeathLimits: pick(selections.encounterAutoDeathLimits, settings.encounterAutoDeathLimits, {}),
+    encounterAutoDeaths: pick(selections.encounterAutoDeaths, settings.encounterAutoDeaths, {}),
   };
 }

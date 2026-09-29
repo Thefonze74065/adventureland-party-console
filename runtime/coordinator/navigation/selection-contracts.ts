@@ -23,6 +23,9 @@ export interface FarmingSelections {
   monsterPrioritiesByCharacter: Record<string, Record<string, number>>;
   monsterSearchRadiusByCharacter: Record<string, number>;
   farmingPolicy: string;
+  encounterRoutines: Record<string, string>;
+  encounterAutoDeathLimits: Record<string, number>;
+  encounterAutoDeaths: Record<string, number>;
 }
 
 export interface SavedFarmingSelections {
@@ -31,4 +34,7 @@ export interface SavedFarmingSelections {
   monsterPrioritiesByCharacter?: FarmingSelections["monsterPrioritiesByCharacter"] | null;
   monsterSearchRadiusByCharacter?: FarmingSelections["monsterSearchRadiusByCharacter"] | null;
   farmingPolicy?: string;
+  encounterRoutines?: Record<string, string> | null;
+  encounterAutoDeathLimits?: Record<string, number> | null;
+  encounterAutoDeaths?: Record<string, number> | null;
 }

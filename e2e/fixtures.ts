@@ -67,7 +67,11 @@ export const test = base.extend<{ app: App; merchantDialogs: boolean; merchantCo
     const port = await unusedPort(), log = path.join(directory, 'dashboard.log');
     const process = child(path.join(root, 'dashboard/node_modules/vinext/dist/cli.js'),
       ['dev', '--hostname', '127.0.0.1', '--port', String(port)], path.join(root, 'dashboard'),
-      environment({ AL_DASHBOARD_PORT: String(port), AL_WATCH_POLL: '1' }), log);
+      // vinext's dev-server lock is keyed by directory, not port: it would otherwise
+      // refuse to start here whenever a real `vinext dev` is already running from the
+      // same dashboard/ checkout. VINEXT_NO_DEV_LOCK is vinext's own documented escape
+      // hatch for exactly this (ephemeral/test) case, not a workaround for our harness.
+      environment({ AL_DASHBOARD_PORT: String(port), AL_WATCH_POLL: '1', VINEXT_NO_DEV_LOCK: '1' }), log);
     try {
       await ready(process, `http://127.0.0.1:${port}`, log);
       await use({ port, log });

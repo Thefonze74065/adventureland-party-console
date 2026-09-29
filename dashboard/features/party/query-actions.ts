@@ -23,6 +23,7 @@ export const actionDomains = {
   '/formation': core,
   '/focus': core,
   '/farming-mode': core,
+  '/encounter-mode': core,
   '/hunt-blacklist': core,
   '/hunt-settings': core,
   '/rare-hunting': core,
