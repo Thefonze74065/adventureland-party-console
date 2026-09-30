@@ -2,6 +2,12 @@ name: Native game E2E (manual)
 
 on:
   workflow_dispatch:
+    inputs:
+      grep:
+        description: 'Optional Playwright title filter for focused diagnosis; empty runs the complete suite'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -14,6 +20,10 @@ jobs:
   native-game:
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(inputs.grep != '' && '[1]' || '[1,2,3,4,5,6]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -27,7 +37,14 @@ jobs:
       - run: node scripts/ci/restore-game-fixtures.cjs
       - run: npx playwright install --with-deps chromium
       - name: Build and run native gameplay
-        run: npm run test:e2e:live
+        env:
+          E2E_GREP: ${{ inputs.grep }}
+        run: |
+          if [ -n "$E2E_GREP" ]; then
+            npm run test:e2e:live -- --workers=1 --grep "$E2E_GREP"
+          else
+            npm run test:e2e:live -- --fully-parallel --workers=1 --shard=${{ matrix.shard }}/6
+          fi
       - name: Verify native evidence
         if: always()
         run: npm run test:e2e:verify
@@ -35,7 +52,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: native-game-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+          name: native-game-e2e-${{ github.run_id }}-${{ github.run_attempt }}-shard-${{ matrix.shard }}
           path: |
             .build/e2e-report/
             .build/e2e-results/

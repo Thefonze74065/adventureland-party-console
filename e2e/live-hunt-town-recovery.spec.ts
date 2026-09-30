@@ -13,8 +13,8 @@ test.use({ loadout: 'fragile' });
 // - The replacement walking request incorrectly receives another Town step.
 // - Rejected planning strands the remaining member while its peer waits forever.
 // - Coordinator restart loses the forward rally or restores the forbidden warp.
-for (const restart of [false, true]) {
-  test(`partial native Town failure reunites the Hunt party and claims both rewards${restart ? ' across coordinator restart' : ''}`, async ({ live }, info) => {
+for (const {restart, lateTransport} of [{restart:false,lateTransport:false},{restart:true,lateTransport:false},{restart:false,lateTransport:true}]) {
+  test(`partial native Town failure reunites the Hunt party and claims both rewards${restart ? ' across coordinator restart' : lateTransport ? ' after a delayed transport interrupts walking' : ''}`, async ({ live }, info) => {
     test.setTimeout(420_000);
     await location(live, 'bee');
     const equipmentSeed = await live.admin(`output=(()=>{const p=get_player(${JSON.stringify(P)});if(p.items[10])throw Error('Occupied equipment seed slot');p.items[10]={name:'iceskates',level:0};cache_player_items(p);resend(p,'reopen+cid');return {slot:10,item:p.items[10],previousShoes:p.slots.shoes,speed:p.speed}})()`);
@@ -26,7 +26,7 @@ for (const restart of [false, true]) {
     expect(equipmentStats.speed).toBeGreaterThan(0);
     await info.attach('town-native-iceskates-equipment', { body: JSON.stringify({ equipmentSeed, equipReceipt, equipmentStats,
       rationale: 'Native Ice Skates extend the obstacle detour beyond30s; the pinned2561-unit full walk at40speed takes about64s, under120s absolute bound.' }), contentType: 'application/json' });
-    const candidates = zones((await live.state()).monsterChoices, ['bee']).filter(area => area.map === 'main');
+    const candidates = zones((await live.state(true)).monsterChoices, ['bee']).filter(area => area.map === 'main');
     // Native 15555 Bee boundary [448,694,592,812] contains the incident's
     // Main(520,710) origin. Returning on foot must detour southeast first.
     const destination = candidates.find(area => contains(area, { map: 'main', x: 520, y: 710 }, 0));
@@ -41,6 +41,18 @@ for (const restart of [false, true]) {
       const current = await world(live);
       return fighters.every(name => !current[name].quest && contains(destination, current[name], 0));
     }, { timeout: 150_000, message: 'Both native fighters must reach the incident Bee region before quest setup' }).toBe(true);
+    // This scenario injects one follower cast interruption. Ambient Bee attacks
+    // must not independently interrupt the leader's prerequisite successful cast.
+    const peacefulBees = await live.admin(`output=(()=>{
+      const original=globalThis.__e2eHuntRareOriginal||={};
+      original.bee||=JSON.parse(JSON.stringify(G.monsters.bee));
+      const monsters=Object.values(instances).flatMap(i=>Object.values(i.monsters||{})).filter(m=>m.type==='bee');
+      const before=monsters.map(m=>({id:m.id,aggro:m.aggro,aa:m.aa,rage:m.rage,target:m.target}));
+      Object.assign(G.monsters.bee,{aggro:0,aa:0,rage:0});
+      for(const m of monsters)Object.assign(m,{aggro:0,aa:0,rage:0,target:null});
+      return {original:original.bee,monsters:before};
+    })()`);
+    await info.attach('town-initial-peaceful-bees', {body:JSON.stringify(peacefulBees),contentType:'application/json'});
     await party(live);
     await live.post('/hunt-settings', { character: W, preferredSpawns: { bee: JSON.stringify([destination.map, destination.x, destination.y]) } });
     await quests(live, info, { [W]: { id: 'bee', count: 0 }, [P]: { id: 'bee', count: 0 } });
@@ -58,6 +70,7 @@ for (const restart of [false, true]) {
       let timer;
       fault.release = reason => {
         if (fault.released) return;
+        fault.armed = reason === 'authoritative-leader-town-arrival';
         fault.released = true; clearTimeout(timer);
         for (const packet of pending.splice(0)) {
           fault.events.push({ event: 'town-request-forwarded', reason, at: Date.now() });
@@ -75,7 +88,16 @@ for (const restart of [false, true]) {
         if (event === 'town') fault.events.push({ event: 'native-town-request', at: Date.now() });
         return emit.apply(socket, [event, ...args]);
       };
-      fault.restore = () => { fault.release('fixture-cleanup'); socket.emit = emit; };
+      // Observe the real server cast in the client: an external round trip can
+      // miss the entire window if normal healing interrupts it first.
+      const onPlayer = data => {
+        if (!fault.armed || fault.interruption || !data.c?.town) return;
+        fault.interruption = {map:data.map || character.map,x:data.x,y:data.y,casting:true,nativeTown:data.c.town,at:Date.now()};
+        stop('town');
+        fault.events.push({event:'native-stop-town',...fault.interruption});
+      };
+      socket.on('player', onPlayer);
+      fault.restore = () => { fault.release('fixture-cleanup'); socket.off('player', onPlayer); socket.emit = emit; };
       return true;
     })()`);
     const plans: unknown[] = [];
@@ -97,7 +119,7 @@ for (const restart of [false, true]) {
     context.on('request', observePlan);
     context.on('response', observeResponse);
     let split: Awaited<ReturnType<typeof world>>;
-    let interruption: unknown;
+    let interruption: {at:number;map:string;x:number;y:number;casting:boolean};
     const recoveryPositions: { at: number; map: string; x: number; y: number; distanceFromTown: number; ownedWalking: boolean }[] = [];
     let ownedWalking = false;
     const recoveryStates: { at: number; id?: string; phase?: string; attempts: number; failure?: string; code?: string; message?: string }[] = [];
@@ -116,34 +138,58 @@ for (const restart of [false, true]) {
       recoveryPositions.push({ at: Date.now(), map: follower.map, x: follower.x, y: follower.y, distanceFromTown: Math.hypot(follower.x, follower.y), ownedWalking });
     };
     try {
+      if (lateTransport) await live.clients[W].run(`(()=>{
+        const fault=globalThis.__e2eLeaderTownFault={};
+        const onPlayer=data=>{if(!fault.interruption&&data.c?.town){
+          fault.interruption={at:Date.now(),x:character.x,y:character.y};stop('town');
+        }};
+        parent.socket.on('player',onPlayer);
+        fault.restore=()=>parent.socket.off('player',onPlayer);
+      })()`);
       await start(live, W, 'bee');
+      if (lateTransport) {
+        // Both initially remain outside Town. Release the original follower
+        // packet only once interrupted-cast recovery has genuinely begun walking.
+        await expect.poll(async()=>{
+          const current=await world(live), s=await live.state();
+          return !!s.activeConvoy?.returnTown?.walking &&
+            Math.hypot(current[P].x-before[P].x,current[P].y-before[P].y)>80 &&
+            await live.clients[W].run('!!globalThis.__e2eLeaderTownFault.interruption') &&
+            await live.clients[P].run('!!character.moving && globalThis.__e2eTownFault.delayed && !globalThis.__e2eTownFault.released');
+        },{timeout:60_000,intervals:[100,250],message:'The delayed packet must outlive the interrupted Town round and overlap actual recovery walking'}).toBe(true);
+        const walking=await world(live), recovery= (await live.state()).activeConvoy, releaseAt=Date.now();
+        await live.clients[P].run("globalThis.__e2eTownFault.release('late-walking-transport')");
+        await expect.poll(async()=>{
+          const current=await world(live);
+          return Math.hypot(current[P].x,current[P].y)<90 && Math.hypot(current[W].x,current[W].y)>250;
+        },{timeout:15_000,message:'The genuine delayed cast must transport only the follower during walking recovery'}).toBe(true);
+        const transported=await world(live);
+        await expect.poll(async()=>{
+          const current=await world(live);
+          return fighters.every(name=>tokens(current[name])===tokens(before[name])+1);
+        },{timeout:180_000,message:'A late native transport must still reunite the party and yield both real Daisy rewards'}).toBe(true);
+        const finalState=await live.state();
+        const staleOrigins=(finalState.combatLogs?.[W]||[]).filter((entry:any)=>
+          entry.at>=releaseAt && /Leader moved from planning origin/.test(entry.details?.reason||entry.message));
+        expect(staleOrigins,'Recovery must not repeatedly prepare from an unreached Town rally').toEqual([]);
+        await artifact(live,info,'late-native-town-walking-recovery',{before,walking,recovery,transported,plans,planResponses});
+        return;
+      }
       await expect.poll(async () => {
         const current = await world(live);
         if (!fighters.every(name => current[name].quest?.id === 'bee' && current[name].quest.c === 0) ||
-          current[W].map !== 'main' || Math.hypot(current[W].x, current[W].y) >= 90) return false;
+          current[W].map !== 'main' || Math.hypot(current[W].x, current[W].y) >= 90 ||
+          current[P].map !== 'main' || Math.hypot(current[P].x, current[P].y) <= 250) return false;
+        split = current;
         return live.clients[P].run(`(() => {
           const fault = globalThis.__e2eTownFault;
           if (!fault.delayed || fault.released) return false;
           fault.release('authoritative-leader-town-arrival'); return true;
         })()`);
       }, { timeout: 180_000, intervals: [50, 100], message: 'Release the genuine follower Town request only after actual leader Town arrival' }).toBe(true);
-      await expect.poll(async () => {
-        const current = await world(live);
-        if (fighters.every(name => current[name].quest?.id === 'bee' && current[name].quest.c === 0) &&
-          current[W].map === 'main' && Math.hypot(current[W].x, current[W].y) < 90 &&
-          current[P].map === 'main' && Math.hypot(current[P].x, current[P].y) > 250 &&
-          await live.clients[P].run('!!(character.c && character.c.town)')) {
-          split = current;
-          return true;
-        }
-        return false;
-      }, { timeout: 8_000, intervals: [50, 100], message: 'Observe actual leader Town arrival while follower is still casting outside town' }).toBe(true);
-      interruption = await live.clients[P].run(`(() => {
-        const before = { map: character.map, x: character.x, y: character.y, casting: !!character.c.town, at: Date.now() };
-        stop('town');
-        globalThis.__e2eTownFault.events.push({ event: 'native-stop-town', ...before });
-        return before;
-      })()`);
+      await expect.poll(() => live.clients[P].run('!!globalThis.__e2eTownFault.interruption'),
+        {timeout:8_000,message:'The client must observe and stop the actual native Town cast'}).toBe(true);
+      interruption = await live.clients[P].run('globalThis.__e2eTownFault.interruption');
       recordRecovery(await world(live));
       await info.attach('partial-town-native-fault', { body: JSON.stringify({ split, interruption, restart }), contentType: 'application/json' });
       // Native melee/follow positioning can finish just outside the spawn edge.
@@ -204,15 +250,14 @@ for (const restart of [false, true]) {
       const nativeTownRequests = await live.clients[P].run('globalThis.__e2eTownFault.events.filter(event => event.event === "native-town-request")');
       const townEligibility = recoveryHistory.filter((entry: any) => entry.message === 'Convoy Aggro clear; Town eligible');
       if (nativeTownRequests.length) {
-        expect(restart, 'Uninterrupted walking case must exercise the full detour').toBe(true);
-        expect(townEligibility.some((entry: any) => entry.at >= restartAt! && entry.at <= nativeTownRequests[0].at),
-          'A real post-restart Town request requires an explicit coordinator eligibility transition').toBe(true);
+        expect(townEligibility.some((entry: any) => entry.at >= interruption.at && entry.at <= nativeTownRequests[0].at),
+          'A later native Town request requires an explicit coordinator eligibility transition after the interruption').toBe(true);
       }
       // Upstream sets last.town only when the real cast finishes and transports.
       const nativeTownCompletedAt = await live.admin(`output=Number(get_player(${JSON.stringify(P)}).last.town)||null`);
-      const completedRestartTown = restartAt !== null && nativeTownCompletedAt >= restartAt;
-      if (completedRestartTown) expect(nativeTownRequests.length, 'A completed native Town must have its genuine socket request in the ledger').toBeGreaterThan(0);
-      const recoveryMethod = completedRestartTown ? 'walking followed by explicitly eligible native Town' : 'walking';
+      const completedRecoveryTown = nativeTownCompletedAt >= interruption.at;
+      if (completedRecoveryTown) expect(nativeTownRequests.length, 'A completed native Town must have its genuine socket request in the ledger').toBeGreaterThan(0);
+      const recoveryMethod = completedRecoveryTown ? 'walking followed by explicitly eligible native Town' : 'walking';
       await Promise.all(pendingResponses);
       const walkingRallies = planResponses.filter(result => result.request?.character === P &&
         result.request.town === false && result.request.to.map === 'main' &&
@@ -227,11 +272,20 @@ for (const restart of [false, true]) {
       expect(profile(await live.state()).monsterHunt?.message || '').not.toContain('Waiting for fresh Main town arrival');
       await artifact(live, info, 'partial-town-native-reunion-and-rewards', { before, destination, split, interruption, recovery, restart, restartAt, huntCycle, plans, planResponses, recoveryPositions, recoveryStates, recoveryHistory, longestWithoutCloser, recoveryMethod, nativeTownRequests, nativeTownCompletedAt, townEligibility });
     } finally {
+      if(lateTransport) await live.clients[W].run('globalThis.__e2eLeaderTownFault?.restore()');
       context.off('request', observePlan);
       context.off('response', observeResponse);
       await Promise.all(pendingResponses);
       const faults = await live.clients[P].run(`(() => { const fault = globalThis.__e2eTownFault; if (!fault) return null; fault.restore(); return fault.events; })()`).catch(error => ({ error: String(error) }));
       await info.attach('town-fault-and-planner-requests', { body: JSON.stringify({ faults, plans, planResponses, recoveryPositions, recoveryStates }), contentType: 'application/json' });
+      await live.admin(`output=(()=>{
+        const original=globalThis.__e2eHuntRareOriginal?.bee;
+        if(!original)return false;
+        Object.assign(G.monsters.bee,original);
+        for(const i of Object.values(instances))for(const m of Object.values(i.monsters||{}))
+          if(m.type==='bee')Object.assign(m,{aggro:original.aggro,aa:original.aa,rage:original.rage});
+        delete globalThis.__e2eHuntRareOriginal.bee;return true;
+      })()`);
     }
   });
 }

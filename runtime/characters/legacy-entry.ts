@@ -1,5 +1,6 @@
 import type { RoleRunner } from "./roles/types.ts";
 import './movement.ts';
+import './game-rendering-entry.ts';
 import './bank-stacks.ts';
 import './upgrade-preview.ts';
 

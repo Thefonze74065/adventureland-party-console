@@ -10,6 +10,8 @@ import { createStatScrollCommands } from "../inventory/stat-scroll-commands.ts";
 import { createClearItemMarks } from "../inventory/clear-item-marks.ts";
 import type { Item } from "../contracts/item.ts";
 import type { CommandOutcome } from "../navigation/manual-commands.ts";
+import { replaceAutomaticAction, type AutomaticAction } from '../inventory/automatic-action.ts';
+import { automaticCommerceRuleKey } from '../inventory/item-identity.ts';
 
 type CommandState = FocusState & Parameters<typeof createOfferingCommands>[0] & Parameters<typeof createCharacterCommandRoute>[0] &
   Parameters<typeof createClearItemMarks>[0] &
@@ -49,15 +51,22 @@ export function createCoordinatorCharacterCommands(
   workers: Record<string, unknown>,
   ports: CharacterActionPorts,
 ) {
-  const managed = (name: unknown) =>
-    Object.prototype.hasOwnProperty.call(workers, name as PropertyKey);
+  const managed = (name: unknown, body?: Record<string, unknown>) =>
+    Object.prototype.hasOwnProperty.call(workers, name as PropertyKey) || merchantRuleSelection(state, name, body);
+  const selectAction = (item: Item, name: string, action: AutomaticAction) => {
+    const hadStandRule = !!state.autoStandMarks?.[automaticCommerceRuleKey(item)];
+    replaceAutomaticAction(state, name, item, action);
+    if (hadStandRule && action !== 'stand') ports.marksCleared?.();
+  };
   const upgrades = createUpgradeCommands(state, {
+    selectAction: (item, name) => selectAction(item, name, 'upgrade'),
     key: ports.key,
     persist: ports.persist,
     queue: ports.queue,
     reconcile: ports.reconcileUpgrades,
   });
   const compounds = createCompoundCommands(state, {
+    selectAction: (item, name) => selectAction(item, name, 'compound'),
     queue: ports.queue,
     persist: ports.persist,
     schedule: ports.scheduleCompound,
@@ -76,12 +85,14 @@ export function createCoordinatorCharacterCommands(
     log: ports.log,
   });
   const marks = createMarkCommands(state, {
+    selectAction,
     key: ports.key,
     mode: ports.mode,
     reconcile: ports.reconcileMarks,
     persist: ports.persist,
   });
   const merchantItems = createMerchantItemCommands(state, {
+    selectAction: (item, name) => selectAction(item, name, 'exchange'),
     persist: ports.persist,
     scheduleExchange: ports.scheduleExchange,
   });
@@ -108,4 +119,9 @@ export function createCoordinatorCharacterCommands(
       marks.handle,
     ],
   });
+}
+
+function merchantRuleSelection(state: CommandState, name: unknown, body?: Record<string, unknown>): boolean {
+  if (!state.merchantCharacter || name !== state.merchantCharacter) return false;
+  return typeof body?.type === 'string' && ['auto-item-mark', 'auto-exchange', 'auto-upgrade-mark', 'auto-compound-mark'].includes(body.type);
 }

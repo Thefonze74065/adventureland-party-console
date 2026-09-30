@@ -15,7 +15,7 @@ test('cancel clears only the matching work intent and never dispatches',()=>{
   for(const key of cleared)assert.deepEqual(f.state[key].F,[]);assert.equal(f.calls.includes('dispatch'),false);
  }
  const f=fixture();f.state.merchantQueue=[{id:'j',target:'M',reason:'exchange',autoExchangeKeys:['a']}];f.send('cancel',{id:'j'});
- assert.equal(f.state.autoExchanges.a,undefined);assert.ok(f.state.autoExchanges.b);assert.equal(f.state.merchantAutomations.exchange,false);
+ assert.equal(f.state.autoExchanges.a,undefined);assert.ok(f.state.autoExchanges.b);assert.equal(f.state.merchantAutomations['automatic exchange'],false);assert.equal(f.state.merchantAutomations['manual exchange'],undefined);
  assert.equal(f.send('cancel',{id:'missing'}).code,404);
 });
 

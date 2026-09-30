@@ -1,6 +1,7 @@
 import "./geometry.ts";
 import "./dungeons.ts";
 import "./cave-recovery.ts";
+import "./game-rendering-entry.ts";
 import "./dashboard-bridge.ts";
 import "./lucky-upgrade.ts";
 import "./lucky-slot-tracker.ts";

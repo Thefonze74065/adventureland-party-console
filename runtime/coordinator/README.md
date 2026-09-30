@@ -1,4 +1,31 @@
+Exchange rule previews provide Mark multiple modes for bank, stand, upgrade
+(target level), and NPC sale. Gear buttons in the exchange catalog open rules;
+item clicks open full details with Add at the bottom. Bulk edits remain local until Done; closing either the rules preview or the
+catalog discards them. The fixed-size Done button stays beside the title and
+icon mode buttons remain on the right. Bulk bank commands use action: set, so repeated clicks and duplicate reward outcomes cannot unmark
+items. Stand painting preserves existing prices or uses the catalog gold value.
+Validate the exchange console journey, preserving screenshots and saved rules.
+Activate with the supported coordinator/dashboard-only restart.
+
 # Character coordinator
+
+Exchange reward tiles edit the merchant's existing automatic item rules, including
+rules for stock that has not arrived yet. Inventory and reward previews share
+`dashboard/features/party/automatic-item-actions.tsx`; selecting an action retires
+other automatic actions and pending reservations through
+`inventory/automatic-action.ts`. Unmarked exchange rewards default to banking;
+sale, upgrade, compound, deconstruction and exchange rules retain rewards for
+normal merchant work. `/merchant/exchange-progress` returns current reward routing
+after bank travel. Auto exchange rules persist for future complete batches and
+allow nested boxes to queue another exchange; locked stacks are excluded.
+Manual exchange is always enabled. Automatic exchange has its own checkbox and
+priority; legacy Exchange priority/enable settings migrate to the new routines.
+Validate the exchange reward console journey and the native exchange actions and
+restart journey in `e2e/live-economy.spec.ts`, retaining the report and evidence.
+This changes character execution as well as coordinator/dashboard behavior, so
+activation requires the supported full restart and fresh character generations.
+Building alone does not update the running coordinator or clients.
+
 
 Map previews now transmit NPC cosmetic layers and include the native dreams_gate
 composition. This follow-up changes character telemetry as well as the dashboard;
@@ -1312,3 +1339,22 @@ A single non-merchant fighter in Group mode receives the same coordinator combat
 group and target authorization as larger parties. Empty groups remain excluded.
 The native solo-ranger Goo scenario verifies singleton membership, committed Goo
 selection and continued kills after initial attacks. Explicit Scatter is unchanged.
+
+## Native draw and departure recovery
+
+The game-host texture guard retains the previous sprite texture when a requested
+frame is unavailable. It emits bounded diagnostics and retries the frame on later
+draws, so missing cosmetic data cannot unwind native draw and movement scheduling.
+The headless installer attaches this before the first game draw; browser CODE
+attaches it to the parent game window. A full supported restart is required to
+install the headless hook and recreate an already-stopped native draw loop.
+
+Catalog preparation yields between bounded 8 ms batches rather than every item.
+Shared departure retains its readiness deadline until all participants report
+departure; late preparation acknowledgements do not spend walking retries.
+Actual walking failures still use the existing bounded recovery policy.
+
+Validate with the native missing-frame walking scenario, successive Ice Roamer
+hunt rewards, and delayed shared departures, plus the retained native selector
+and installer regressions. See docs/testing-ice-roamer-failures.md for failure
+modes and docs/testing.md for repeatable evidence.

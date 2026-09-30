@@ -23,6 +23,7 @@ interface UpgradeState extends SharedScope {
   statuses: Record<string, { items?: unknown } | undefined>;
 }
 interface UpgradePorts {
+  selectAction?(item: Item, name: string): void;
   key(item: Item): string;
   persist(): void;
   queue(names: string[], reason: string): void;
@@ -99,14 +100,21 @@ export function createUpgradeCommands(state: UpgradeState, ports: UpgradePorts) 
       delete rules[key];
       removeAutomatic(name, key, list);
     } else if (validTiers(body.tiers, Math.max(0, Number(body.item.level) || 0))) {
-      rules[key] = { tiers: body.tiers, quantity: tiers === body.tiers && typeof current === "object" ? current.quantity ?? -1 : -1 };
-      const index = list.findIndex(
-        (entry) => entry.slot === body.slot && !!entry.equipped === (body.equipped === true),
-      );
-      put(list, index, body, body.tiers, true);
+      ports.selectAction?.(body.item, name);
+      rules[key] = { tiers: body.tiers, quantity: automaticQuantity(current, tiers === body.tiers) };
+      putAutomatic(list, body, body.tiers);
     } else return failure("invalid automatic upgrade tiers");
     saveAndQueue(name, body, true);
+    reconcileMembers(name);
     return null;
+  }
+  function putAutomatic(list: Mark[], body: MarkRequest, tiers: number): void {
+    if (body.slot === -1) return;
+    const index = list.findIndex(entry => entry.slot === body.slot && !!entry.equipped === (body.equipped === true));
+    put(list, index, body, tiers, true);
+  }
+  function automaticQuantity(current: Rule | undefined, sameTiers: boolean): number {
+    return sameTiers && typeof current === 'object' ? current.quantity ?? -1 : -1;
   }
   function updatedRule(
     body: Request,

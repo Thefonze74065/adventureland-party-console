@@ -52,6 +52,14 @@ if (!source.includes('bootstrap_failed')) {
       setTimeout(() => process.exit(1), 25);
     }`);
 }
+// Install in the long-lived game context before its first draw. A CODE-scoped
+// callback would become invalid when that runner is disposed.
+if (!source.includes('installGameRendering(game_context)')) {
+  const anchor = '  vm.runInContext("the_game()", game_context);';
+  if (!source.includes(anchor)) throw new Error('Unrecognized native game startup');
+  source = source.replace(anchor,
+    '  require("../../.build/runtime/lifecycle.cjs").installGameRendering(game_context);\n' + anchor);
+}
 if (source.includes("createRunnerHost")) {
   await writeFile(file, source);
   process.exit(0);

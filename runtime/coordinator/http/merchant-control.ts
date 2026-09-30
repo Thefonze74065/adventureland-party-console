@@ -67,7 +67,7 @@ export function createMerchantControlRoutes(state: ControlState, ports: ControlP
   function cancelAutomation(job: MerchantWork): void {
     if (job.reason === "exchange" && Array.isArray(job.autoExchangeKeys)) {
       for (const key of job.autoExchangeKeys) delete state.autoExchanges[key];
-      state.merchantAutomations.exchange = false;
+      state.merchantAutomations['automatic exchange'] = false;
     } else if (ports.automated(job.reason)) state.merchantAutomations[job.reason] = false;
   }
   function cancel(req: HttpRequest, res: HttpResponse): unknown {

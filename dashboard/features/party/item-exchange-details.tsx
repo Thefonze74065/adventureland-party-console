@@ -1,6 +1,8 @@
 import type { MerchantExchangeItem } from './merchant-exchange-item';
 import { ItemSprite } from './item-sprite';
 import type { Sprite } from './sprite';
+import type { ReactNode } from 'react';
+import type { ExchangeRewardTileData } from './exchange-reward-tile';
 
 const rewardPercentage = (chance: number) =>
   chance > 0 && chance < 0.00000001
@@ -13,12 +15,14 @@ export function ItemExchangeDetails({
   box,
   exchanges,
   onInspect,
+  renderReward,
 }: {
   id: string;
   level: number;
   box: boolean;
   exchanges: MerchantExchangeItem[];
   onInspect: (id: string, context: string, level?: number) => void;
+  renderReward?: (reward: ExchangeRewardTileData) => ReactNode;
 }) {
   const target = (reward: string) => {
     const match = reward.match(/^(.*)-(\d+)$/);
@@ -50,7 +54,10 @@ export function ItemExchangeDetails({
     detail: string,
     itemLevel = 0,
     inspectable = true,
+    rewardTile = false,
+    kind?: string,
   ) => (
+    rewardTile && renderReward ? <div key={key}>{renderReward({ id: item, level: itemLevel, name, quantity, sprite, detail, kind, onInspect: () => onInspect(item, `Exchange: ${id}`, itemLevel) })}</div> :
     <button
       key={key}
       type="button"
@@ -104,7 +111,7 @@ export function ItemExchangeDetails({
                 {entry.currencyName || (entry.reward ? id : entry.name)}
                 {entry.npc ? ` · ${entry.npc}` : ''}
               </p>
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid grid-cols-[repeat(auto-fill,112px)] items-stretch gap-2">
                 {entry.reward
                   ? row(
                       entry.key,
@@ -114,6 +121,8 @@ export function ItemExchangeDetails({
                       entry.sprite,
                       '100%',
                       target(entry.reward).level,
+                      true,
+                      true,
                     )
                   : entry.results.map((result, index) =>
                       row(
@@ -127,6 +136,8 @@ export function ItemExchangeDetails({
                         !['empty', 'gold', 'shells', 'cx', 'cxbundle'].includes(
                           result.kind,
                         ),
+                        true,
+                        result.kind,
                       ),
                     )}
               </div>

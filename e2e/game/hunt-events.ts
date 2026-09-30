@@ -9,8 +9,8 @@ export async function world(live:LiveGame) {
 export async function prepareHunt(live:LiveGame) {
   await live.post('/formation',{leader:W});
   await live.post('/formation',{character:P,follow:true});
-  await expect.poll(async()=>(await live.state()).monsterChoices?.some((m:any)=>m.id==='goo'),{timeout:120_000}).toBe(true);
-  const location=(await live.state()).monsterChoices.find((m:any)=>m.id==='goo').locations.find((l:any)=>l.map==='main');
+  await expect.poll(async()=>(await live.state(true)).monsterChoices?.some((m:any)=>m.id==='goo'),{timeout:120_000}).toBe(true);
+  const location=(await live.state(true)).monsterChoices.find((m:any)=>m.id==='goo').locations.find((l:any)=>l.map==='main');
   await live.admin(`output=${JSON.stringify([W,P])}.map(name=>{const p=get_player(name);p.s.monsterhunt={sn:region+' '+server_name,id:'goo',c:500,ms:1800000};resend(p,'u+cid+reopen');return p.s.monsterhunt})`);
   await expect.poll(async()=>(await live.state()).characters[W]?.monsterHunt?.count,{timeout:20_000}).toBe(500);
   await live.post('/farming-mode',{character:W,mode:'hunt',backup:{monsterFocus:['goo'],location}});
@@ -43,7 +43,9 @@ export async function spawnRare(live:LiveGame,type:string,hp=12000) {
     const p=get_player(${JSON.stringify(W)}),type=${JSON.stringify(type)},original=G.monsters[type];
     globalThis.__e2eHuntRareOriginal ||= {};if(globalThis.__e2eHuntRareOriginal[type])throw Error('Duplicate seeded rare');
     globalThis.__e2eHuntRareOriginal[type]=original;
-    const requestedHp=${hp},observableCombatSeconds=5;
+    // Tiny P's native self-healing makes inflated HP a different combat task on
+    // slower clients. Keep its real HP; socket hit receipts prove even short fights.
+    const requestedHp=type==='tinyp'?original.hp:${hp},observableCombatSeconds=type==='tinyp'?0:5;
     const partyDps=${JSON.stringify([W,P])}.reduce((total,name)=>{const fighter=get_player(name);return total+fighter.attack*fighter.frequency;},0);
     const initialHp=Math.max(requestedHp,Math.ceil(partyDps*observableCombatSeconds));
     try {

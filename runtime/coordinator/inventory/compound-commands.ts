@@ -28,6 +28,7 @@ interface CompoundState extends SharedScope {
   merchantCurrent: { reason: string } | null;
 }
 interface CompoundPorts {
+  selectAction?(item: Item, name: string): void;
   queue?: (names:string[],reason:string) => void;
   persist(): void;
   schedule(name: string, status: CompoundState["statuses"][string]): void;
@@ -110,6 +111,7 @@ export function createCompoundCommands(state: CompoundState, ports: CompoundPort
       if (!Number.isSafeInteger(quantity) || (quantity !== -1 && quantity < 1))
         return reply({ error: "invalid automatic compound quantity" }, 400);
       const mark = { name: item.name, targetTier: body.targetTier, quantity };
+      ports.selectAction?.(item, name);
       if (index >= 0) list[index] = mark;
       else list.push(mark);
     }

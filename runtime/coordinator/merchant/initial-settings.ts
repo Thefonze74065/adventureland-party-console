@@ -1,5 +1,5 @@
 import { autoUpgradeEnabled } from './routines.ts';
-import { migrateRoutinePriorities } from './routines.ts';
+import { migrateRoutinePriorities, migrateExchangeAutomations } from './routines.ts';
 import type { DeconstructionMark, DeconstructionRules, DeconstructionCatalog } from "./deconstruction.ts";
 import type { StandMark } from "./stand-marks.ts";
 import type { Item } from "../contracts/item.ts";
@@ -56,7 +56,8 @@ export function defaultMerchantRoutinePriorities(): Record<string, number> {
     "ALData marketplace sales": 76,
     "upgrades and compounds": 70,
     "auto compound": 68,
-    exchange: 67,
+    "manual exchange": 67,
+    "automatic exchange": 67,
     "merchant commerce": 65,
     "merchant donation": 60,
     "join giveaway": 55,
@@ -82,7 +83,7 @@ export function defaultMerchantAutomations(): Record<string, boolean> {
     "inventory cleanout": true,
     "auto compound": true,
     "auto upgrade": true,
-    exchange: true,
+    "automatic exchange": true,
     "stand bid purchases": true,
     "join giveaway": true,
   };
@@ -109,6 +110,6 @@ export function initialMerchantSales(settings: SavedMerchantSettings, now: () =>
       ...defaultMerchantRoutinePriorities(),
       ...migrateRoutinePriorities(settings.merchantRoutinePriorities),
     },
-    merchantAutomations: { ...defaultMerchantAutomations(), "auto upgrade": autoUpgradeEnabled(settings.merchantAutomations), ...settings.merchantAutomations },
+    merchantAutomations: { ...defaultMerchantAutomations(), "auto upgrade": autoUpgradeEnabled(settings.merchantAutomations), ...migrateExchangeAutomations(settings.merchantAutomations) },
   };
 }

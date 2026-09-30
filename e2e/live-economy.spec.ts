@@ -49,7 +49,7 @@ async function seed(live: LiveGame, items: Record<number, Item>) {
 }
 
 async function catalog(live: LiveGame, id: string) {
-  await expect.poll(async () => (await live.state()).merchantCatalog?.buyable?.some((item: { id: string }) => item.id === id),
+  await expect.poll(async () => (await live.state(true)).merchantCatalog?.buyable?.some((item: { id: string }) => item.id === id),
     { timeout: 120_000, message: `Native merchant must publish the ${id} NPC catalog entry` }).toBe(true);
 }
 
@@ -77,6 +77,61 @@ async function leaveBank(live: LiveGame) {
 
 test.describe('real merchant economy and durable work', () => {
   test.setTimeout(420_000);
+
+  test('native exchanges bank default rewards, chain marked boxes and sell rewards across restart', async ({ live }, info) => {
+    // Failure modes: rewards bypass merchant rules; nested boxes are banked;
+    // marks expire after one batch; later stock is not exchanged after restart;
+    // locked stock is counted; no-rule rewards are stranded in inventory.
+    await expect.poll(async () => (await live.state(true)).merchantCatalog?.exchangeable?.some((entry: { id: string }) => entry.id === 'armorbox'),
+      { timeout: 120_000 }).toBe(true);
+    await live.post('/merchant/force-stand', { enabled: true });
+    await live.post('/merchant/routine-priorities', { priorities: {}, enabled: { 'automatic exchange': false, 'auto npc sales': true } });
+    await seed(live, { 10: { name: 'armorbox', q: 1 } });
+    const before = await economy(live);
+    const choices = (await live.state(true)).merchantCatalog.exchangeable;
+    const rewardIds = [...new Set<string>(choices.filter((entry: { id: string }) => ['armorbox', 'weaponbox', 'gem0'].includes(entry.id))
+      .flatMap((entry: { results: { id: string; kind: string }[] }) => entry.results.filter(result => result.id === result.kind && !['gold', 'shells', 'empty'].includes(result.kind)).map(result => result.id)))];
+    const checkpoints: unknown[] = [];
+    live.clients[merchant].page.on('response', async response => {
+      if (!new URL(response.url()).pathname.endsWith('/exchange-progress')) return;
+      try { checkpoints.push({ request: response.request().postDataJSON(), status: response.status(), response: await response.json() }); } catch { /* Closing client. */ }
+    });
+    const fallback = await live.post('/merchant/exchange-order', { exchanges: [{ id: 'armorbox', level: 0, quantity: 1 }] });
+    await live.post('/merchant/force-stand', { enabled: false });
+    await jobFinished(live, fallback.jobId);
+    const defaultBanked = await economy(live);
+    expect(rewardIds.reduce((sum, id) => sum + bankQuantity(defaultBanked, id) - bankQuantity(before, id), 0)).toBe(1);
+    await live.post('/merchant/force-stand', { enabled: true });
+    await live.post('/merchant/routine-priorities', { priorities: {}, enabled: { 'automatic exchange': true } });
+    for (const id of rewardIds.filter(id => !['armorbox', 'weaponbox'].includes(id)))
+      await live.post('/merchant/auto-npc-sale', { item: { name: id, level: 0 } });
+    for (const id of ['gem0', 'armorbox', 'weaponbox'])
+      await live.post('/command', { character: merchant, type: 'auto-exchange', slot: -1, item: { name: id, level: 0 } });
+    await seed(live, { 10: { name: 'gem0', q: 15 }, 11: { name: 'armorbox', q: 2 }, 12: { name: 'weaponbox', q: 2 }, 13: { name: 'armorbox', q: 1, l: 'l' } });
+    await live.post('/merchant/force-stand', { enabled: false });
+    await expect.poll(async () => {
+      const observed = await economy(live);
+      return quantity(observed.characters[merchant].items, 'gem0') === 0 &&
+        quantity(observed.characters[merchant].items, 'armorbox') === 1 && quantity(observed.characters[merchant].items, 'weaponbox') === 0 &&
+        rewardIds.filter(id => !['armorbox', 'weaponbox'].includes(id)).every(id => quantity(observed.characters[merchant].items, id) === 0);
+    }, { timeout: 180_000, message: 'Native marked stock and exchange rewards must finish their selected actions' }).toBe(true);
+    const firstBatch = await economy(live);
+    expect(firstBatch.characters[merchant].items.find(item => item?.name === 'armorbox')).toMatchObject({ l: 'l', q: 1 });
+    expect(bankQuantity(firstBatch, 'armorbox')).toBe(0);
+    expect(bankQuantity(firstBatch, 'weaponbox')).toBe(0);
+    await live.post('/merchant/force-stand', { enabled: true });
+    await live.restartCoordinator();
+    await expect.poll(async () => Object.keys((await live.state()).autoExchanges || {}).sort()).toEqual(['armorbox@0', 'gem0@0', 'weaponbox@0']);
+    await seed(live, { 10: { name: 'armorbox', q: 1 } });
+    await live.post('/merchant/force-stand', { enabled: false });
+    await expect.poll(async () => {
+      const observed = await economy(live);
+      return quantity(observed.characters[merchant].items, 'armorbox') === 1 &&
+        rewardIds.filter(id => !['armorbox', 'weaponbox'].includes(id)).every(id => quantity(observed.characters[merchant].items, id) === 0);
+    }, { timeout: 150_000 }).toBe(true);
+    await record(live, info, 'native-exchange-actions-and-restart', before, { defaultBanked, firstBatch, rewardIds, checkpoints });
+    await info.attach('native-exchange-reward-events', { body: JSON.stringify(await live.clients[merchant].events()), contentType: 'application/json' });
+  });
 
   for (const retained of [false, true]) {
     test(`failed delivery equip reconciles ${retained ? 'retained merchant stock' : 'missing stock'} across restart`, async ({ live }, info) => {

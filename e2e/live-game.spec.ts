@@ -38,9 +38,9 @@ async function seedQuest(live: Live, count: number) {
   await expect.poll(async () => (await live.state()).characters[W]?.monsterHunt?.count, { timeout: 20_000 }).toBe(count);
 }
 async function startHunt(live: Live) {
-  await expect.poll(async () => (await live.state()).monsterChoices?.some((entry: any) => entry.id === 'goo'),
+  await expect.poll(async () => (await live.state(true)).monsterChoices?.some((entry: any) => entry.id === 'goo'),
     { timeout: 120_000, message: 'Native catalog discovery must publish Hunt destinations' }).toBe(true);
-  const state = await live.state();
+  const state = await live.state(true);
   const location = state.monsterChoices.find((entry: any) => entry.id === 'goo')?.locations.find((area: Location) => area.map === 'main');
   expect(location, 'The real client must publish a Goo spawn catalog').toBeTruthy();
   await live.post('/farming-mode', { character: W, mode: 'hunt', backup: { monsterFocus: ['goo'], location } });
@@ -208,8 +208,11 @@ test.describe('real server, native clients, maintained character runtime', () =>
       await live.post('/formation', { character: W, eventSelections: ['goobrawl'] });
       await live.admin(`events.goobrawl=true;delete timers.goobrawl;output=true`);
       await expect.poll(async () => { const state=await observed(live);return [W,P].every(name=>state[name].map==='goobrawl'); }, { timeout: 90_000 }).toBe(true);
-      const survivors = await live.admin(`output=Object.values(instances.goobrawl.monsters).map(m=>({id:m.id,type:m.type,hp:m.hp}))`);
-      expect(survivors.length, 'The event must contain a real combat encounter').toBeGreaterThan(0);
+      let survivors: {id:string;type:string;hp:number}[]=[];
+      await expect.poll(async()=>{
+        survivors=await live.admin(`output=Object.values(instances.goobrawl.monsters).map(m=>({id:m.id,type:m.type,hp:m.hp}))`);
+        return survivors.length;
+      },{timeout:30_000,intervals:[100,250],message:'Native arena spawning must provide a real combat encounter after entry'}).toBeGreaterThan(0);
       await evidence(live, info, 'inside-live-goobrawl');
       if (restart) await live.restartCoordinator();
       await live.admin(`timers.goobrawl=new Date(0);output=true`);
@@ -256,7 +259,8 @@ test.describe('real server, native clients, maintained character runtime', () =>
     const fault = await killNativeCharacter(live, W);
     await expect.poll(async () => (await observed(live))[W].rip, { timeout: 15_000 }).toBe(true);
     await expect.poll(async () => { const p=(await observed(live))[W];return !p.rip&&p.hp>0; }, { timeout: 120_000 }).toBe(true);
-    expect((await live.clients[W].snapshot()).rip).toBeFalsy();
+    await expect.poll(async () => (await live.clients[W].snapshot()).rip,
+      {timeout:15_000,message:'The real revival must propagate from the server to the native client'}).toBeFalsy();
     await evidence(live, info, 'real-death-and-respawn', { fault });
   });
   });

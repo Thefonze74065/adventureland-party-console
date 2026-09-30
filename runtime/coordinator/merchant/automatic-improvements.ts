@@ -55,7 +55,7 @@ export function evaluateAutoCompounds(rules: readonly CompoundRule[], entries: E
 
 function exchangeQuantity(entries: Entries, rule: ExchangeRule, level: number): number {
   return entries.reduce((sum, entry) => {
-    if (entry?.item?.name !== rule.name || itemLevel(entry) !== level) return sum;
+    if (entry?.item?.name !== rule.name || itemLevel(entry) !== level || entry.item.l) return sum;
     return sum + (Number(entry.item.q) || 1);
   }, 0);
 }

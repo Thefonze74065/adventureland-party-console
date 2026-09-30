@@ -160,6 +160,12 @@ function initializeBlacklist(state: BlacklistState): void {
   state.huntBlacklist ||= {};
   state.huntFailures ||= {};
 }
+function knownBlacklistMonster(state:BlacklistState,id:unknown,action:unknown):boolean {
+  if(typeof id!=='string')return false;
+  if((state.monsterChoices || []).some(monster=>monster.id===id))return true;
+  // Saved entries remain removable while catalogs repopulate after restart.
+  return action==='remove' && (Object.hasOwn(state.huntBlacklist || {},id) || Object.hasOwn(state.huntFailures || {},id));
+}
 export function createHuntBlacklistRoute(
   state: BlacklistState,
   ports: { now(): number; persist(): void },
@@ -170,8 +176,7 @@ export function createHuntBlacklistRoute(
       return res.status(400).json({ error: "invalid blacklist action" });
     if (
       body.action !== "clear" &&
-      (typeof body.monsterId !== "string" ||
-        !(state.monsterChoices || []).some((monster) => monster.id === body.monsterId))
+      !knownBlacklistMonster(state,body.monsterId,body.action)
     )
       return res.status(400).json({ error: "unknown monster" });
     initializeBlacklist(state);

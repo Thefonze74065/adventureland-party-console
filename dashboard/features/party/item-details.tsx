@@ -38,11 +38,14 @@ import { SpriteCrop } from "./sprite-crop";
 
 import { ItemExchangeDetails } from "./item-exchange-details";
 import type { MerchantExchangeItem } from "./merchant-exchange-item";
+import type { ReactNode } from 'react';
+import type { ExchangeRewardTileData } from './exchange-reward-tile';
 
 export function ItemDetails({
   selected: initialSelected,
   catalog,
   exchanges = [],
+  renderExchangeReward,
   monsters,
   characters,
   achievements,
@@ -57,6 +60,7 @@ export function ItemDetails({
   selected: SelectedItem | null;
   catalog: MerchantCatalogItem[];
   exchanges?: MerchantExchangeItem[];
+  renderExchangeReward?: (reward: ExchangeRewardTileData) => ReactNode;
   monsters: BestiaryMonster[];
   characters: Char[];
   achievements: Record<string, { score: number; owner: string | null }>;
@@ -698,7 +702,7 @@ export function ItemDetails({
             </div>
           </section>
         )}
-        <ItemExchangeDetails id={selected?.entry.item.name || ""} level={previewLevel} box={def.type === "box" || /box/i.test(selected?.entry.item.name || "")} exchanges={exchanges} onInspect={onInspectItem} />
+        <ItemExchangeDetails id={selected?.entry.item.name || ""} level={previewLevel} box={def.type === "box" || /box/i.test(selected?.entry.item.name || "")} exchanges={exchanges} onInspect={onInspectItem} renderReward={renderExchangeReward} />
         {!!world?.drops?.length && (
           <section className="rounded border border-amber-900/80 bg-amber-950/10 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -741,6 +745,8 @@ export function ItemDetails({
             </div>
           </section>
         )}
+        {selected?.exchangeAdd && !selectedMonster && <Button disabled={!selected.exchangeAdd.enabled} onClick={selected.exchangeAdd.onAdd}
+          className="w-full border border-emerald-500 bg-emerald-950 text-emerald-100 hover:bg-emerald-900">Add</Button>}
       </DialogContent>
     </Dialog>
   );

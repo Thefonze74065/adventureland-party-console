@@ -1,4 +1,5 @@
 "use client";
+import { AutomaticItemActions } from './automatic-item-actions';
 import { itemActionBanner } from "./item-action-banner";
 import { standIsFull } from "./stand-capacity";
 import type { StandBid } from "./stand-bid";
@@ -21,10 +22,8 @@ import {
 } from "@/components/ui/context-menu";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { compoundPassCost } from "@/lib/compound-cost";
 import {
   Blender,
-  ArrowRightLeft,
   Check,
   ChevronDown,
   ChevronRight,
@@ -61,7 +60,6 @@ import { InventoryEntry } from "./inventory-entry";
 import { Item } from "./item";
 import type { NpcSaleMark } from "./npc-sale-mark";
 import { itemLevelLabelClass } from "./item-level-label-class";
-import { itemMaximumLevel } from "./item-maximum-level";
 import { ItemOperationOverlay } from "./item-operation-overlay";
 import { ItemSprite } from "./item-sprite";
 import { MerchantBuyItem } from "./merchant-buy-item";
@@ -694,7 +692,6 @@ export const InventoryPanel = memo(function InventoryPanel({
                 character.name === merchant && autoStandMarks[automaticSaleKey];
               const exchangeable =
                 character.name === merchant && Number(entry.meta?.definition.e || 0) > 0;
-              const maxCompoundTier = itemMaximumLevel(entry.meta);
               const banner = itemActionBanner([
                 !!deconstruction && {action:'deconstruction',label:'Deconstruction'},
                 !!npcSale && {action:'npc',label:'NPC sale',automatic:!!npcSale.auto,title:npcSaleDetails || undefined},
@@ -819,19 +816,6 @@ export const InventoryPanel = memo(function InventoryPanel({
                         Compare with equipped
                       </ContextMenuItem>
                     ))}
-                    {character.name === merchant && exchangeable ? (
-                      <ContextMenuItem
-                        disabled={autoExchangeMarked}
-                        onClick={() =>
-                          onCommand(character.name, "auto-exchange", entry.item, {
-                            slot: entry.slot,
-                          })
-                        }
-                      >
-                        <AutoActionIcon><ArrowRightLeft /></AutoActionIcon>
-                        Auto exchange
-                      </ContextMenuItem>
-                    ) : null}
                     <ContextMenuSub>
                       <ContextMenuSubTrigger>
                         <Truck className="mr-2 h-4 w-4" />
@@ -948,15 +932,13 @@ export const InventoryPanel = memo(function InventoryPanel({
                       <Landmark className="mr-2 h-4 w-4" />
                       Mark for bank
                     </ContextMenuItem>
-                    <ContextMenuItem
-                      disabled={autoMarkMode === "bank"}
-                      onClick={() =>
-                        onCommand(character.name, "auto-item-mark", entry.item, { mode: "bank" })
-                      }
-                    >
-                      <AutoActionIcon><Landmark /></AutoActionIcon>
-                      Auto mark for bank
-                    </ContextMenuItem>
+                    {!!merchant && <AutomaticItemActions
+                      entry={entry} bank={autoMarkMode === 'bank'} merchant={character.name === merchant}
+                      stand={!!autoStandMarked} npc={autoNpcSaleMarked} exchange={autoExchangeMarked}
+                      exchangeable={exchangeable} upgradeTiers={upgradeRuleTiers(autoUpgradeMarks[autoRuleKey])}
+                      compoundTier={autoCompoundMark?.targetTier} buyable={buyable}
+                      onCommand={(type, extra) => onCommand(character.name, type, entry.item, extra)}
+                      onStand={() => onAutoStand(entry)} onNpc={() => onAutoNpcSale(entry)} />}
                     {character.name === merchant ? (
                       <>
                         <ContextMenuItem
@@ -967,10 +949,7 @@ export const InventoryPanel = memo(function InventoryPanel({
                           <Store className="mr-2 h-4 w-4" />
                           {standMarked ? "Edit stand listing" : "Mark for stand"}
                         </ContextMenuItem>
-                        <ContextMenuItem className="text-amber-300" onClick={() => onAutoStand(entry)}>
-                          <AutoActionIcon><Store /></AutoActionIcon>
-                          {autoStandMarked ? "Update auto mark for stand…" : "Auto mark for stand…"}
-                        </ContextMenuItem>
+
                       </>
                     ) : null}
 
@@ -1003,6 +982,7 @@ export const InventoryPanel = memo(function InventoryPanel({
                     ) : null}
                     {merchant ? (
                       <UpgradeActions
+                        showAutomatic={false}
                         offeringSource={{slot:entry.slot}}
                         item={entry.item}
                         meta={entry.meta}
@@ -1038,46 +1018,6 @@ export const InventoryPanel = memo(function InventoryPanel({
                         Mark for compounding
                       </ContextMenuItem>
                     ) : null}
-                    {!!merchant && compoundable ? (
-                      <ContextMenuSub>
-                        <ContextMenuSubTrigger>
-                          <AutoActionIcon><Blender /></AutoActionIcon>
-                          {autoCompoundMark
-                            ? `Auto compound to +${autoCompoundMark.targetTier}`
-                            : "Auto compound"}
-                        </ContextMenuSubTrigger>
-                        <ContextMenuSubContent>
-                          {Array.from(
-                            {
-                              length: Math.max(0, maxCompoundTier - (entry.item.level || 0)),
-                            },
-                            (_, index) => (entry.item.level || 0) + index + 1,
-                          ).map((tier) => {
-                            const cost = compoundPassCost(
-                              entry.meta?.definition.grades as number[] | undefined,
-                              tier,
-                              buyable,
-                            );
-                            return (
-                              <ContextMenuItem
-                                key={tier}
-
-                                onClick={() =>
-                                  onCommand(character.name, "auto-compound-mark", entry.item, {
-                                    targetTier: tier,
-                                  })
-                                }
-                              >
-                                <span>+{tier}</span>
-                                <span className="ml-auto pl-5 font-mono text-black">
-                                  {cost ? `${cost.gold.toLocaleString()}g` : "Price unavailable"}
-                                </span>
-                              </ContextMenuItem>
-                            );
-                          })}
-                        </ContextMenuSubContent>
-                      </ContextMenuSub>
-                    ) : null}
                     {merchant || deconstructable && onDeconstruction ? <ContextMenuSeparator className="my-1 h-px bg-slate-600" /> : null}
                     {deconstructable && onDeconstruction ? <>
                       <ContextMenuItem className="text-orange-300" disabled={!!deconstruction} onClick={() => onDeconstruction(entry, false, false)}>
@@ -1095,13 +1035,7 @@ export const InventoryPanel = memo(function InventoryPanel({
                           <DollarSign className="mr-2 h-4 w-4" />
                           Sell to NPC…
                         </ContextMenuItem>
-                        <ContextMenuItem
-                          className="text-rose-300"
-                          onClick={() => onAutoNpcSale(entry)}
-                        >
-                          <AutoActionIcon><DollarSign /></AutoActionIcon>
-                          {autoNpcSaleMarked ? "Update auto sell to NPC…" : "Auto sell to NPC…"}
-                        </ContextMenuItem>
+
                       </>
                     ) : null}
                     {Boolean(bankMarked || merchantMarkedItem || autoMarkMode || upgradeMark || autoUpgradeMarks[autoRuleKey] || inventoryStatScrollMark || compoundGroup || autoCompoundMark || autoExchangeMarked || merchantWeaponMarked || npcSale || autoNpcSaleMarked || standMarked || autoStandMarked || deconstruction || autoDeconstruct) && (

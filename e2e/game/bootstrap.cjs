@@ -83,10 +83,17 @@ async function bootstrap() {
 async function reset() {
   const manifest = await bootstrap();
   await admin("Object.values(players).forEach(p=>p.socket.disconnect(true)); output=true");
-  for (let attempt = 0; attempt < 100; attempt++) {
+  // Native disconnect persists character/account state and waits for in-flight
+  // bank transactions. CI recorded a successful merchant logout 15 seconds
+  // after the fighters; the former 10-second ceiling failed the next scenario.
+  const disconnectDeadline = Date.now() + 45000;
+  for (;;) {
     if (await admin('output=Object.keys(players).length+Object.keys(dc_players).length') === 0) break;
+    if (Date.now() >= disconnectDeadline) {
+      const remaining = await admin('output=[...Object.values(players),...Object.values(dc_players)].map(p=>({name:p.name,map:p.map,stopping:!!p.stop_call,syncing:!!p.sync_call,mounting:!!p.mount_call,unmounting:!!p.unmount_call}))');
+      throw new Error('Previous game clients did not finish native disconnect: ' + JSON.stringify(remaining));
+    }
     await new Promise(resolve => setTimeout(resolve, 100));
-    if (attempt === 99) throw new Error('Previous game clients did not disconnect');
   }
   // Wait for upstream disconnection persistence before restoring initial records.
   await new Promise(resolve => setTimeout(resolve, 1000));

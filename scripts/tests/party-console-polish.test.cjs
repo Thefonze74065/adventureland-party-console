@@ -124,21 +124,24 @@ const Controls = loadControls();
 test('Steam monitor joins, promotes, ignores primary, cancels, rejects changed confirmations, handles failure and duplicate submission', async () => {
   for (const [kind, primary, other, expected] of [['headless', false, null, 'login'], ['headless', false, 'B', 'login'], ['native', false, 'B', 'primary'], ['native', true, 'A', null]]) {
     let calls = [], finish, tree;
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    client.setQueryData(['debug-browser'], false);
+    const render = props => React.createElement(QueryClientProvider, { client }, React.createElement(Controls, props));
     const props = { name: 'A', slot: { index: 1, character: 'A', kind, primary, state: 'online' }, primaryCharacter: other, pending: false,
       onSteam: (name, action) => { calls.push([name, action]); return new Promise(resolve => { finish = resolve; }); }, onLogout: async () => {}, onHeadless: async () => {} };
-    await act(async () => { tree = create(React.createElement(Controls, props)); });
+    await act(async () => { tree = create(render(props)); });
     const monitor = () => tree.root.findAllByType('button').find(button => /Steam/.test(button.props['aria-label'] || ''));
     await act(async () => monitor().props.onClick());
-    if (!expected) { assert.equal(tree.root.findAllByType('button').length, 3); await act(async () => tree.unmount()); continue; }
+    if (!expected) { assert.equal(tree.root.findAllByType('button').length, 3); await act(async () => tree.unmount()); client.clear(); continue; }
     const buttons = () => tree.root.findAllByType('button');
     await act(async () => buttons()[3].props.onClick());
     assert.equal(buttons().length, 3); assert.deepEqual(calls, []);
     await act(async () => monitor().props.onClick());
-    await act(async () => tree.update(React.createElement(Controls, { ...props, primaryCharacter: 'Changed' })));
+    await act(async () => tree.update(render({ ...props, primaryCharacter: 'Changed' })));
     assert.equal(buttons()[4].props.disabled, true);
     await act(async () => buttons()[4].props.onClick()); assert.deepEqual(calls, []);
     await act(async () => buttons()[3].props.onClick());
-    await act(async () => tree.update(React.createElement(Controls, props)));
+    await act(async () => tree.update(render(props)));
     await act(async () => monitor().props.onClick());
     const submit = buttons()[4].props.onClick;
     let pending;
@@ -146,10 +149,10 @@ test('Steam monitor joins, promotes, ignores primary, cancels, rejects changed c
     assert.deepEqual(calls, [['A', expected]]);
     await act(async () => { finish(); await pending; });
     assert.equal(buttons().length, 3);
-    await act(async () => tree.update(React.createElement(Controls, { ...props, onSteam: async () => { throw new Error('failed request'); } })));
+    await act(async () => tree.update(render({ ...props, onSteam: async () => { throw new Error('failed request'); } })));
     await act(async () => monitor().props.onClick());
     await act(async () => buttons()[4].props.onClick());
     assert.match(tree.root.findByProps({ role: 'alert' }).children.join(''), /failed request/);
-    await act(async () => tree.unmount());
+    await act(async () => tree.unmount()); client.clear();
   }
 });

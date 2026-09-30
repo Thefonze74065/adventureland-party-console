@@ -7,7 +7,7 @@ const W = 'E2EWarrior', P = 'E2EPriest', members = [W, P];
 test.use({ loadout: 'fragile' });
 
 test('disabling inherited Franky interrupts native boss combat and evacuates both participants', async ({ live }, info) => {
-  test.setTimeout(360_000);
+  test.setTimeout(480_000);
   const world = () => live.admin(`output={live:!!E.franky?.live,boss:!!get_monster('franky'),bossHp:get_monster('franky')?.hp,
     players:Object.fromEntries(${JSON.stringify(members)}.map(name=>{const p=get_player(name);
       return [name,{map:p.map,x:p.x,y:p.y,rip:!!p.rip}]}))}`);
@@ -72,10 +72,17 @@ test('disabling inherited Franky interrupts native boss combat and evacuates bot
   await info.attach('franky-party-native-evacuation-admission', {
     body: JSON.stringify({ recovery, admitted }, null, 2), contentType: 'application/json',
   });
+  // This fragile party walks through multiple native maps at speed 54. Require
+  // departure promptly, then budget the cross-map trip and bounded recovery
+  // separately; a single 120-second clock conflated both on loaded runners.
+  await expect.poll(async()=>{
+    const server=await world();
+    return members.every(name=>server.players[name].map!=='level2w'&&!server.players[name].rip);
+  },{timeout:90_000,message:'Both native fighters must leave the living Franky instance'}).toBe(true);
   await expect.poll(async()=>{
     const server=await world();
     return members.every(name=>server.players[name].map==='main'&&!server.players[name].rip);
-  },{timeout:120_000,message:'Both native fighters must leave Franky while the boss is still alive'}).toBe(true);
+  },{timeout:180_000,message:'Both native fighters must finish the cross-map Mainland evacuation while Franky remains alive'}).toBe(true);
   const evacuated={server:await world(),coordinator:await live.state()};
   expect(evacuated.server.live&&evacuated.server.boss&&evacuated.server.bossHp>0).toBe(true);
   await info.attach('franky-party-native-evacuation-complete',{body:JSON.stringify(evacuated),contentType:'application/json'});

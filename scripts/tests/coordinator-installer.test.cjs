@@ -50,7 +50,7 @@ for (const legacy of [false, true]) test(`installer replaces ${legacy ? 'legacy 
     assert.equal(thread.split('const originalInitSocket').length,2);
     const events=[],socket=new EventEmitter(),game_context={socket,init_socket(){return 'socket-ready'}};
     const hook=thread.slice(thread.indexOf('  game_context.__partyClientVersion'),thread.indexOf('  vm.runInContext("the_game()", game_context);'));
-    vm.runInNewContext(hook,{game_context,proc_args:{version:99,clientInstance:'instance'},process:{connected:true,send:message=>events.push(message)}});
+    vm.runInNewContext(hook,{require,game_context,proc_args:{version:99,clientInstance:'instance'},process:{connected:true,send:message=>events.push(message)}});
     assert.equal(game_context.init_socket(),'socket-ready');game_context.init_socket();
     socket.emit('welcome',{});socket.emit('reloaded',{});
     assert.deepEqual(events.map(message=>message.event),['welcome','reloaded']);

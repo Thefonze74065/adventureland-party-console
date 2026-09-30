@@ -10,10 +10,12 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { inventoryCounts } from "@/lib/account-inventory";
-import { X } from "lucide-react";
+import { X, Settings } from "lucide-react";
+import { ExchangeMarkControls, type ExchangeMarkMode } from "./exchange-mark-controls";
 import { Tooltip as Preview } from "@base-ui/react/tooltip";
 import { PartyActionError } from "./query-actions";
-import { useId, useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState, type ReactNode } from "react";
+import type { ExchangeRewardTileData } from './exchange-reward-tile';
 import { BankSnapshot } from "./bank-snapshot";
 import { Bankboi } from "./bankboi";
 import { Char } from "./char";
@@ -36,8 +38,12 @@ export function MerchantCommerceDialog({
   bankbois,
   onInspect,
   onSubmit,
+  renderExchangeReward,
+  onSaveExchangeMarks,
 }: {
   mode: "buy" | "craft" | "exchange" | null;
+  renderExchangeReward?: (reward: ExchangeRewardTileData) => ReactNode;
+  onSaveExchangeMarks?: (drafts: { id: string; level: number; mode: ExchangeMarkMode }[]) => Promise<void>;
   onClose: () => void;
   catalog: MerchantCatalog;
   characters: Char[];
@@ -46,6 +52,7 @@ export function MerchantCommerceDialog({
   onInspect: (
     item: { id: string; name: string; sprite: Sprite | null },
     meta?: ItemMeta | null,
+    exchangeAdd?: { enabled: boolean; onAdd: () => void },
   ) => void;
   onSubmit: (
     buys: {
@@ -66,6 +73,30 @@ export function MerchantCommerceDialog({
   const [exchangeCart, setExchangeCart] = useState<Record<string, number>>({});
   const [hoveredRecipe, setHoveredRecipe] = useState<MerchantCraftRecipe | null>(null);
   const [selectedExchange, setSelectedExchange] = useState<MerchantExchangeItem | null>(null);
+  const [marking, setMarking] = useState(false);
+  const [markMode, setMarkMode] = useState<ExchangeMarkMode | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, { id: string; level: number; mode: ExchangeMarkMode }>>({});
+  const [savingMarks, setSavingMarks] = useState(false);
+  const [markError, setMarkError] = useState<string | null>(null);
+  const renderReward = renderExchangeReward ? (reward: ExchangeRewardTileData) => renderExchangeReward({ ...reward, marking, markMode,
+    saving: savingMarks, stagedMode: drafts[`${reward.id}@${reward.level}`]?.mode,
+    onStage: (item, mode) => setDrafts(current => ({ ...current, [`${item.id}@${item.level}`]: { id: item.id, level: item.level, mode } })),
+  }) : undefined;
+  function openRules(item: MerchantExchangeItem | null) {
+    setSelectedExchange(item); setMarking(false); setMarkMode(null); setDrafts({}); setMarkError(null);
+  }
+  async function toggleMarking() {
+    if (!marking) { setMarking(true); setMarkError(null); return; }
+    setSavingMarks(true); setMarkError(null);
+    try {
+      if (Object.keys(drafts).length) {
+        if (!onSaveExchangeMarks) throw new Error('Exchange rule saving is unavailable');
+        await onSaveExchangeMarks(Object.values(drafts));
+      }
+      setDrafts({}); setMarking(false); setMarkMode(null);
+    } catch (error) { setMarkError(error instanceof Error ? error.message : 'Could not save exchange rules'); }
+    finally { setSavingMarks(false); }
+  }
   const [submitting, setSubmitting] = useState(false);
   const previewId = useId();
   const pending = useRef(false);
@@ -86,7 +117,7 @@ export function MerchantCommerceDialog({
     setDraftIdentity1(draftIdentity1);
     (() => {
       setSearch("");
-      setSelectedExchange(null);
+      openRules(null);
       setHoveredRecipe(null);
       setPreviewAnchor(null);
       setSubmitError(null);
@@ -304,7 +335,7 @@ export function MerchantCommerceDialog({
     <Dialog
       open={mode !== null}
       onOpenChange={(open) => {
-        if (!open) onClose();
+        if (!open && !savingMarks) { openRules(null); onClose(); }
       }}
     >
       <DialogContent
@@ -316,7 +347,7 @@ export function MerchantCommerceDialog({
             {mode === "buy"
               ? "Merchant shopping"
               : mode === "exchange"
-                ? "Merchant exchanges"
+                ? "Exchange"
                 : "Merchant crafting"}
           </DialogTitle>
           <DialogDescription className="text-emerald-100/55">
@@ -356,15 +387,13 @@ export function MerchantCommerceDialog({
                   onFocus={(event) => { setHoveredRecipe(recipe); setPreviewAnchor(event.currentTarget); }}
                   onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setHoveredRecipe(null); }}
                   onMouseLeave={(event) => { if (!event.currentTarget.contains(document.activeElement)) setHoveredRecipe(null); }}
-                  className={`group relative flex min-h-36 flex-col items-center rounded border border-emerald-900 bg-black/20 p-2 text-center hover:border-emerald-500 ${enabled ? "" : "grayscale opacity-35"}`}
+                  className={`group relative flex min-h-36 flex-col items-center rounded border border-emerald-900 bg-black/20 p-2 text-center hover:border-emerald-500 ${enabled || exchangeItem ? "" : "grayscale opacity-35"}`}
                 >
                   <button
                     type="button"
-                    onClick={() =>
-                      exchangeItem
-                        ? setSelectedExchange(exchangeItem)
-                        : onInspect(item, catalogMeta)
-                    }
+                    onClick={() => onInspect(item, catalogMeta, exchangeItem ? { enabled, onAdd: () => {
+                      if (exchangeItem.choices) openRules(exchangeItem); else add(catalogKey(item));
+                    } } : undefined)}
                     aria-describedby={recipe && hoveredRecipe === recipe ? previewId : undefined}
                     className="grid w-full flex-1 place-items-center"
                   >
@@ -380,11 +409,13 @@ export function MerchantCommerceDialog({
                         : `${item.cost.toLocaleString()}g`}
                     </span>
                   </button>
+                  {exchangeItem && <Button size="icon" onClick={() => openRules(exchangeItem)} aria-label={`Exchange rules for ${item.name}`}
+                    className="absolute right-1 top-1 h-7 w-7 border border-slate-500 bg-slate-950 text-slate-100 hover:bg-slate-800"><Settings className="h-4 w-4" /></Button>}
                   <Button
                     type="button"
                     size="sm"
                     disabled={!enabled}
-                    onClick={() => exchangeItem?.choices ? setSelectedExchange(exchangeItem) : add(catalogKey(item))}
+                    onClick={() => exchangeItem?.choices ? openRules(exchangeItem) : add(catalogKey(item))}
                     className="mt-2 h-7 w-full bg-emerald-800 text-[10px] text-emerald-50 hover:bg-emerald-700"
                   >
                     {exchangeItem?.choices ? "Choose" : "Add"}
@@ -570,7 +601,7 @@ export function MerchantCommerceDialog({
         )}
         {selectedExchange && mode === "exchange" && (
           <div className="absolute inset-6 z-[110] flex flex-col rounded-lg border border-cyan-700 bg-[#07100f] p-5 shadow-2xl">
-            <div className="flex items-start justify-between gap-4">
+            <div className="flex flex-wrap items-start gap-4">
               <div className="flex items-center gap-3">
                 <div className="relative h-12 w-12">
                   {selectedExchange.sprite && <ItemSprite sprite={selectedExchange.sprite} />}
@@ -582,20 +613,37 @@ export function MerchantCommerceDialog({
                   </p>
                 </div>
               </div>
+              <Button disabled={savingMarks} onClick={toggleMarking} aria-busy={savingMarks}
+                className="h-9 w-32 shrink-0 border border-emerald-500 bg-emerald-950 text-emerald-100 hover:bg-emerald-900">{marking ? 'Done' : 'Mark multiple'}</Button>
+              <div className="ml-auto">
+              <ExchangeMarkControls enabled={marking} mode={markMode} saving={savingMarks} onMode={setMarkMode} />
+              </div>
               <Button
                 size="icon"
                 variant="ghost"
-                onClick={() => setSelectedExchange(null)}
+                onClick={() => openRules(null)}
+                disabled={savingMarks}
                 aria-label="Close exchange details"
                 className="border border-rose-700 bg-black text-rose-300 hover:bg-rose-950 hover:text-white"
               >
                 <X className="h-4 w-4" />
               </Button>
             </div>
+            {marking && <p className="mt-3 text-xs text-sky-200">{Object.keys(drafts).length} pending changes. Done saves; closing discards.{markMode?.action === 'stand' ? ' Existing prices are kept; new stand rules use the item gold value.' : ''}</p>}
+            {markError && <p role="alert" className="mt-2 text-sm text-rose-300">{markError}</p>}
             <p className="mt-5 font-mono text-xs uppercase text-emerald-300">{selectedExchange.choices ? "Available rewards" : "Potential results"}</p>
-            <div className="mt-2 grid min-h-0 flex-1 content-start gap-2 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">
+            <div className={`mt-2 min-h-0 flex-1 content-start gap-2 overflow-y-auto ${selectedExchange.choices ? 'flex flex-wrap items-start' : 'grid max-w-[1072px] grid-cols-[repeat(auto-fill,112px)] items-stretch'}`}>
               {selectedExchange.choices?.map((choice) => (
                 <div key={choice.key} className="flex items-center gap-3 rounded border border-cyan-800 bg-[#06110f] p-3 text-emerald-50">
+                  {renderReward ? renderReward({
+                    id: choice.reward?.replace(/-\d+$/, '') || choice.id,
+                    level: Number(choice.reward?.match(/-(\d+)$/)?.[1]) || 0,
+                    name: choice.name, quantity: choice.rewardQuantity || 1, sprite: choice.sprite, detail: '100%',
+                    onInspect: () => {
+                      const reward = catalog.allItems?.find(item => item.id === choice.reward?.replace(/-\d+$/, ''));
+                      if (reward) onInspect(reward, reward.meta);
+                    },
+                  }) :
                   <button type="button" className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => {
                     const reward = catalog.allItems?.find((item) => item.id === choice.reward?.split("-")[0]);
                     if (reward) onInspect(reward, reward.meta);
@@ -603,6 +651,7 @@ export function MerchantCommerceDialog({
                     <div className="relative h-10 w-10 shrink-0">{choice.sprite && <ItemSprite sprite={choice.sprite} />}</div>
                     <span className="text-sm">{choice.name}{(choice.rewardQuantity || 1) > 1 ? ` × ${choice.rewardQuantity}` : ""}</span>
                   </button>
+                  }
                   <span className="flex items-center gap-1 text-sm text-amber-200" title={choice.currencyName}>
                     <span className="relative h-6 w-6">{choice.currencySprite && <ItemSprite sprite={choice.currencySprite} />}</span>
                     × {choice.required}
@@ -631,6 +680,14 @@ export function MerchantCommerceDialog({
                     </div>
                   </>
                 );
+                if (renderReward) return <div key={`${result.kind}-${result.id}-${index}`}>
+                  {renderReward({ id: result.id, level: 0, name: result.name, quantity: result.quantity, sprite: result.sprite,
+                    kind: result.kind, detail: `${Number((result.chance * 100).toFixed(6))}%`, onInspect: () => {
+                      const nested = catalog.exchangeable?.find(choice => !choice.reward && choice.id === result.id && !choice.level);
+                      if (nested) setSelectedExchange(nested);
+                      else if (reward) onInspect(reward, reward.meta);
+                    } })}
+                </div>;
                 return reward ? (
                   <button
                     type="button"

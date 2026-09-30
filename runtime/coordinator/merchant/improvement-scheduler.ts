@@ -16,6 +16,7 @@ import {
 } from "./automatic-improvements.ts";
 
 interface ExchangeJob {
+  routine: 'automatic exchange';
   id: string;
   target: string;
   reason: string;
@@ -145,7 +146,7 @@ export function createImprovementScheduler(state: SchedulerState, ports: Schedul
   }
 
   function exchange(status: Status | null | undefined): boolean {
-    if (state.merchantAutomations.exchange === false) return false;
+    if (state.merchantAutomations['automatic exchange'] === false) return false;
     const merchant = state.merchantCharacter;
     if (!merchant || status?.name !== merchant || !Array.isArray(status.items)) return false;
     const { lines, keys } = exchangeInventory(status.items);
@@ -159,6 +160,7 @@ export function createImprovementScheduler(state: SchedulerState, ports: Schedul
         id: "merchant-" + ports.now() + "-" + ports.nextCommand(),
         target: merchant,
         reason: "exchange",
+        routine: 'automatic exchange',
         exchanges: lines,
         autoExchangeKeys: keys,
         queuedAt: ports.now(),

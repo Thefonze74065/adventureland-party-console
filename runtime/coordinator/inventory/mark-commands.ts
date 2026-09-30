@@ -14,6 +14,7 @@ interface MarkState extends SharedScope {
   statuses: Record<string, { items?: unknown } | undefined>;
 }
 interface MarkPorts {
+  selectAction?(item: Item, name: string, action: 'bank' | 'merchant'): void;
   key(item: Item): string;
   mode(rules: Record<string, unknown>, item: Item): unknown;
   reconcile(name: string, status: MarkState["statuses"][string]): void;
@@ -29,21 +30,32 @@ export function createMarkCommands(state: MarkState, ports: MarkPorts) {
     rules: Record<string, unknown>,
     item: Item & { name: string },
     mode: string,
+    name: string,
   ): void {
     const key = ports.key(item);
     if (ports.mode(rules, item) === mode) delete rules[key];
-    else rules[key] = mode;
+    else {
+      ports.selectAction?.(item, name, mode as 'bank' | 'merchant');
+      rules[key] = mode;
+    }
     if ((Number(item.level) || 0) === 0) delete rules[item.name];
   }
   function reconcileMembers(name: string) {
     for (const member of state.merchantRules?.members || [name]) ports.reconcile(member, state.statuses[member]);
+  }
+  function selectAutomatic(body: Request, rules: Record<string, unknown>, item: Item & { name: string }, mode: string, name: string): void {
+    if (body.action !== 'set') return toggle(rules, item, mode, name);
+    // Painting a rule is idempotent, including duplicate outcomes of the same item.
+    ports.selectAction?.(item, name, mode as 'bank' | 'merchant');
+    rules[ports.key(item)] = mode;
+    if ((Number(item.level) || 0) === 0) delete rules[item.name];
   }
   function automatic(body: Request, name: string, mode: string): CommandOutcome {
     const item = requestObject(body.item);
     if (!validAutomatic(body)) return undefined;
     const rules = (state.autoItemMarks[ruleOwner(state, name)] ||= {});
     if (body.type === "auto-item-mark") {
-      toggle(rules, item as Item & { name: string }, mode);
+      selectAutomatic(body, rules, item as Item & { name: string }, mode, name);
     } else if (body.type === "clear-auto-item-marks") {
       for (const key of Object.keys(rules)) if (rules[key] === mode) delete rules[key];
     } else if (typeof body.ruleKey === "string") {

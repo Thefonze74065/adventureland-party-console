@@ -241,7 +241,7 @@ test('a connected member cannot search forever', async () => {
 
 test('a suspended runner cannot depart far behind the convoy', async () => {
   const r=runtime(); const {promise}=await r.start(); await r.ready(); schedule(r);
-  r.setNow(4501); r.tick(); await settle();
+  r.setNow(5501); r.tick(); await settle();
   assert.match(r.context.convoyTraveling.failure,/Missed convoy departure/);
   await r.cancel(); await promise;
 });

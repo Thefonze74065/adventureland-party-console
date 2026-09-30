@@ -4,10 +4,14 @@ export function createDepartureLoot(ports:any) {
   let control:any=null, progress:any=null, pending=false, retired=new Set<string>(), latest=0;
   const engagements=new Map<string,number>();
   const identity=(t:any)=>JSON.stringify([t.realm,t.map,String(t.in??t.map),String(t.id)]);
-  function valid(c:any) {
+  function samePlace(c:any) {
     const s=ports.position();
     return c && s.realm===c.realm && s.map===c.map && String(s.in)===String(c.in) &&
-      Math.hypot(s.x-c.x,s.y-c.y)<=180 && !ports.cancelled();
+      !ports.cancelled();
+  }
+  function valid(c:any) {
+    const s=ports.position();
+    return samePlace(c) && Math.hypot(s.x-c.x,s.y-c.y)<=180;
   }
   function accept(c:any,at:number) {
     if(at<latest)return;latest=at;
@@ -31,7 +35,7 @@ export function createDepartureLoot(ports:any) {
       if(control===c)progress={id:c.id,realm:c.realm,map:c.map,in:String(c.in),observedAt:ports.now(),complete:false,error:String(error?.reason||error?.message||error)};
     } finally {pending=false;}
   }
-  return {accept,tick,valid,report:()=>progress,blocks:()=>valid(control)&&!(progress?.id===control.id&&progress.complete),
+  return {accept,tick,valid,samePlace,report:()=>progress,blocks:()=>valid(control)&&!(progress?.id===control.id&&progress.complete),
     hit(t:any){engagements.set(identity(t),ports.now());},
     engaged(t:any){const at=engagements.get(identity(t));return at!==undefined&&ports.now()-at<300000;}};
 }
@@ -85,7 +89,9 @@ export function installLootClient(root:any,shared:any) {
       if(!mission || finalKill!==huntLootId(mission) || mission.loot?.complete)finalKill=null;
       let c=state.rareControl;
       if(lastRare && lastRare.id!==c?.id)retired.add(lastRare.id);
-      if(c && (retired.has(c.id)||c.kind==='loot'&&!rare.valid({...c.target,id:c.id})))c=null;
+      // The loot owner must be able to approach a kill made by a distant peer.
+      // Proximity gates the actual loot pass, not acceptance of its movement.
+      if(c && (retired.has(c.id)||c.kind==='loot'&&!rare.samePlace({...c.target,id:c.id})))c=null;
       lastRare=c;
       rare.accept(c?.kind==='loot'?{...c.target,id:c.id,after:c.killedAt}:null,state.serverNow);
       hunt.accept(mission?.loot&&!mission.loot.complete?mission.loot:null,state.serverNow);

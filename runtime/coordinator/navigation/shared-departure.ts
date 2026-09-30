@@ -25,8 +25,12 @@ export function readinessExpired(c: SharedConvoy, now: number): boolean {
 }
 
 export function readinessFailure(c: SharedConvoy, reason: string): boolean {
-  return ['shared-prepare', 'scheduled'].includes(c.phase) && !reason.startsWith('Departure readiness timed out:') &&
+  return ['shared-prepare', 'scheduled', 'travel'].includes(c.phase) && !reason.startsWith('Departure readiness timed out:') &&
     preparationChanged(reason);
+}
+
+export function departureConfirmed(state: SharedState, c: SharedConvoy, now: number): boolean {
+  return c.participants.every(name => c.completed.includes(name) || departed(state, c, name, now));
 }
 
 export function recoveryPlanner(c: SharedConvoy, reason: string): void {

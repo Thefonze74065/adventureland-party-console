@@ -7,8 +7,9 @@ import { createMerchantIdleRoute } from "./merchant-idle.ts";
 import { createMerchantBidRoute } from "./merchant-bid.ts";
 import { createStackMergeRoute } from "./stack-merge.ts";
 import type { ObservedCharacterStatus } from "../status/observed-status.ts";
+import { replaceAutomaticAction, type AutomaticActionState } from '../inventory/automatic-action.ts';
 
-type InventoryState = Parameters<typeof createAutomaticSaleRoutes>[0] &
+type InventoryState = AutomaticActionState & Parameters<typeof createAutomaticSaleRoutes>[0] &
   Parameters<typeof createNpcSaleRoute>[0] &
   Parameters<typeof createStandMarkRoute>[0] &
   Parameters<typeof createMerchantHandoffRoutes>[0] &
@@ -39,6 +40,7 @@ type InventoryPorts = Omit<Parameters<typeof createAutomaticSaleRoutes>[1], "rec
 export function createCoordinatorInventoryActions(state: InventoryState, ports: InventoryPorts) {
   const shared = { ...ports, nextCommand: () => state.nextCommandId++ };
   const automatic = createAutomaticSaleRoutes(state, {
+    selectAction: (item, name, action) => replaceAutomaticAction(state, name, item, action),
     ...shared,
     reconcile: () => { for (const status of Object.values(state.statuses)) ports.reconcile(status); },
   });

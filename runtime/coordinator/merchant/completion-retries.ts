@@ -10,6 +10,7 @@ import type {
 } from "./completion-types.ts";
 
 interface RetryDecision {
+  death: boolean;
   movement: boolean;
   movementOwned: boolean;
   realm: boolean;
@@ -24,6 +25,9 @@ function retryRendezvous(job: CompletionJob, error: string): boolean {
     /rendezvous (?:route )?timed out/i.test(error) && (Number(job.rendezvousRetryCount) || 0) < 2
   );
 }
+function merchantDeath(body: CompletionReport): boolean {
+  return !body.success && requestText(body.error || '').startsWith('Merchant died during rendezvous with ');
+}
 function classify(job: CompletionJob, body: CompletionReport): RetryDecision {
   const failed = !body.success,
     error = requestText(body.error || "");
@@ -34,6 +38,7 @@ function classify(job: CompletionJob, body: CompletionReport): RetryDecision {
   const realm = realmFailure(body), movement = commerceRouteFailure(job, body) ||
     improvementCommunicationFailure(job, body);
   return {
+    death: merchantDeath(body),
     movementOwned: failed && body.failureKind === "hunt_movement_owned",
     movement,
     realm,
@@ -57,7 +62,8 @@ function transientUpgradeInput(error: string): boolean {
 }
 function interruptedProduction(error: string, kind?: string): boolean {
   if (kind === 'commerce_recovery') return true;
-  return error.toLowerCase() === "interrupted" || transientUpgradeInput(error);
+  return error.toLowerCase() === "interrupted" ||
+    error.startsWith('Merchant died during rendezvous with ') || transientUpgradeInput(error);
 }
 function retryAllowed(job: CompletionJob, yielded: boolean, interrupted: boolean): boolean {
   return (
@@ -189,7 +195,7 @@ export function createCompletionRetries(state: CompletionState, ports: Completio
   return { decide, enqueue };
 }
 
-function retryDecision(job: CompletionJob, decision: Omit<RetryDecision, 'retry' | 'interruptedCommerce'>, interrupted: boolean): boolean {
+function retryDecision(job: CompletionJob, decision: Omit<RetryDecision, 'retry' | 'interruptedCommerce' | 'death'>, interrupted: boolean): boolean {
   return decision.movementOwned || decision.movement || decision.realm || retryAllowed(job,
     decision.storageYield || decision.anniversaryYield || decision.rendezvous, interrupted);
 }
@@ -206,6 +212,7 @@ function realmRetry(job: CompletionJob, retry: CompletionJob, now: number): void
 }
 
 function retryRecoveryDelay(job: CompletionJob, retry: CompletionJob, decision: RetryDecision, now: number): void {
-  if (decision.movement) movementRetry(job, retry, now);
+  if (decision.death) retry.retryAt = now + 10000;
+  else if (decision.movement) movementRetry(job, retry, now);
   else if (decision.interruptedCommerce && buyUpgradeOrder(job)) retry.retryAt = now + 1000;
 }

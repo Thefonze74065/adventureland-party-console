@@ -37,7 +37,7 @@ test('accepted native catalogs stop retransmitting on every character heartbeat'
   context.on('response', observe);
   try {
     await expect.poll(async () => {
-      const catalog = (await live.state()).merchantCatalog;
+      const catalog = (await live.state(true)).merchantCatalog;
       return catalog?.version === 'exchange-rewards-v4' && Array.isArray(catalog.allItems) && catalog.allItems.length > 0;
     }, { timeout: 120_000, message: 'Native discovery must publish a usable catalog before testing its acknowledgement' }).toBe(true);
     await expect.poll(() => names.every(name => exchanges.some(exchange => exchange.name === name && !exchange.needsCatalog)),

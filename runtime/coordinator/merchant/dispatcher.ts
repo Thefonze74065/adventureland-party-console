@@ -222,12 +222,18 @@ export function createMerchantDispatcher(state: DispatchState, ports: DispatchPo
   }
 
   function available(): boolean {
+    // Preserve queued work until a fresh living merchant can execute it.
+    if (!merchantAlive()) return false;
     state.queue = mergePickupJobs(state.queue, ports.merchant()).map(job => ports.stamp(job));
     if (ports.returningHome() && !ports.ensureHome("resuming merchant work")) return false;
     state.queue = state.queue.flatMap(job => splitLegacyWork(job)).filter(hasQueuedWork).filter((job) => !ports.bankboi(job.target) && ports.enabled?.(job) !== false && !(job.reason === "join giveaway" && Number(job.expiresAt) < ports.now()));
     return !state.current && !!ports.merchant() && !ports.manualEquipmentPending() && !reserved();
   }
 
+  function merchantAlive(): boolean {
+    const merchant = ports.status(ports.merchant());
+    return !!merchant && !merchant.rip && merchant.seenAt >= ports.now() - 10000;
+  }
   function dispatch(): void {
     if (ports.eventReserved?.()) return;
     if (gatheringCastActive(ports.status(ports.merchant()), ports.now())) return;

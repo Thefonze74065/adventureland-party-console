@@ -17,7 +17,7 @@ const game = require('./game/bootstrap.cjs');
 export type LiveGame = {
   url: string;
   clients: Record<string, LiveClient>;
-  state(): Promise<any>;
+  state(catalogs?: boolean): Promise<any>;
   post(route: string, body: unknown): Promise<any>;
   admin(code: string): Promise<any>;
   restartCoordinator(): Promise<void>;
@@ -81,8 +81,10 @@ export const test = base.extend<{ live: LiveGame; loadout: NativeLoadout; primar
       const url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
       live = {
         url, clients,
-        async state() {
-          const response = await fetch(url + '/party-api/state', { signal: AbortSignal.timeout(15_000) });
+        async state(catalogs = false) {
+          // Match the dashboard's existing catalog-free polling API. Catalog checks
+          // explicitly request the full projection; never cache or synthesize state.
+          const response = await fetch(url + '/party-api/state' + (catalogs ? '' : '?catalog=0'), { signal: AbortSignal.timeout(15_000) });
           if (!response.ok) throw Error('Live state failed: ' + response.status);
           return response.json();
         },
@@ -192,7 +194,7 @@ export const test = base.extend<{ live: LiveGame; loadout: NativeLoadout; primar
       };
       try {
         if (live) {
-          await attach('live-final-state', await live.state().catch(error => ({ error: String(error) })));
+          await attach('live-final-state', await live.state(true).catch(error => ({ error: String(error) })));
           await attach('live-server-final', await live.admin("output=Object.fromEntries(Object.values(players).filter(p=>['E2EWarrior','E2EPriest','E2EMerchant'].includes(p.name)).map(p=>[p.name,{name:p.name,map:p.map,x:p.x,y:p.y,hp:p.hp,mp:p.mp,gold:p.gold,xp:p.xp,items:p.items,slots:p.slots,s:p.s}]))").catch(error => ({ error: String(error) })));
         }
         for (const [name, client] of Object.entries(clients)) {

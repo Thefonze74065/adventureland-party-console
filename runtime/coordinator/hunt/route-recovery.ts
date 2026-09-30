@@ -209,10 +209,16 @@ export function recoverHuntRoute(
   if (policy.shouldReturn(hunt, state.leader!, state.statuses) || paused(hunt, state, ports))
     return false;
   if (restoreRecoveryDestination(hunt,state,ports)) return true;
-  const c = state.activeConvoy;
-  if (c && !ownsHuntRoute(hunt, c)) return false;
+  // The ledger retains the destination's spent retry budget after success.
+  // It is not a request to start another convoy once arrival released farming.
+  if (recoveryReleased(hunt, state)) return false;
   const entry = observeFailure(hunt, state, ports, destination);
   return entry ? advanceRecovery(hunt, state, ports, entry) : false;
+}
+function recoveryReleased(hunt: HuntCycle, state: HuntTickState): boolean {
+  const convoy = state.activeConvoy;
+  if (convoy) return !ownsHuntRoute(hunt, convoy);
+  return hunt.stage === "farming" && !!hunt.originArrivedAt;
 }
 function observeFailure(
   hunt: HuntCycle,

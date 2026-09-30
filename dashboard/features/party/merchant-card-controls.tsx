@@ -25,6 +25,7 @@ import { merchantJobLabel } from "./merchant-job-label";
 import { PartyState } from "./party-state";
 import { SendToPartyControl } from "./send-to-party-control";
 import { MerchantCancelJobControl } from "./merchant-cancel-job-control";
+import { routineFor } from '../../../runtime/coordinator/merchant/routines';
 
 export const MerchantCardControls = memo(function MerchantCardControls({
   state: baseState,
@@ -119,7 +120,7 @@ export const MerchantCardControls = memo(function MerchantCardControls({
               className="flex min-w-0 items-center gap-3 text-left"
             >
               {status === "queued" && job.reason !== "fishing" && job.reason !== "mining" ? (
-                <MerchantCancelJobControl id={job.id} reason={job.reason} label={jobLabel(job)} onCancel={onCancelJob} />
+                <MerchantCancelJobControl id={job.id} reason={routineFor(job)} label={jobLabel(job)} onCancel={onCancelJob} />
               ) : null}
               <span title={`${jobLabel(job)}${job.target && job.reason !== "join giveaway" ? ` · ${job.target}` : ""}`}
                 className={
@@ -127,7 +128,7 @@ export const MerchantCardControls = memo(function MerchantCardControls({
                 }
               >
                 <span className="mr-1 text-amber-300">
-                  P{job.priority ?? state.merchantRoutinePriorities?.[job.reason] ?? 50}
+                  P{job.priority ?? state.merchantRoutinePriorities?.[routineFor(job)] ?? 50}
                 </span>
                 {jobLabel(job)}
                 {job.target && job.reason !== "join giveaway" ? ` · ${job.target}` : ""}

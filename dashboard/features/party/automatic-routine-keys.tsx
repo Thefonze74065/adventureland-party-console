@@ -7,7 +7,7 @@ export const automaticRoutineKeys = new Set([
   "inventory cleanout",
   "auto compound",
   "auto upgrade",
-  "exchange",
+  "automatic exchange",
   "stand bid purchases",
   "party collection",
   "auto npc sales",

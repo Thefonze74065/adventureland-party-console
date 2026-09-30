@@ -1,4 +1,5 @@
 import type { BankUpgradeRule } from "./banked-improvements.ts";
+import type { Entity } from 'typed-adventureland';
 import type { InventoryEntry } from "../contracts/item.ts";
 import type { CompoundRule, ExchangeLine } from "./automatic-improvements.ts";
 import type { MerchantJob } from "./queue.ts";
@@ -56,7 +57,7 @@ export interface MerchantWork extends MerchantJob {
   radius?: number;
 }
 
-export interface ServiceStatus {
+export interface ServiceStatus extends Partial<Pick<Entity, 'rip'>> {
   gatheringPhase?: string;
   gatheringAttemptId?: string;
   seenAt: number;

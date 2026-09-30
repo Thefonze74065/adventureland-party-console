@@ -61,9 +61,12 @@ test('a lost native Hunt preparation response recovers cold defense, loot and th
     const kill = await killedByParty(live, String(encounter.id), 90_000);
     const gems = (snapshot: any) => [W, P, M].reduce((sum, name) => sum + quantity(snapshot.players[name].items, 'gem0'), 0);
     await expect.poll(async () => gems(await world(live)), { timeout: 45_000 }).toBeGreaterThan(gems(before));
-    const loot = (await Promise.all([W, P, M].map(name => live.clients[name].events()))).flat()
-      .filter((event: any) => event.event === 'chest_opened' && event.data?.items?.some((item: any) => item.name === 'gem0'));
-    expect(loot.length).toBeGreaterThan(0);
+    let loot: any[] = [];
+    await expect.poll(async () => {
+      loot = (await Promise.all([W, P, M].map(name => live.clients[name].events()))).flat()
+        .filter((event: any) => event.event === 'chest_opened' && event.data?.items?.some((item: any) => item.name === 'gem0'));
+      return loot.length;
+    }, {timeout:15_000,message:'Native chest receipt must reach the client after the authoritative inventory update'}).toBeGreaterThan(0);
     // The injected encounter is finished. Keep attacking passing Goos without
     // repeatedly stopping the outbound Hunt for the world's natural respawns.
     const passingPolicy = await live.post('/rare-hunting', {

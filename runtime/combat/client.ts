@@ -99,6 +99,10 @@ export function installQueueClient(root:any, shared:any) {
     if(!active||Date.now()<retryAt)return;
     if(!enabled())return;
     formation?.tick();
+    // Admission needs round trips through every participant. Start that exchange
+    // while an eligible passing monster is still ahead; this never attacks it.
+    const passingTarget=shared.getWalkingPassiveTarget?.(true);
+    if(passingTarget)preparePassing(passingTarget,true);
     const id=shared.sharedTargetId(),entity=id&&get_entity(id);
     if(id)sight.observe(id,character,!!(entity&&entity.visible&&!entity.dead));
     wait();
@@ -120,14 +124,14 @@ export function installQueueClient(root:any, shared:any) {
       .finally(()=>{busy=false;if(dirty)tick();});
   }
   const timer=setInterval(tick,100);
-  function preparePassing(target:Target) {
+  function preparePassing(target:Target,reserveOnly=false) {
     if(target.type!=='monster')return false;
     if(shared.convoyHoldDefenseTarget?.()?.id===target.id)return true;
     const report=shared.queueReport();
     const identity={...target,map:report.map,in:report.in,server:report.server,at:Date.now()+shared.queueClockOffset(),
-      keepMoving:shared.getWalkingPassiveTarget?.()?.id===target.id};
+      keepMoving:shared.getWalkingPassiveTarget?.(reserveOnly)?.id===target.id};
     if(!passing.prepare(identity,report.groupedCombat.passingEncounters))return false;
-    shared.beginPassingAttack(target);
+    if(!reserveOnly)shared.beginPassingAttack(target);
     return true;
   }
   const api={tick,flush,hit,evidence,events,reportEvidence,sight,formation,timing,handoff,

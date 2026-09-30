@@ -15,7 +15,7 @@ interface CommandState {
 }
 interface CommandPorts {
   farmingFocus?(name: string, ids: string[]): void;
-  managed(name: unknown): boolean;
+  managed(name: unknown, body?: Record<string, unknown>): boolean;
   farmingLocation(choices: Catalog, monsters: unknown[], location: unknown): unknown;
   handlers: ((body: Record<string, unknown>) => CommandOutcome)[];
 }
@@ -53,7 +53,7 @@ export function createCharacterCommandRoute(state: CommandState, ports: CommandP
     const body = requestObject(req.body);
     if (!validFarming(body))
       return res.status(400).json({ error: "The selected farming area is no longer available" });
-    if (!ports.managed(body.character)) return res.status(400).json({ error: "unknown character" });
+    if (!ports.managed(body.character, body)) return res.status(400).json({ error: "unknown character" });
     if (body.farmingMonsterIds) {
       body.location = ports.farmingLocation(
         state.monsterChoices || [],

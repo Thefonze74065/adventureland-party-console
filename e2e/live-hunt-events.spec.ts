@@ -86,7 +86,9 @@ for(const type of ['phoenix','goldenbat','cutebee','hen','rooster','tinyp']) tes
       expect(quantity((await world(live)).players[W].items,'fieldgen0')).toBe(0);
       await info.attach('native-field-generator-deployment',{body:JSON.stringify(await fields()),contentType:'application/json'});
     }
-    await expect.poll(async()=>live.admin(`output=(()=>{const m=instances[${JSON.stringify(spawn.map)}]?.monsters[${JSON.stringify(spawn.id)}];return !!m&&m.hp<${spawn.initialHp}})()`),{timeout:45_000,intervals:[100],message:'Native attacks must damage the spawned rare'}).toBe(true);
+    await expect.poll(async()=>(await Promise.all([W,P].map(name=>live.clients[name].events()))).flat()
+      .some((event:any)=>event.event==='hit'&&String(event.data?.id)===String(spawn.id)&&[W,P].includes(event.data?.hid)&&event.data?.damage>0),
+    {timeout:45_000,message:'A native party hit receipt must prove damage to the spawned rare, including a killing blow'}).toBe(true);
     if(type==='phoenix')await expect.poll(async()=>{
       const state=await live.state(),epoch=state.farmingProfiles[W].groupedCombatResetAt;
       return [W,P].every(name=>state.characters[name]?.groupedCombat?.epoch===epoch);
@@ -95,7 +97,10 @@ for(const type of ['phoenix','goldenbat','cutebee','hen','rooster','tinyp']) tes
     await expect.poll(async()=>{const s=await live.state();return s.monsterHunt?.cycleId===hunt.cycleId&&s.monsterHunt.stage==='farming'&&!s.rareHuntState?.encounter&&!s.farmingProfiles?.[W]?.rareHuntReturn;},{timeout:90_000}).toBe(true);
     const gemTotal=(snapshot:any)=>[W,P,M].reduce((sum,name)=>sum+quantity(snapshot.players[name].items,'gem0'),0);
     await expect.poll(async()=>gemTotal(await world(live)),{timeout:45_000,message:'The rare\'s guaranteed native drop must reach party inventory'}).toBeGreaterThan(gemTotal(before));
-    const loot=(await Promise.all([W,P,M].map(name=>live.clients[name].events()))).flat().filter((event:any)=>event.at>=spawnedAt&&event.event==='chest_opened'&&event.data?.items?.some((item:any)=>item.name==='gem0'));
+    const lootReceipts=async()=>(await Promise.all([W,P,M].map(name=>live.clients[name].events()))).flat().filter((event:any)=>event.at>=spawnedAt&&event.event==='chest_opened'&&event.data?.items?.some((item:any)=>item.name==='gem0'));
+    await expect.poll(async()=>(await lootReceipts()).length,
+      {timeout:15_000,message:'The native chest receipt must reach the client after inventory updates on the server'}).toBeGreaterThan(0);
+    const loot=await lootReceipts();
     expect(loot.length,'Native chest_opened must confirm the seeded rare drop was looted').toBeGreaterThan(0);
     await info.attach('native-rare-chest-opened',{body:JSON.stringify({spawn,loot}),contentType:'application/json'});
     const afterRare=await world(live);

@@ -27,7 +27,11 @@ export function UpgradeActions({
   onAutoMark,
   allowBuy = false,
   offeringSource,
+  automaticOnly = false,
+  showAutomatic = true,
 }: {
+  automaticOnly?: boolean;
+  showAutomatic?: boolean;
   item: Item;
   meta?: ItemMeta | null;
   mark?: UpgradeMark;
@@ -45,7 +49,7 @@ export function UpgradeActions({
     max = Math.max(0, itemMaximumLevel(meta) - level);
   return (
     <>
-      {meta?.upgradeable && max > 0 ? (
+      {!automaticOnly && meta?.upgradeable && max > 0 ? (
         <ContextMenuSub open={previewOpen} onOpenChange={setPreviewOpen}>
           <ContextMenuSubTrigger className="!bg-white !text-black focus:!bg-slate-100 data-open:!bg-slate-100">
             <Swords className="mr-2 h-4 w-4" />
@@ -76,7 +80,7 @@ export function UpgradeActions({
           </ContextMenuSubContent>
         </ContextMenuSub>
       ) : null}
-      {meta?.upgradeable && max > 0 ? (
+      {showAutomatic && meta?.upgradeable && max > 0 ? (
         <ContextMenuSub>
           <ContextMenuSubTrigger className="!bg-white !text-black focus:!bg-slate-100 data-open:!bg-slate-100">
             <AutoActionIcon><Swords /></AutoActionIcon>

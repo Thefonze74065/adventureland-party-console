@@ -9,6 +9,10 @@ const prepare = namedFunction(source, 'prepareCatalog');
 function fixture() {
   const timers = [], warmed = [], errors = [];
   const context = vm.createContext({
+    // Retained invalidation/retry fixture: each metadata lookup costs 10 ms,
+    // so preparation spans multiple cooperative slices. Real timer throughput
+    // and publication are verified by live-catalog.spec.ts.
+    Date: { now: () => warmed.length * 10 },
     G: { items: { coat: {}, staff: {}, potion: {} } },
     catalogPreparing: false, catalogPrepared: false, catalogKnown: false, catalogGeneration: 0,
     runtimeCurrent: () => true, itemWorldInfo: id => warmed.push(id),
@@ -19,7 +23,7 @@ function fixture() {
   return { context, warmed, errors, timers, step };
 }
 
-test('catalog work yields before every item, does not duplicate, and becomes ready only when complete', async () => {
+test('expensive catalog work yields between slices, does not duplicate, and becomes ready only when complete', async () => {
   const f = fixture(), pending = f.context.prepareCatalog();
   await f.context.prepareCatalog();
   assert.equal(f.timers.length, 1);

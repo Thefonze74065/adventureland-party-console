@@ -8,6 +8,6 @@ test('listing migration fills missing metadata without mutating original records
 });
 test('saved disabled automations and zero priorities override defaults',()=>{
  const marks=[],rules={ring:true};const result=initialMerchantSales({npcSaleMarks:marks,autoNpcSales:rules,merchantRoutinePriorities:{'merchant luck':0},merchantAutomations:{exchange:false}},()=>1);
- assert.equal(result.npcSaleMarks,marks);assert.equal(result.autoNpcSales,rules);assert.equal(result.merchantRoutinePriorities['merchant luck'],0);assert.equal(result.merchantAutomations.exchange,false);assert.equal(result.merchantRoutinePriorities['party collection'],90);
+ assert.equal(result.npcSaleMarks,marks);assert.equal(result.autoNpcSales,rules);assert.equal(result.merchantRoutinePriorities['merchant luck'],0);assert.equal(result.merchantAutomations['automatic exchange'],false);assert.equal(result.merchantAutomations.exchange,undefined);assert.equal(result.merchantAutomations['manual exchange'],undefined);assert.equal(result.merchantRoutinePriorities['party collection'],90);
  assert.deepEqual(initialMerchantSales({npcSaleMarks:{}},()=>1).npcSaleMarks,[]);
 });

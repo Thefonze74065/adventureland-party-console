@@ -18,6 +18,7 @@ interface MerchantItemState {
   purchases: Record<string, { name: string }[] | undefined>;
 }
 interface Ports {
+  selectAction?(item: Item, name: string): void;
   persist(): void;
   scheduleExchange(status: Status | undefined): void;
 }
@@ -54,7 +55,10 @@ export function createMerchantItemCommands(state: MerchantItemState, ports: Port
     if (!choice) return failure("this item cannot be exchanged");
     const key = item.name + "@" + level;
     if (state.autoExchanges[key]) delete state.autoExchanges[key];
-    else state.autoExchanges[key] = { name: item.name, level };
+    else {
+      ports.selectAction?.(item, String(state.merchantCharacter));
+      state.autoExchanges[key] = { name: item.name, level };
+    }
     ports.persist();
     ports.scheduleExchange(status);
     return null;
@@ -64,6 +68,7 @@ export function createMerchantItemCommands(state: MerchantItemState, ports: Port
       return undefined;
     const status = state.statuses[String(state.merchantCharacter)],
       entry = status?.items?.find((candidate) => candidate?.slot === body.slot);
+    if (body.type === 'auto-exchange' && body.slot === -1) return exchange(item, status);
     if (!entry || JSON.stringify(entry.item) !== JSON.stringify(item))
       return failure("merchant inventory item changed; refresh and try again", 409);
     return body.type === "merchant-weapon" ? weapon(body, entry) : exchange(item, status);

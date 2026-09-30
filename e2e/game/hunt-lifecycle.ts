@@ -10,10 +10,10 @@ export async function world(live: LiveGame) {
 export const tokens = (player: any): number => player.items.reduce((sum: number, item: any) => sum + (item?.name === 'monstertoken' ? item.q || 1 : 0), 0);
 export function profile(state: any, name = warrior) { return state.farmingProfiles?.[name] || state; }
 export async function location(live: LiveGame, monster = 'goo') {
-  await expect.poll(async () => (await live.state()).monsterChoices?.some((entry: any) => entry.id === monster), { timeout: 90_000 }).toBe(true);
+  await expect.poll(async () => (await live.state(true)).monsterChoices?.some((entry: any) => entry.id === monster), { timeout: 90_000 }).toBe(true);
   // The dashboard/API selects merged farming areas; raw overlapping spawn
   // centers are not necessarily valid backup choices (notably native Bees).
-  const locations = farmingAreas((await live.state()).monsterChoices, [monster]);
+  const locations = farmingAreas((await live.state(true)).monsterChoices, [monster]);
   return locations.find((entry: any) => entry.map === 'main') || locations[0];
 }
 export async function party(live: LiveGame) {

@@ -17,6 +17,7 @@ export type MerchantJob = {
   target: string;
   reason: string;
   routine?: string;
+  autoExchangeKeys?: string[];
   manual?: boolean;
   phase?: string;
   priority?: number;

@@ -3,7 +3,7 @@
 `npm test` runs console and real-game E2E through the dashboard, hosting gateway,
 built coordinator, maintained character runtime and a disposable upstream game
 server backed by MongoDB. Use `npx playwright test --list` for the current scenario
-inventory, including five console journeys and the native-game suites. The inventory is not a passing
+inventory, including six console journeys and the native-game suites. The inventory is not a passing
 result. Playwright starts its console services on ephemeral loopback ports and
 creates fresh coordinator data under `.build/e2e/`. The game uses fixed loopback
 ports 8083 and 9003 in the disposable Docker project `al-e2e-pr21`; run one native
@@ -12,9 +12,8 @@ not attach to the running Party Console or read its credentials.
 The harness pins Express 4.18.3 to match the repository's pinned caracAL host;
 review that pin alongside future caracAL upgrades.
 
-The current inventory contains **69 scenarios: five console and 64 native-game
-journeys**. The merchant follow-up adds two dialog journeys and one fresh native-login journey.
-Earlier validation is split across separate runs below; those 63 unique scenario contracts have passing latest outcomes.
+The current inventory contains **75 scenarios: six console and 69 native-game
+journeys**. Earlier validation is split across separate runs below; those 63 historical scenario contracts have passing latest outcomes.
 This is aggregate evidence from separate runs and source snapshots, not one
 clean 63-case execution at the final snapshot.
 
@@ -364,11 +363,19 @@ Native gameplay runs only when explicitly requested through the separate
 
 1. Open GitHub **Actions → Native game E2E (manual) → Run workflow**.
 2. Select the branch to test and start the run.
-3. Inspect the `native-game` job and download its `native-game-e2e-…` artifact.
+3. Inspect all six `native-game` shards and download their `native-game-e2e-…-shard-…` artifacts.
 
-That job installs the game/client dependencies, builds the maintained assets via
-`npm run test:e2e:live`, and runs the complete `live` Playwright project on its own
-Ubuntu runner. It has a 180-minute limit for the longer gameplay suite, verifies
+For a focused diagnosis, supply a Playwright title regex in the optional `grep`
+input. That runs only matching scenarios on one runner. Leave it empty for the
+complete six-shard suite. Resolve focused failures before requesting another
+full validation; a focused passing result does not certify the full suite.
+
+Each shard installs the game/client dependencies, builds the maintained assets via
+`npm run test:e2e:live`, and runs one sixth of the complete `live` Playwright project
+on its own Ubuntu runner and native game stack. Test-level sharding distributes
+large spec files across runners; `--workers=1` still serializes access to each
+runner's disposable game. Each has a 180-minute limit;
+fail-fast is disabled so one failure does not cancel the other evidence. Each verifies
 the evidence even after a test failure, and always attempts to upload the report,
 traces and server log. Failed or incomplete manifests still fail verification.
 This workflow has read-only repository permissions and **does not publish a release**.

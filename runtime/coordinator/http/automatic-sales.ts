@@ -20,6 +20,7 @@ interface AutomaticSaleState extends SharedScope {
   withdrawals?: Record<string, { standListingId?: string }[] | undefined>;
 }
 interface AutomaticSalePorts {
+  selectAction?(item: Item, name: string, action: 'npc' | 'stand'): void;
   now(): number;
   key(item: Item): string;
   reconcile(): void;
@@ -49,16 +50,18 @@ export function createAutomaticSaleRoutes(state: AutomaticSaleState, ports: Auto
       delete state.autoNpcSales[key];
       discardNpc(mark => mark.autoRuleKey === key);
     } else {
+      ports.selectAction?.(item, character || String(state.merchantCharacter), 'npc');
       state.autoNpcSales[key] = { item, createdAt: ports.now(), ...(character ? { character } : {}) };
       if (character || state.merchantRules) return;
       delete state.autoStandMarks[key];
       discardStand(listing => !!listing.auto && listing.autoRuleKey === key);
     }
   }
-  function save(): void {
+  function save(syncStand = false): void {
     ports.reconcile();
     ports.persist();
     ports.publish();
+    if (syncStand) ports.syncStand();
   }
   function npc(req: HttpRequest, res: HttpResponse): unknown {
     const body = requestObject(req.body),
@@ -75,7 +78,7 @@ export function createAutomaticSaleRoutes(state: AutomaticSaleState, ports: Auto
         return res.status(400).json({ error: "invalid automatic NPC sale item" });
       updateNpc(item, action, character);
     }
-    save();
+    save(!character);
     return res.json({ ok: true, autoNpcSales: state.autoNpcSales });
   }
   function updateStand(item: Item, action: string, price: number): string | null {
@@ -85,6 +88,7 @@ export function createAutomaticSaleRoutes(state: AutomaticSaleState, ports: Auto
       discardStand(listing => listing.autoRuleKey === key);
     } else {
       if (!Number.isSafeInteger(price) || price < 1) return "enter a valid fixed stand price";
+      ports.selectAction?.(item, String(state.merchantCharacter), 'stand');
       state.autoStandMarks[key] = { item, price, createdAt: ports.now() };
       if (state.merchantRules) return null;
       delete state.autoNpcSales[key];

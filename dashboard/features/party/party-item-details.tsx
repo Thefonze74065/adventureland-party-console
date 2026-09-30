@@ -9,6 +9,8 @@ import { same } from "./same";
 import type { PartyConsoleModel } from "./use-party-console";
 
 import { usePanelModel } from "./use-panel-model";
+import { ExchangeRewardTile } from './exchange-reward-tile';
+import { UpgradeOfferingProvider } from './upgrade-offering-controls';
 export function PartyItemDetails({ model }: { model: PartyConsoleModel }) {
   return model.selected ? <PartyItemDetailsConnected base={model} /> : null;
 }
@@ -28,7 +30,9 @@ function PartyItemDetailsConnected({ base }: { base: PartyConsoleModel }) {
   } = model;
   return (
     <DeferredPanel active={!!selected}>
+      <UpgradeOfferingProvider character={String(state.merchantCharacter)} executor={state.merchantCharacter} stock={state.upgradeOfferingStock || {}} rules={state.upgradeOfferingRules || []} catalog={state.merchantCatalog?.allItems || []} post={model.post}>
       <ItemDetails
+        renderExchangeReward={reward => <ExchangeRewardTile reward={reward} model={model} />}
         selected={selected}
         catalog={state.merchantCatalog?.allItems || []}
         exchanges={state.merchantCatalog?.exchangeable || []}
@@ -73,6 +77,7 @@ function PartyItemDetailsConnected({ base }: { base: PartyConsoleModel }) {
           if (!open) setSelected(null);
         }}
       />
+      </UpgradeOfferingProvider>
     </DeferredPanel>
   );
 }

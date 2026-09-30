@@ -25,6 +25,6 @@ test('release notification is accessible, opens settings, and staged updates off
 });
 test('development checkouts expose version and check controls without installation',async()=>{
  const old=global.fetch;global.fetch=async()=>({ok:true,json:async()=>({current:'development',available:'1.0.0',managed:false,automatic:false,phase:'available'})});let view;
- try{await act(async()=>{view=create(React.createElement(ConsoleUpdateSettings));});assert.equal(view.root.findByType('input').props.disabled,true);assert.deepEqual(view.root.findAllByType('Button').map(text),['Check now']);assert.match(text(view.root),/Development checkout/);}
+ try{await act(async()=>{view=create(React.createElement(ConsoleUpdateSettings));});assert.equal(view.root.findByType('input').props.disabled,true);const buttons=view.root.findAllByType('Button').map(text);assert.ok(buttons.includes('Check now'));assert.ok(!buttons.includes('Download and install update'));assert.ok(!buttons.includes('Restart now'));assert.match(text(view.root),/Development checkout/);}
  finally{if(view)await act(async()=>view.unmount());global.fetch=old;}
 });

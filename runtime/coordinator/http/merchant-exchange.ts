@@ -1,6 +1,7 @@
 import { requestObject, type HttpRequest, type HttpResponse } from "./contracts.ts";
 import type { MerchantWork } from "../merchant/work.ts";
 import type { queueExchangeStorage } from "../inventory/exchange-storage.ts";
+import { exchangeRewardAction, type AutomaticActionState } from '../inventory/automatic-action.ts';
 
 interface ExchangeChoice {
   id: string;
@@ -13,7 +14,7 @@ interface ExchangeLine {
   quantity: number;
   reward?: string;
 }
-interface ExchangeState {
+interface ExchangeState extends AutomaticActionState {
   merchantCharacter: string | null;
   merchantCatalog: { exchangeable?: ExchangeChoice[] } | null;
   merchantCurrent: MerchantWork | null;
@@ -62,7 +63,10 @@ export function createMerchantExchangeRoutes(state: ExchangeState, ports: Exchan
     job.exchangeRewards = body.rewards;
     job.exchangeResume = true;
     ports.persist();
-    return res.json({ ok: true });
+    return res.json({ ok: true, rewardActions: body.rewards.map(raw => {
+      const item = requestObject(raw);
+      return { item, action: exchangeRewardAction(state, item) };
+    }) });
   }
 
   function supply(req: HttpRequest, res: HttpResponse): unknown {
@@ -80,6 +84,7 @@ export function createMerchantExchangeRoutes(state: ExchangeState, ports: Exchan
       id: "merchant-" + ports.now() + "-" + ports.nextCommand(),
       target: state.merchantCharacter,
       reason: "exchange",
+      routine: 'manual exchange',
       exchanges,
       queuedAt: ports.now(),
     });
