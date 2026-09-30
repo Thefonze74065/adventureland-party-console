@@ -124,6 +124,8 @@ export const StandSheet = memo(function StandSheet({
 
   bank,
 
+  bankGold,
+
   listings,
 
   catalog,
@@ -180,6 +182,9 @@ export const StandSheet = memo(function StandSheet({
   merchant?: Char;
 
   bank?: BankSnapshot | null;
+
+  /** Always-fetched fallback for when the bank panel/domain isn't open (bank?.gold is then stale/undefined). */
+  bankGold?: number | null;
 
   listings: StandListing[];
 
@@ -263,6 +268,10 @@ export const StandSheet = memo(function StandSheet({
 }) {
 
   const now = useClock();
+
+  // bank?.gold only exists while the Bank panel's own data domain is also loaded;
+  // bankGold is fetched unconditionally and reflects the same balance otherwise.
+  const availableGold = Number(bank?.gold ?? bankGold ?? 0);
 
   const replacement = useWTBReplacement(catalog);
 
@@ -623,7 +632,7 @@ export const StandSheet = memo(function StandSheet({
 
       (!hideBadDeals || !isBadDeal(entry)) &&
 
-      (!hideUnaffordable || entry.price <= Number(bank?.gold || 0)) &&
+      (!hideUnaffordable || entry.price <= availableGold) &&
 
       (!hideBlacklisted ||
 
@@ -2751,7 +2760,7 @@ export const StandSheet = memo(function StandSheet({
 
                         : hideUnaffordable
 
-                          ? `No matching listings are affordable with ${(bank?.gold || 0).toLocaleString()} bank gold.`
+                          ? `No matching listings are affordable with ${availableGold.toLocaleString()} bank gold.`
 
                           : 'No matching live WTS listings.'}
 

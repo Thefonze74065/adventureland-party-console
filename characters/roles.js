@@ -2160,6 +2160,8 @@
       if (!active || Date.now() < retryAt) return;
       if (!enabled()) return;
       formation?.tick();
+      const passingTarget = shared.getWalkingPassiveTarget?.(true);
+      if (passingTarget) preparePassing(passingTarget, true);
       const id = shared.sharedTargetId(), entity = id && get_entity(id);
       if (id) sight.observe(id, character, !!(entity && entity.visible && !entity.dead));
       wait();
@@ -2190,7 +2192,7 @@
       });
     }
     const timer = setInterval(tick, 100);
-    function preparePassing(target) {
+    function preparePassing(target, reserveOnly = false) {
       if (target.type !== "monster") return false;
       if (shared.convoyHoldDefenseTarget?.()?.id === target.id) return true;
       const report = shared.queueReport();
@@ -2200,10 +2202,10 @@
         in: report.in,
         server: report.server,
         at: Date.now() + shared.queueClockOffset(),
-        keepMoving: shared.getWalkingPassiveTarget?.()?.id === target.id
+        keepMoving: shared.getWalkingPassiveTarget?.(reserveOnly)?.id === target.id
       };
       if (!passing.prepare(identity, report.groupedCombat.passingEncounters)) return false;
-      shared.beginPassingAttack(target);
+      if (!reserveOnly) shared.beginPassingAttack(target);
       return true;
     }
     const api = {
@@ -2305,9 +2307,13 @@
     let control = null, progress = null, pending = false, retired = /* @__PURE__ */ new Set(), latest = 0;
     const engagements = /* @__PURE__ */ new Map();
     const identity = (t) => JSON.stringify([t.realm, t.map, String(t.in ?? t.map), String(t.id)]);
+    function samePlace(c) {
+      const s = ports.position();
+      return c && s.realm === c.realm && s.map === c.map && String(s.in) === String(c.in) && !ports.cancelled();
+    }
     function valid(c) {
       const s = ports.position();
-      return c && s.realm === c.realm && s.map === c.map && String(s.in) === String(c.in) && Math.hypot(s.x - c.x, s.y - c.y) <= 180 && !ports.cancelled();
+      return samePlace(c) && Math.hypot(s.x - c.x, s.y - c.y) <= 180;
     }
     function accept(c, at) {
       if (at < latest) return;
@@ -2344,6 +2350,7 @@
       accept,
       tick,
       valid,
+      samePlace,
       report: () => progress,
       blocks: () => valid(control) && !(progress?.id === control.id && progress.complete),
       hit(t) {
@@ -2421,7 +2428,7 @@
         if (!mission || finalKill !== huntLootId(mission) || mission.loot?.complete) finalKill = null;
         let c = state.rareControl;
         if (lastRare && lastRare.id !== c?.id) retired.add(lastRare.id);
-        if (c && (retired.has(c.id) || c.kind === "loot" && !rare.valid({ ...c.target, id: c.id }))) c = null;
+        if (c && (retired.has(c.id) || c.kind === "loot" && !rare.samePlace({ ...c.target, id: c.id }))) c = null;
         lastRare = c;
         rare.accept(c?.kind === "loot" ? { ...c.target, id: c.id, after: c.killedAt } : null, state.serverNow);
         hunt.accept(mission?.loot && !mission.loot.complete ? mission.loot : null, state.serverNow);

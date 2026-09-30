@@ -260,6 +260,7 @@ function PartyInventoryPanelsConnected({ base }: { base: PartyConsoleModel }) {
           onMarketOpenChange={setMarketOpen}
           merchant={state.merchantCharacter ? state.characters[state.merchantCharacter] : undefined}
           bank={state.bank}
+          bankGold={state.bankGold}
           listings={standListings}
           catalog={catalogAllItems}
           buyable={catalogBuyable}

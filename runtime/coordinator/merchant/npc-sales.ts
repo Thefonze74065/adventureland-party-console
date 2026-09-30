@@ -14,6 +14,7 @@ export interface NpcSale {
   retryAt?: number;
   retryCount?: number;
   blockedInventory?: string;
+  blockedAt?: number;
   auto?: boolean;
   autoRuleKey?: string;
   queuedAt?: number;
@@ -24,11 +25,20 @@ const identity = (a: Item, b: Item) =>
 export const readyNpcSales = (marks: NpcSale[], now: number) =>
   marks.filter((mark) => mark.source !== "character" && mark.state !== "blocked" && (mark.retryAt || 0) <= now);
 
+// An upgrade, stat re-roll, or other identity-changing edit leaves the old auto
+// mark's stored item permanently unable to match anything live (sameMarkedItem
+// compares every non-transient field), while a fresh, correctly-identified mark
+// for the item's new form gets created and sells normally on the next scan.
+// Give a real, still-recoverable block (e.g. a transient missing-inventory
+// report) time to resolve before treating a stuck auto mark as an orphan.
+const autoOrphanGraceMs = 5 * 60 * 1000;
+
 function clearBlocked(mark: NpcSale): void {
   if (mark.state !== "blocked") return;
   mark.retryAt = 0;
   mark.error = null;
   delete mark.blockedInventory;
+  delete mark.blockedAt;
 }
 
 function reconcileInventory(
@@ -57,6 +67,28 @@ function reconcileInventory(
   return "ready";
 }
 
+function orphanedAutoMark(mark: NpcSale, now: number): boolean {
+  return !!mark.auto && mark.error === "Marked item is not in merchant inventory" &&
+    now - (mark.blockedAt || now) > autoOrphanGraceMs;
+}
+
+function reconcileMerchantMark(
+  mark: NpcSale,
+  inventory: Inventory,
+  used: Map<number, number>,
+  signature: string,
+  now: number,
+): NpcSale | null {
+  const result = reconcileInventory(mark, inventory, used, signature);
+  if (result === "duplicate") return null;
+  if (result === "blocked") {
+    mark.blockedAt ??= now;
+    return orphanedAutoMark(mark, now) ? null : mark;
+  }
+  mark.state = (mark.retryAt || 0) > now ? "retrying" : "queued";
+  return mark;
+}
+
 function reconcileMark(
   original: NpcSale,
   inventory: Inventory,
@@ -71,12 +103,10 @@ function reconcileMark(
     mark.state = "running";
     return mark;
   }
-  if (mark.state === "blocked" && mark.blockedInventory === signature) return mark;
-  if (mark.source === "merchant") {
-    const result = reconcileInventory(mark, inventory, used, signature);
-    if (result === "duplicate") return null;
-    if (result === "blocked") return mark;
-  } else clearBlocked(mark);
+  if (mark.state === "blocked" && mark.blockedInventory === signature)
+    return orphanedAutoMark(mark, now) ? null : mark;
+  if (mark.source === "merchant") return reconcileMerchantMark(mark, inventory, used, signature, now);
+  clearBlocked(mark);
   mark.state = (mark.retryAt || 0) > now ? "retrying" : "queued";
   return mark;
 }

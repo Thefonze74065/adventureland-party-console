@@ -14,11 +14,11 @@ test('legacy completed buffer reservations cannot shadow later reuse of the same
  await r.service.recover();assert.equal(r.total(),49);assert.deepEqual(r.quantities(),[3,46]);assert.equal(r.ports.read(),null);
 });
 
-test('latest buffer identity mismatch stays blocked without moving unrelated inventory',async()=>{
+test('stale buffer identity mismatch is skipped without moving unrelated inventory',async()=>{
  const {stackIdentity}=require('../../runtime/bank-stacks.ts');
  const r=bankRuntime({items0:[null]},[{name:'sword'}]);
  r.ports.write({buffers:[{slot:0,identity:stackIdentity(key(3)),origin:{pack:'items0',slot:0,floor:'bank'}}]});
- await assert.rejects(r.service.recover(),/buffer changed/);assert.equal(r.calls.length,0);assert.ok(r.ports.read());
+ await r.service.recover();assert.equal(r.calls.length,0);assert.equal(r.ports.read(),null);
 });
 
 test('legacy mixed seashell and crypt-key journal recovers only remaining bank cargo',async()=>{

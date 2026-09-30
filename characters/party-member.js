@@ -49,8 +49,8 @@
   }
 
   // runtime/characters/movement-relocation.ts
-  function movementRelocation(game, origin, townAllowed) {
-    const map = game.maps[origin.map];
+  function movementRelocation(game2, origin, townAllowed) {
+    const map = game2.maps[origin.map];
     if (!map || restrictedMap(map, origin)) return;
     const spawn = map.spawns[0];
     if (townAllowed && spawn && distance(origin, { map: origin.map, x: spawn[0], y: spawn[1] }) > 55)
@@ -59,20 +59,20 @@
         origin: point(origin),
         destination: { map: origin.map, x: spawn[0], y: spawn[1] }
       };
-    const doors = (map.doors || []).filter((d) => ordinaryDoor(game, d)).sort(
+    const doors = (map.doors || []).filter((d) => ordinaryDoor(game2, d)).sort(
       (a, b) => Math.hypot(Number(a[0]) - origin.x, Number(a[1]) - origin.y) - Math.hypot(Number(b[0]) - origin.x, Number(b[1]) - origin.y)
     );
     const door = doors[0];
     if (!door) return;
-    const target = game.maps[String(door[4])].spawns[Number(door[5])];
+    const target = game2.maps[String(door[4])].spawns[Number(door[5])];
     return {
       method: "door",
       origin: point(origin),
       destination: { map: String(door[4]), x: target[0], y: target[1] }
     };
   }
-  function ordinaryDoor(game, door) {
-    const map = game.maps[String(door[4])], spawn = map?.spawns[Number(door[5])];
+  function ordinaryDoor(game2, door) {
+    const map = game2.maps[String(door[4])], spawn = map?.spawns[Number(door[5])];
     return !!map && !map.instance && !map.event && !!spawn && door[7] !== "key" && door[8] !== "complicated" && spawn.every(Number.isFinite);
   }
   function restrictedMap(map, origin) {
@@ -100,8 +100,8 @@
     if (!to.transport) return from.map === to.map && ports.walk(from, to) ? null : "collisions detected";
     return transportIssue(ports, from, to);
   }
-  function townIssue(game, from, to, allowed) {
-    return allowed && to.map === from.map && atSpawn(game, to, 0) ? null : "town warp prohibited or invalid spawn";
+  function townIssue(game2, from, to, allowed) {
+    return allowed && to.map === from.map && atSpawn(game2, to, 0) ? null : "town warp prohibited or invalid spawn";
   }
   function transportIssue(ports, from, to) {
     if (ports.game.maps[to.map].instance || ports.game.maps[to.map].event) return "instance/event transition requires its workflow";
@@ -118,9 +118,9 @@
     }
     return distance(previous, destination) <= tolerance ? null : { reason: "route misses destination", from: previous, to: destination };
   }
-  function leaveIssue(game, from, to) {
+  function leaveIssue(game2, from, to) {
     if (to.town || to.transport || to.s !== void 0 || to.key) return "conflicting leave metadata";
-    return ["cyberland", "jail"].includes(from.map) && to.map === "main" && (to.in === void 0 || to.in === "main") && atSpawn(game, to, 0) ? null : "invalid leave exit";
+    return ["cyberland", "jail"].includes(from.map) && to.map === "main" && (to.in === void 0 || to.in === "main") && atSpawn(game2, to, 0) ? null : "invalid leave exit";
   }
 
   // runtime/characters/native-planner.ts
@@ -390,9 +390,9 @@
       throw Error("Town unavailable for 5 seconds; use walking route");
     }
     function sample() {
-      const at = now();
-      durations[sampledPhase] = (durations[sampledPhase] || 0) + Math.max(0, at - sampledAt);
-      sampledAt = at;
+      const at2 = now();
+      durations[sampledPhase] = (durations[sampledPhase] || 0) + Math.max(0, at2 - sampledAt);
+      sampledAt = at2;
       sampledPhase = phase();
     }
     function phase() {
@@ -599,10 +599,10 @@
 
   // runtime/characters/return-planner.ts
   function routeDuration(request, plot) {
-    let at = request.from, ms = 0;
+    let at2 = request.from, ms = 0;
     for (const step of plot) {
-      ms += step.town ? 7e3 : isTransition(step) ? 1e3 : distance(at, step) * 1e3 / Math.max(1, request.speed);
-      at = step;
+      ms += step.town ? 7e3 : isTransition(step) ? 1e3 : distance(at2, step) * 1e3 / Math.max(1, request.speed);
+      at2 = step;
     }
     return ms;
   }
@@ -1067,6 +1067,48 @@
   }
   Object.assign(globalThis, { installPartyMovement });
 
+  // runtime/characters/game-rendering.ts
+  var sheets = /* @__PURE__ */ new Set(["full", "wings", "body", "armor", "skin", "tail", "character", "upper"]);
+  var directional = /* @__PURE__ */ new Set(["v_animation", "head", "hair", "hat", "s_wings", "face", "makeup", "beard"]);
+  var animated = /* @__PURE__ */ new Set(["animation", "animatable"]);
+  var layered = /* @__PURE__ */ new Set(["a_makeup", "a_hat"]);
+  function at(value, index) {
+    return Array.isArray(value) && index !== void 0 ? value[index] : void 0;
+  }
+  function frame(game2, sprite, i, j) {
+    const texture = game2.textures[(sprite.stype === "upper" ? "upper" : "") + sprite.skin];
+    if (sheets.has(sprite.stype)) return at(at(texture, i), j);
+    if (animated.has(sprite.stype)) return at(texture, i % Number(sprite.frames));
+    if (sprite.stype === "emote") return at(texture, i % 3);
+    const row = at(texture, i % Number(sprite.frames));
+    if (layered.has(sprite.stype)) return at(row, Number(j) % at(texture, 0)?.length);
+    return Array.isArray(row) ? at(row, (j || 0) % row.length) : row;
+  }
+  function supported(sprite) {
+    return sheets.has(sprite.stype) || directional.has(sprite.stype) || animated.has(sprite.stype) || layered.has(sprite.stype) || sprite.stype === "emote";
+  }
+  function installGameRendering(game2) {
+    if (typeof game2.set_texture !== "function" || game2.set_texture === game2.__partyTextureGuard) return;
+    const original = game2.set_texture, reported = /* @__PURE__ */ new Set();
+    const guarded = function(sprite, i, j) {
+      if (supported(sprite) && sprite.cskin !== String(i) + String(j) && frame(game2, sprite, i, j) == null) {
+        const key2 = JSON.stringify([sprite.skin, sprite.stype, i, j]);
+        if (!reported.has(key2)) {
+          if (reported.size >= 64) reported.delete(reported.values().next().value);
+          reported.add(key2);
+          game2.console?.warn("Native sprite frame unavailable; retaining previous texture", { skin: sprite.skin, stype: sprite.stype, i, j });
+        }
+        return;
+      }
+      original(sprite, i, j);
+    };
+    game2.set_texture = game2.__partyTextureGuard = guarded;
+  }
+
+  // runtime/characters/game-rendering-entry.ts
+  var game = globalThis.parent;
+  if (game && !game.caracAL) installGameRendering(game);
+
   // runtime/bank-stacks.ts
   var stackQuantity = (item) => item ? Number(item.q) || 1 : 0;
   function stackIdentity(item) {
@@ -1105,7 +1147,7 @@
 
   // runtime/characters/bank-stacks.ts
   function createBankStacks(p) {
-    const at = (o) => p.bank()[o.pack]?.[o.slot] || null;
+    const at2 = (o) => p.bank()[o.pack]?.[o.slot] || null;
     const origin = (l) => ({ pack: l.pack, slot: l.slot, floor: p.floor(l.pack) });
     const empty = () => Array.from({ length: p.size() }, (_, i) => i).filter((i) => !p.items()[i]);
     const copy = (item) => item ? { ...item } : null;
@@ -1113,11 +1155,21 @@
     function active() {
       if (!p.current()) throw Error("Bank stack runtime replaced");
     }
+    const maxPendingAttempts = 5, manualRecoveryBackoffMs = 6e4;
+    function diverged(expected) {
+      const identities = expected.filter((e) => e.item).map((e) => stackIdentity(e.item));
+      return expected.some((e) => {
+        const actual = e.bank ? at2(e.bank) : p.items()[e.inventory];
+        if (!actual) return false;
+        return e.item ? stackIdentity(actual) !== stackIdentity(e.item) : !identities.includes(stackIdentity(actual));
+      });
+    }
     async function settle(expected) {
       active();
       const deadline = p.now() + 5e3;
-      while (!expected.every((e) => equal(e.bank ? at(e.bank) : p.items()[e.inventory], e.item))) {
+      while (!expected.every((e) => equal(e.bank ? at2(e.bank) : p.items()[e.inventory], e.item))) {
         active();
+        if (diverged(expected)) throw Error("Bank stack transfer target changed; recovery abandoned");
         if (p.now() >= deadline) throw Error("Bank stack transfer not confirmed; recovery pending");
         await p.sleep(100);
       }
@@ -1144,37 +1196,55 @@
     }
     async function permitted(location) {
       const protection = await p.protection();
-      if (stackProtected({ ...location, item: at(origin(location)) }, protection))
+      if (stackProtected({ ...location, item: at2(origin(location)) }, protection))
         throw Error("Bank stack location is reserved");
     }
     async function returnBuffer(buffer) {
       const item = p.items()[buffer.slot];
       if (!item) return;
-      if (stackIdentity(item) !== buffer.identity) throw Error("Bank stack buffer changed; manual recovery required");
+      if (stackIdentity(item) !== buffer.identity) return;
       if (buffer.source !== void 0) {
         const source = p.items()[buffer.source];
         if (!source || stackIdentity(source) !== buffer.identity || stackQuantity(source) + stackQuantity(item) > p.limit(item))
-          throw Error("Bank stack split recovery blocked");
+          return;
         await operation(() => p.swap(buffer.source, buffer.slot), [
           { inventory: buffer.source, item: { ...source, q: stackQuantity(source) + stackQuantity(item) } },
           { inventory: buffer.slot, item: null }
         ]);
       } else if (buffer.origin) {
         await travel(buffer.origin.floor);
-        if (at(buffer.origin)) throw Error("Bank stack recovery location occupied");
+        if (at2(buffer.origin)) return;
         await operation(() => p.store(buffer.slot, buffer.origin.pack, buffer.origin.slot), [
           { inventory: buffer.slot, item: null },
           { bank: buffer.origin, item: copy(item) }
         ]);
       }
     }
+    async function recoverPending(journal) {
+      if (diverged(journal.pending)) {
+        p.write({ ...journal, pending: void 0, pendingAttempts: void 0, pendingNextCheckAt: void 0 });
+        return;
+      }
+      const attempts = journal.pendingAttempts || 0;
+      const stuckMessage = "Bank stack transfer not confirmed after repeated attempts; manual recovery required";
+      if (attempts >= maxPendingAttempts && p.now() < (journal.pendingNextCheckAt || 0)) throw Error(stuckMessage);
+      try {
+        await settle(journal.pending);
+        p.write({ ...journal, pending: void 0, pendingAttempts: void 0, pendingNextCheckAt: void 0 });
+      } catch (error) {
+        if (/recovery abandoned/.test(error.message)) {
+          p.write({ ...journal, pending: void 0, pendingAttempts: void 0, pendingNextCheckAt: void 0 });
+          return;
+        }
+        const next = attempts + 1;
+        p.write({ ...journal, pendingAttempts: next, pendingNextCheckAt: p.now() + manualRecoveryBackoffMs });
+        throw next >= maxPendingAttempts ? Error(stuckMessage) : error;
+      }
+    }
     async function recover() {
       const journal = p.read();
       if (!journal) return;
-      if (journal.pending) {
-        await settle(journal.pending);
-        p.write({ ...journal, pending: void 0 });
-      }
+      if (journal.pending) await recoverPending(journal);
       let buffers = [...new Map(journal.buffers.map((buffer) => [buffer.slot, buffer])).values()];
       if (!journal.pending && buffers.length !== journal.buffers.length) {
         buffers = buffers.filter((buffer) => stackIdentity(p.items()[buffer.slot]) === buffer.identity);
@@ -1189,10 +1259,10 @@
       p.write({ buffers: [...old?.buffers || [], ...buffers] });
     }
     async function retrieve(location, inv) {
-      const o = origin(location), item = copy(at(o));
+      const o = origin(location), item = copy(at2(o));
       await travel(o.floor);
       await permitted(location);
-      if (!equal(at(o), location.item) || p.items()[inv]) throw Error("Bank stack source changed");
+      if (!equal(at2(o), location.item) || p.items()[inv]) throw Error("Bank stack source changed");
       remember([{ slot: inv, identity: stackIdentity(item), origin: o }]);
       await operation(() => p.retrieve(o.pack, o.slot, inv), [{ inventory: inv, item }, { bank: o, item: null }]);
     }
@@ -1214,7 +1284,7 @@
       const combined = { ...targetItem, q: stackQuantity(targetItem) + quantity };
       await operation(() => p.swap(buffers[0], chunk), [{ inventory: buffers[0], item: combined }, { inventory: chunk, item: null }]);
       const o = origin(target);
-      if (at(o)) throw Error("Bank stack destination changed");
+      if (at2(o)) throw Error("Bank stack destination changed");
       await operation(() => p.store(buffers[0], o.pack, o.slot), [{ inventory: buffers[0], item: null }, { bank: o, item: combined }]);
     }
     async function fill(slot) {
@@ -1227,7 +1297,7 @@
         const target = plan.moves.find((move) => move.item);
         if (!target) break;
         await travel(p.floor(target.pack));
-        if (!equal(at(origin(target)), target.item) || !equal(p.items()[slot], item))
+        if (!equal(at2(origin(target)), target.item) || !equal(p.items()[slot], item))
           throw Error("Bank stack changed during travel; retry deposit");
         const pack = p.bank()[target.pack];
         const safe = pack.every((entry, index) => !entry || stackIdentity(entry) !== stackIdentity(item) || available.some((l) => l.pack === target.pack && l.slot === index));
