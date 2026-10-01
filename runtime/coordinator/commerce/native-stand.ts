@@ -14,6 +14,7 @@ export interface NativeOffer {
   auto: boolean;
   phase: "placing" | "live" | "removing" | "blocked";
   problem?: string;
+  retryAt?: number;
 }
 export interface NativeStandLedger {
   sequence: number;
@@ -26,6 +27,7 @@ export interface NativeStandState {
   standListings?: { id: string; state?: string; item?: Item | null; price?: number; quantity?: number }[];
   nativeStand?: NativeStandLedger;
   autoStandBuys?: boolean;
+  bankSnapshot?: { gold?: number } | null;
   merchantRoutinePriorities?: Record<string, number>;
   merchantCatalog?: { allItems?: { id: string; upgradeable?: boolean; compoundable?: boolean }[] } | null;
 }
@@ -71,7 +73,10 @@ export interface NativeObservation {
 function matches(offer: NativeOffer, item: Item | null | undefined): boolean {
   return !!item?.b && item.name === offer.itemId && Number(item.level || 0) === offer.level && Number(item.price) === offer.price;
 }
-function block(offer: NativeOffer, problem: string): void { offer.phase = "blocked"; offer.problem = problem; }
+function block(offer: NativeOffer, problem: string): void {
+  if (!offer.rid && offer.phase !== "blocked") offer.retryAt = Date.now() + 10000;
+  offer.phase = "blocked"; offer.problem = problem;
+}
 function fillEvidence(offer: NativeOffer, observation: NativeObservation): number {
   const item = observation.slots[offer.slot];
   const receipt = Number(observation.receipts?.[offer.token]) || 0;
@@ -95,18 +100,48 @@ export function createNativeStand(state: NativeStandState, fulfill: (item: Item,
   function removed(offer: NativeOffer, observation: NativeObservation): boolean {
     return observation.removed === offer.token && offer.phase === "removing" && !observation.slots[offer.slot];
   }
-  function observeOffer(offer: NativeOffer, observation: NativeObservation): void {
+  function recoverConfirmed(offer: NativeOffer, item: Item | null | undefined): void {
+    if (!matches(offer, item) || String(item!.rid) !== offer.rid || offer.phase !== "blocked") return;
+    offer.phase = "live"; delete offer.problem;
+  }
+  function reconcileIdentity(offer: NativeOffer, observation: NativeObservation): boolean {
+    // Reopening can move trade slots. Follow the native identity before comparing slots.
+    const relocated = Object.entries(observation.slots).find(([, item]) => matches(offer, item) && (offer.rid ? String(item!.rid) === offer.rid : Number(item!.q || 1) <= offer.quantity));
+    if (relocated) offer.slot = relocated[0];
     const item = observation.slots[offer.slot];
     adopt(offer, item);
+    recoverConfirmed(offer, item);
     if (item && (!matches(offer, item) || String(item.rid) !== offer.rid)) {
-      block(offer, "Slot replaced by another offer; reconciliation required"); return;
+      // Receipts remain valid evidence; a different native identity is not a fill.
+      acknowledge(offer, observation);
+      if (matches(offer, item)) {
+        offer.rid = String(item.rid);
+        offer.quantity = offer.acknowledged + Number(item.q || 1);
+        offer.phase = "live"; delete offer.problem;
+      } else delete nativeLedger(state).offers[offer.token];
+      return true;
     }
+    return false;
+  }
+  function retryUnconfirmed(offer: NativeOffer, observation: NativeObservation): boolean {
+    if (observation.slots[offer.slot] || offer.rid || offer.phase !== "blocked" || observation.failed === offer.token || Date.now() < Number(offer.retryAt || 0)) return false;
+    // A reservation without a native identity is not an established advertisement.
+    // Apply any receipts first, then release the empty reservation without inferring a fill.
+    acknowledge(offer, observation);
+    delete nativeLedger(state).offers[offer.token];
+    return true;
+  }
+  function observeOffer(offer: NativeOffer, observation: NativeObservation): void {
+    if (!observation.open) { acknowledge(offer, observation); return; }
+    if (reconcileIdentity(offer, observation)) return;
+    const item = observation.slots[offer.slot];
+    if (retryUnconfirmed(offer, observation)) return;
     const filled = acknowledge(offer, observation);
     if (filled === offer.quantity || removed(offer, observation)) {
       delete nativeLedger(state).offers[offer.token]; return;
     }
     if (observation.failed === offer.token) block(offer, "Native offer operation was not confirmed");
-    if (observation.open && !item) block(offer, "Offer disappeared without a confirmed fill/removal; reconciliation required");
+    if (observation.open && !item) block(offer, offer.rid ? "Offer disappeared without a confirmed fill/removal; reconciliation required" : "WTB placement not confirmed; retrying");
   }
   function observe(observation: NativeObservation): void {
     for (const offer of Object.values(nativeLedger(state).offers)) observeOffer(offer, observation);
@@ -128,7 +163,9 @@ export function createNativeStand(state: NativeStandState, fulfill: (item: Item,
   function placementProblem(itemId: string, observation: NativeObservation): string | null {
     const bid = state.standBids[itemId]!;
     if (Number(bid.minimumQuality || 0) > 12 || bid.price > 99999999999) return "Native stand terms exceed the game's level or price limit";
-    if (Number(observation.gold) < bid.price || observation.space === false) return "Insufficient funds or inventory space";
+    if (observation.space === false) return "Insufficient inventory space";
+    if (Number(observation.gold) < bid.price) return Number(observation.gold) + Number(state.bankSnapshot?.gold || 0) >= bid.price
+      ? "Waiting for merchant to withdraw bank gold" : "Insufficient merchant and bank gold";
     return null;
   }
   function freeSlot(observation: NativeObservation): string | undefined {

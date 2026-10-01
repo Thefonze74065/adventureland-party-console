@@ -432,6 +432,11 @@ export function startCoordinatorApplication(
       dispatch: dispatchMerchant,
       recoverSale: recoverStalledMerchantSale,
     });
+    setInterval(() => {
+      if (consoleUpdate.current()) return;
+      recoverStalledMerchantSale();
+      merchantRecovery.expire(String(party.merchantCharacter));
+    }, 1000);
     party.deconstructionCatalog = coordinatorPolicies.loadCoordinatorDeconstructionCatalog(version, gameDataPorts);
     const deconstructionRoutes = coordinatorPolicies.createDeconstruction(party, {
       now: () => Date.now(), next: () => party.nextCommandId++, persist: persistSettings,
@@ -1544,6 +1549,7 @@ export function startCoordinatorApplication(
 
     function dispatchMerchant() {
       if (consoleUpdate.current()) return;
+      merchantRecovery.expire(String(party.merchantCharacter));
       if (coordinatorPolicies.pruneIneligibleCollections(party, () => Date.now())) persistSettings();
       merchantDispatcher.dispatch();
     }
@@ -2170,7 +2176,7 @@ export function startCoordinatorApplication(
                 coordinatorPolicies.installMovementRoutes(router, movementPlanner, ownedCharacter);
                 installProductionRoutes(router, party, persistSettings, merchantLog);
                 installSharedRuleRoutes(router, party, persistSettings);
-                router.post("/party-api/merchant/native-stand", coordinatorPolicies.createNativeStandRoute(party, { fulfill: fulfillStandBid, persist: persistSettings }));
+                router.post("/party-api/merchant/native-stand", coordinatorPolicies.createNativeStandRoute(party, { fulfill: fulfillStandBid, persist: persistSettings, dispatch: dispatchMerchant, stamp: stampMerchantJob }));
                 mapStreams.install(router);
                 coordinatorPolicies.installSharedConvoyRoute(scopedRouter(router), party, ownedCharacter, {
                   now: () => Date.now(), members: () => farmingNavigation.members(), owned: ownedCharacter,

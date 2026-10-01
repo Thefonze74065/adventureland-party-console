@@ -39,8 +39,10 @@ function upgradeMarks(state: PickupState, name: string): ItemMark[] {
   }).map(mark);
 }
 function protectedEntry(state: PickupState, name: string, entry: InventoryEntry | null): boolean {
-  return !entry?.item || !!entry.item.l || !!entry.item.b || manuallyReserved(state, name, entry) || itemRuleConflicts(state, entry.item).length > 0;
+  return !entry?.item || personalTracker(entry.item) || !!entry.item.l || !!entry.item.b || manuallyReserved(state, name, entry) || itemRuleConflicts(state, entry.item).length > 0;
 }
+function personalTracker(item: Item | null | undefined): boolean { return item?.name === 'tracker' || item?.name === 'supercomputer'; }
+function collectable(value: ItemMark): boolean { return !personalTracker(markedItem(value)); }
 function processing(state: PickupState, name: string): ItemMark[] {
   if (name === state.merchantCharacter || !sharedMember(state, name)) return [];
   const rules = enabled(state, 'auto compound') ? state.autoCompounds?.[ruleOwner(state, name)] || [] : [];
@@ -56,13 +58,13 @@ function processing(state: PickupState, name: string): ItemMark[] {
 }
 function manualSalePickups(state: PickupState, name: string) {
   const ids = new Set((state.npcSaleMarks || []).filter(sale => !sale.auto && sale.source === 'character' && sale.character === name && sale.state !== 'blocked').map(sale => sale.id));
-  return {bank: [], keep: (state.merchantMarked?.[name] || []).map(mark).filter(value => ids.has(String(value.npcSaleId)))};
+  return {bank: [], keep: (state.merchantMarked?.[name] || []).map(mark).filter(value => collectable(value) && ids.has(String(value.npcSaleId)))};
 }
 /** Same selection drives counts, admission and the kept-item handoff. No processing payloads. */
 export function collectionPickups(state: PickupState, name: string, reason = 'marked items') {
   if (reason === 'npc sale pickup') return manualSalePickups(state, name);
-  const bank = (state.marked?.[name] || []).map(mark);
-  const keep = (state.merchantMarked?.[name] || []).map(mark).filter(value => automaticSale(state, value));
+  const bank = (state.marked?.[name] || []).map(mark).filter(collectable);
+  const keep = (state.merchantMarked?.[name] || []).map(mark).filter(value => collectable(value) && automaticSale(state, value));
   const occupied = bank.concat(keep);
   for (const pickup of processing(state, name)) {
     if (!occupied.some(value => value.slot === pickup.slot && sameMarkedItem(markedItem(value), pickup.item))) keep.push(pickup);

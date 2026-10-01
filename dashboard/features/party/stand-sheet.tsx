@@ -123,6 +123,7 @@ export const StandSheet = memo(function StandSheet({
   merchant,
 
   bank,
+  bankGold,
 
   bankGold,
 
@@ -182,6 +183,7 @@ export const StandSheet = memo(function StandSheet({
   merchant?: Char;
 
   bank?: BankSnapshot | null;
+  bankGold?: number | null;
 
   /** Always-fetched fallback for when the bank panel/domain isn't open (bank?.gold is then stale/undefined). */
   bankGold?: number | null;
@@ -1806,7 +1808,7 @@ export const StandSheet = memo(function StandSheet({
 
             <div className="flex flex-wrap items-center gap-3">
               <h2 className="text-base font-semibold text-amber-200">Items for sale · {occupancy.sales}/16 slots</h2>
-              <span className={`rounded border px-2 py-1 text-xs font-semibold ${merchant?.standOpen ? 'border-emerald-600 bg-emerald-950 text-emerald-100' : 'border-red-600 bg-red-950 text-red-100'}`}>
+              <span className={`text-xs font-semibold ${merchant?.standOpen ? 'text-emerald-300' : 'text-red-300'}`}>
                 {merchant?.standOpen === true ? 'Stand open' : merchant?.standOpen === false ? 'Stand closed' : 'Stand status unknown'}
               </span>
             </div>
@@ -2289,7 +2291,7 @@ export const StandSheet = memo(function StandSheet({
 
                 >
 
-                  Manage WTB orders
+                  New WTB order
 
                 </Button>
 
@@ -2393,6 +2395,7 @@ export const StandSheet = memo(function StandSheet({
                             </button>
 
                             <ActiveWTBFields name={item?.name || itemId} bid={bid} disabled={Boolean(savingBid)}
+                              onEditPrice={() => onEditBuy({ name: itemId, level: bid.minimumQuality || 0 }, item?.meta)}
                               onSave={async (field, value) => {
                                 setSavingBid(itemId);
                                 try {

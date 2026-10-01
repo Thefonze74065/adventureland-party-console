@@ -23,9 +23,20 @@ const upgradeRule = (value: unknown) =>
   positive(Number(value)) || (object(value) && positive(value.tiers));
 const compound = (value: unknown) => object(value) && text(value.id) && listOf(mark)(value.items);
 const autoCompound = (value: unknown) => item(value) && object(value) && positive(value.targetTier);
+const profileFields = ['huntBlacklist', 'huntFailures', 'huntSettings'] as const;
+function profilePreferences(value: unknown): unknown {
+  if (!object(value)) return value;
+  return Object.fromEntries(Object.entries(value).map(([name, profile]) => [name,
+    object(profile) ? Object.fromEntries(profileFields.filter(key => key in profile).map(key => [key, profile[key]])) : profile]));
+}
+function validProfile(value: unknown): boolean {
+  return object(value) && Object.entries(value).every(([key, entry]) =>
+    profileFields.includes(key as typeof profileFields[number]) && validators[key]!(entry));
+}
 
 // Deliberately excludes jobs, credentials, runtime ownership and navigation checkpoints.
 export const validators: Record<string, (value: unknown) => boolean> = {
+  farmingProfiles: mapOf(validProfile),
   marked: mapOf(listOf(mark)),
   merchantMarked: mapOf(listOf(mark)),
   autoItemMarks: mapOf(mapOf((value) => value === "bank" || value === "merchant")),
@@ -76,6 +87,7 @@ export const validators: Record<string, (value: unknown) => boolean> = {
   gatheringNoTool: mapOf(boolean),
 };
 const perCharacter = new Set([
+  'farmingProfiles',
   "marked",
   "merchantMarked",
   "autoItemMarks",
@@ -166,6 +178,7 @@ function validatedValues(merged: ObjectValue, owned: (name: string) => boolean) 
   for (const [key, check] of Object.entries(validators)) {
     if (!(key in merged)) continue;
     let value = merged[key];
+    if (key === 'farmingProfiles') value = profilePreferences(value);
     if (!check(value)) throw new Error(`Invalid saved ${key}; nothing was imported`);
     if (perCharacter.has(key)) {
       const entries = Object.entries(value as ObjectValue);
@@ -194,7 +207,8 @@ function filterCharacterReferences(key: string, value: unknown, include: (name: 
 
 export function exportDashboardSettings(state: ObjectValue) {
   return { format: "party-console-settings", version: 1, settings: Object.fromEntries(
-    Object.keys(validators).filter(key => key in state).map(key => [key, state[key]])) };
+    Object.keys(validators).filter(key => key in state).map(key => [key,
+      key === 'farmingProfiles' ? profilePreferences(state[key]) : state[key]])) };
 }
 function importedSettings(source: string): ObjectValue {
   let parsed: unknown;
@@ -226,11 +240,18 @@ export function parseDashboardImport(
 
 export function applyDashboardImport(state: ObjectValue, parsed: DashboardImport): void {
   for (const [key, value] of Object.entries(parsed.values)) {
-    state[key] = key === "merchantRoutinePriorities" ? migrateRoutinePriorities(value as Record<string, number>) : value;
+    state[key] = importedValue(state, key, value);
   }
   if (state.bankSortMode === "automatic") state.bankSortRequest = null;
   if (Object.hasOwn(parsed.values,"passiveHunting") || Object.hasOwn(parsed.values,"passiveRareHunts")) {
     state.passiveHunting=migratePassiveSettings(parsed.values.passiveHunting as PassiveSettings, state.passiveRareHunts as Record<string,boolean>);
     state.passiveRareHunts=committedPassiveRules(state.passiveHunting as PassiveSettings);
   }
+}
+function importedValue(state: ObjectValue, key: string, value: unknown): unknown {
+  if (key === 'merchantRoutinePriorities') return migrateRoutinePriorities(value as Record<string, number>);
+  if (key !== 'farmingProfiles') return value;
+  const previous = object(state.farmingProfiles) ? state.farmingProfiles : {};
+  return {...previous, ...Object.fromEntries(Object.entries(value as ObjectValue).map(([name, profile]) =>
+    [name, {...(object(previous[name]) ? previous[name] : {}), ...(profile as ObjectValue)}]))};
 }

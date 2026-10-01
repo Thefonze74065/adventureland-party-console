@@ -17,7 +17,8 @@ export const role: Partial<Role> = {
     // normal reactive threshold: spam partyheal whenever it's off cooldown.
     if (sharedRoutine.frankyCombatActive?.() && await sharedRoutine.frankySpamPartyHeal?.()) return true;
     if (await sharedRoutine.absorbSinsBelow(1)) return true;
-    return await sharedRoutine.healPartyBelow(0.9);
+    if (await sharedRoutine.healPartyBelow(0.9)) return true;
+    return await sharedRoutine.skillSupport?.() ?? false;
   },
   usePotion: async function () {
     return await sharedRoutine.useRecoveryPotion({ hpBelow: 0.5, mpBelow: 0.2, priority: "hp" });

@@ -93,6 +93,13 @@ export function rogueSupport(w: SkillWorld): SkillDecision[] {
   const target = w.context.allies.find(a => (!a.s?.rspeed || (a.s.rspeed.ms || 0) < 60000) && w.range(a, 'rspeed'));
   return target ? [decision('rspeed', [target], 'maintenance', 'maintain party swiftness')] : [];
 }
+export function combatBuffSupport(w: SkillWorld): SkillDecision[] {
+  const skill = w.actor.ctype === 'warrior' ? 'warcry' :
+    w.actor.ctype === 'priest' ? 'darkblessing' : null;
+  // These buffs coexist. Only the matching active effect prevents a refresh.
+  if (!skill || w.actor.s?.[skill]) return [];
+  return [decision(skill, [], 'maintenance', 'maintain combat buff')];
+}
 export function opener(w: SkillWorld, target: Combatant): SkillDecision | null {
   if (w.actor.ctype !== 'rogue' || w.actor.s?.invis || w.actor.s?.marked) return null;
   if (target.target || w.context.monsters.some(m => m.target === w.actor.name)) return null;

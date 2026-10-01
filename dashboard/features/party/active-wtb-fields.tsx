@@ -7,8 +7,9 @@ export type WTBField = "quantity" | "price" | "priority";
 const labels = {quantity: "Quantity", price: "Price", priority: "Priority"};
 const dimensions = "h-8 w-24 shrink-0 rounded border px-2 text-right font-mono text-xs tabular-nums";
 
-export function ActiveWTBFields({name, bid, disabled, onSave}: {
+export function ActiveWTBFields({name, bid, disabled, onEditPrice, onSave}: {
   name: string; bid: StandBid; disabled?: boolean;
+  onEditPrice: () => void;
   onSave: (field: WTBField, value: number | null) => Promise<void>;
 }) {
   const [editing, setEditing] = useState<WTBField | null>(null), [draft, setDraft] = useState("");
@@ -42,7 +43,7 @@ export function ActiveWTBFields({name, bid, disabled, onSave}: {
         }} className={`${dimensions} border-violet-600 bg-black text-violet-100 placeholder:text-violet-300`} />
     ) : (
       <button key={field} type="button" aria-label={`Edit ${labels[field].toLowerCase()} for ${name}`} title={labels[field]}
-        disabled={disabled || saving} onClick={() => edit(field)}
+        disabled={disabled || saving} onClick={() => field === "price" ? onEditPrice() : edit(field)}
         className={`${dimensions} truncate border-violet-600 bg-violet-950 text-violet-100 hover:border-violet-400 hover:bg-violet-900 disabled:opacity-50`}>
         {field === "quantity" ? `×${bid.quantity.toLocaleString()}` : field === "price" ? `${bid.price.toLocaleString()}g` : `P ${bid.priorityOverride ?? "Default"}`}
       </button>

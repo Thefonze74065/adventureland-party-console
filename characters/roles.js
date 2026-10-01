@@ -29,7 +29,8 @@
     beforeTarget: async function() {
       if (sharedRoutine.frankyCombatActive?.() && await sharedRoutine.frankySpamPartyHeal?.()) return true;
       if (await sharedRoutine.absorbSinsBelow(1)) return true;
-      return await sharedRoutine.healPartyBelow(0.9);
+      if (await sharedRoutine.healPartyBelow(0.9)) return true;
+      return await sharedRoutine.skillSupport?.() ?? false;
     },
     usePotion: async function() {
       return await sharedRoutine.useRecoveryPotion({ hpBelow: 0.5, mpBelow: 0.2, priority: "hp" });
@@ -120,8 +121,8 @@
     name: "warrior",
     combat: true,
     beforeTarget: async function() {
-      if (sharedRoutine.frankyCombatActive?.()) return false;
-      return await sharedRoutine.emergencyWarriorStomp();
+      if (!sharedRoutine.frankyCombatActive?.() && await sharedRoutine.emergencyWarriorStomp()) return true;
+      return await sharedRoutine.skillSupport?.() ?? false;
     },
     chooseTarget: function() {
       const scatterBreak = sharedRoutine.getScatterBreakTarget();
@@ -1114,6 +1115,11 @@
     const target = w.context.allies.find((a) => (!a.s?.rspeed || (a.s.rspeed.ms || 0) < 6e4) && w.range(a, "rspeed"));
     return target ? [decision("rspeed", [target], "maintenance", "maintain party swiftness")] : [];
   }
+  function combatBuffSupport(w) {
+    const skill = w.actor.ctype === "warrior" ? "warcry" : w.actor.ctype === "priest" ? "darkblessing" : null;
+    if (!skill || w.actor.s?.[skill]) return [];
+    return [decision(skill, [], "maintenance", "maintain combat buff")];
+  }
   function opener(w, target) {
     if (w.actor.ctype !== "rogue" || w.actor.s?.invis || w.actor.s?.marked) return null;
     if (target.target || w.context.monsters.some((m) => m.target === w.actor.name)) return null;
@@ -1224,7 +1230,7 @@
       },
       support() {
         const w = world();
-        const choices = w.actor.ctype === "paladin" ? paladinSupport(w) : rogueSupport(w);
+        const choices = w.actor.ctype === "paladin" ? paladinSupport(w) : w.actor.ctype === "rogue" ? rogueSupport(w) : combatBuffSupport(w);
         return first(choices.filter((d) => d.skill !== "paladin_aura" || w.now - auraAt >= 1e4 && d.argument !== auraState));
       },
       offense(target) {

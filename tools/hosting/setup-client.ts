@@ -59,6 +59,11 @@ async function generateLoader(){
 async function refresh(){
  state=await call('state');serverAddress=state.serverAddress||location.origin;el('address').textContent=serverAddress;
  el('pair').hidden=true;el('settings').hidden=false;el('account').hidden=!state.canConfigureAccount||state.configured;el('paths').hidden=!state.configured;el('invite').hidden=!state.requirePairing;
+ const selected=el('realm').value,realms=state.realms||[];
+ el('realm').replaceChildren(...realms.map(realm=>new Option(realm,realm)));
+ if(realms.includes(selected))el('realm').value=selected;
+ el('realm').disabled=realms.length===0;el('connect').disabled=realms.length===0;
+ el('realmState').textContent=state.realmError||'';
  el('loaderHelp').textContent=state.requirePairing?'Keep this code private: it grants control of this console.':'';
  el('error').textContent='';selection();
 }

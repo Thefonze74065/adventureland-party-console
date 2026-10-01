@@ -21,11 +21,29 @@ function reconcileScroll(j: Journal, current: Item | null): void {
   if (consumed && quantity > 1) consumed.q = quantity - 1;
   if (same(current, quantity > 1 ? consumed : null)) j.displaced = copy(current);
 }
-function originalLayout(j: Journal, from: Item | null, to: Item | null): boolean {
+function sameStack(previous: Item | null, current: Item | null): boolean {
+  if (!previous || !current) return false;
+  if (previous.q === undefined && current.q === undefined) return false;
+  const previousQuantity = Number(previous.q ?? 1), currentQuantity = Number(current.q ?? 1);
+  if (![previousQuantity,currentQuantity].every(quantity => Number.isSafeInteger(quantity) && quantity > 0)) return false;
+  const previousIdentity = {...previous}, currentIdentity = {...current};
+  delete previousIdentity.q; delete currentIdentity.q;
+  // Native potion use and incoming stack transfers can change quantity while
+  // production runs. Preserve the observed stack; never recreate consumed units.
+  return same(previousIdentity,currentIdentity);
+}
+function reconcileStack(j: Journal, current: Item | null): void {
+  if (j.phase === 'running' && sameStack(j.displaced,current)) j.displaced = copy(current);
+}
+function returnedResult(j: Journal, from: Item | null, to: Item | null): boolean {
   // Once a nonempty result is back in its source slot, an originally empty
   // lucky slot can already have received loot or an incoming item transfer.
   // That delivery does not undo the confirmed return and must not be swapped.
-  if (j.phase === 'restoring' && j.displaced === null && j.result && same(from, j.result)) return true;
+  if (j.phase !== 'restoring' || !same(from,j.result ?? null)) return false;
+  return j.displaced === null && !!j.result || sameStack(j.displaced,to);
+}
+function originalLayout(j: Journal, from: Item | null, to: Item | null): boolean {
+  if (returnedResult(j,from,to)) return true;
   if (!same(to, j.displaced)) return false;
   return j.phase === 'preparing' && same(from, j.item) || j.phase === 'restoring' && same(from, j.result ?? null);
 }
@@ -63,6 +81,7 @@ export function createLuckyUpgrade(ports: Ports) {
       ports.write(null); return;
     }
     reconcileScroll(j, ports.item(j.from));
+    reconcileStack(j, ports.item(j.from));
     // A send/loot event can fill the source cell while the upgrade runs.
     // Adopt that incoming item as the displaced contents before the return
     // swap, so both items remain accounted for across interruption/restart.
@@ -121,12 +140,15 @@ export function createLuckyUpgrade(ports: Ports) {
   async function tidy(lucky: unknown): Promise<void> {
     await recover();
     if (active || !validSlot(lucky)) return;
-    const ordered = Array.from({length: 42}, (_, i) => copy(ports.item(i))).filter((item): item is Item => !!item);
-    if (ordered.length > 41) throw failure('no room to keep lucky slot empty');
+    const tracker = ports.item(41);
+    const pinned = tracker?.name === 'tracker' || tracker?.name === 'supercomputer';
+    const targets = Array.from({length: 42}, (_, i) => i).filter(i => i !== lucky && !(pinned && i === 41));
+    const ordered = Array.from({length: 42}, (_, i) => pinned && i === 41 ? null : copy(ports.item(i))).filter((item): item is Item => !!item);
+    if (ordered.length > targets.length) throw failure('no room to keep lucky slot empty');
     active = true;
     try {
       for (let index = 0; index < ordered.length; index++) {
-        const target = index >= Number(lucky) ? index + 1 : index, wanted = ordered[index];
+        const target = targets[index]!, wanted = ordered[index];
         if (same(ports.item(target), wanted)) continue;
         const from = Array.from({length: 42}, (_, i) => i).find(i => (i >= target || i === lucky) && same(ports.item(i), wanted));
         if (from === undefined) throw failure('inventory changed while tidying');

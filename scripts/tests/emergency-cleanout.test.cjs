@@ -22,7 +22,7 @@ function fixture(items, capacity = 42, extra = {}) {
 }
 const bag=(front, size=42)=>[...front,...Array.from({length:size-front.length},()=>({name:'locked',l:true}))];
 test('emergency cleanout protects supplies and tracktrix and orders remaining categories',async()=>{
-  const f=fixture(bag(['weapon','armor','ring','ingredient','tracktrix','hpot0','mpot0','hpot1','mpot1'].map(name=>({name}))));
+  const f=fixture(bag(['weapon','armor','ring','ingredient','tracker','hpot0','mpot0','hpot1','mpot1'].map(name=>({name}))));
   const receipt=await f.run();
   assert.deepEqual(f.sent,['ingredient','ring','armor','weapon']);
   assert.equal(receipt.cleanoutRemaining,false);
@@ -57,8 +57,8 @@ test('all marked pickups run before emergency extras, even after enough slots ar
   assert.deepEqual(f.sent,names);
 });
 test('cleanout protects explicitly marked supplies and live locked items too',async()=>{
-  const f=fixture(bag([{name:'tracktrix'},{name:'hpot0'},{name:'mpot0'},{name:'weapon',l:true},{name:'ingredient'}]),42,{
-    marked:['tracktrix','hpot0','mpot0','weapon'].map((name,slot)=>({slot,item:{name}}))
+  const f=fixture(bag([{name:'tracker'},{name:'hpot0'},{name:'mpot0'},{name:'weapon',l:true},{name:'ingredient'}]),42,{
+    marked:['tracker','hpot0','mpot0','weapon'].map((name,slot)=>({slot,item:{name}}))
   });
   await f.run();
   assert.deepEqual(f.sent,['ingredient']);

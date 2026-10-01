@@ -1,5 +1,35 @@
 import { test, expect } from './fixtures';
 
+test('passive level caps save and preferred spawns show their map area', async ({page,app},info) => {
+  // Failure modes: legacy caps lack a default; zero/fractions save; positive caps
+  // disappear after reload; spawn coordinates have no rendered map preview.
+  await page.route('**/party-api/state*', async route => {
+    const response=await route.fetch(), state=await response.json();
+    const monsterChoices=(state.monsterChoices || []).map((monster:{id:string;locations?:unknown[]})=>monster.id==='goo' ? {...monster,locations:[...(monster.locations || []),{map:'main',mapName:'Mainland',x:350,y:100,boundary:[300,50,400,150]}]} : monster);
+    await route.fulfill({response,json:{...state,monsterChoices}});
+  });
+  await page.goto('/');
+  const warrior=page.locator('article').filter({has:page.getByRole('heading',{name:'W',exact:true})});
+  await warrior.getByRole('button',{name:'Farming settings',exact:true}).click();
+  await page.getByRole('button',{name:'Open passive hunting menu',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'Passive hunting',exact:true});
+  await dialog.getByRole('textbox',{name:'Filter passive hunting monsters'}).fill('goo');
+  const cap=dialog.getByRole('spinbutton',{name:'Goo passive max level',exact:true});
+  await expect(cap).toHaveValue('-1');
+  await cap.fill('0'); await cap.press('Tab');
+  await expect(dialog.getByRole('alert')).toContainText('positive whole number');
+  await cap.fill('3'); await cap.press('Tab');
+  await expect.poll(async()=> (await app.state()).passiveHunting?.rules.goo?.maxLevel).toBe(3);
+  await info.attach('passive-level-cap',{body:await page.screenshot(),contentType:'image/png'});
+  await page.keyboard.press('Escape');
+  await page.getByRole('button',{name:'Set preferred hunt spawns',exact:true}).click();
+  const spawns=page.getByRole('dialog',{name:'Preferred hunt spawns',exact:true});
+  await spawns.locator('summary').first().click();
+  await expect(spawns.locator('canvas')).toBeVisible();
+  await info.attach('preferred-spawn-map',{body:await page.screenshot(),contentType:'image/png'});
+  await info.attach('passive-settings-state',{body:JSON.stringify((await app.state()).passiveHunting),contentType:'application/json'});
+});
+
 test('Hunt saves a backup, accepts settings, and exits without losing preferences', async ({ page, app }, testInfo) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.stack || error.message));

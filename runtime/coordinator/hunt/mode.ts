@@ -37,8 +37,8 @@ export function createHuntMode(state: HuntModeState, ports: HuntModePorts) {
   function reset(): void {
     ports.clear();
     state.monsterHunt = null;
-    state.huntBlacklist = {};
-    state.huntFailures = {};
+    // Exclusions and failure counts are durable preferences. Only the explicit
+    // blacklist clear action resets them; restarting Hunt resets execution.
     state.combatRecovery = null;
     state.combatHuntBoundary = null;
     if (state.farmAreaState) {

@@ -338,3 +338,106 @@ test.describe('real merchant economy and durable work', () => {
     await record(live, info, 'single-native-upgrade', before, { completed, outcome, observed });
   });
 });
+
+
+test('native WTB withdraws bank funding and reconciles replaced offers after reopening', async ({live},info) => {
+  test.setTimeout(420_000);
+  // Failure modes: bank wealth is ignored; repeated reports enqueue duplicate
+  // funding; a changed native identity permanently blocks the order; replacement
+  // is counted as a purchase; reopening causes duplicate advertisements.
+  await catalog(live,'hpot0');
+  await expect.poll(async ()=>(await live.state(true)).merchantCatalog?.allItems?.some((entry:{id:string})=>entry.id==='leather'),{timeout:120_000}).toBe(true);
+  await seed(live,{10:{name:'stand0'}});
+  await live.post('/command',{character:merchant,type:'bank'});
+  await jobFinished(live);
+  await expect.poll(async ()=>(await live.state()).bank?.gold,{timeout:30_000}).toBeGreaterThan(1000000);
+  const before=await economy(live);
+  const price=before.characters[merchant].gold+10000;
+  expect(before.bankGold).toBeGreaterThan(10000);
+  await live.post('/merchant/bid',{itemId:'leather',price,quantity:3,minimumQuality:0,useStandSlot:true});
+  await expect.poll(async ()=>{
+    const current=await live.clients[merchant].snapshot();
+    return Object.values(current.slots).some((item:any)=>item?.b && item.name==='leather' && item.price===price);
+  },{timeout:180_000,message:'Merchant must withdraw native stand funding and advertise the order'}).toBe(true);
+  await jobFinished(live);
+  const funded=await economy(live);
+  expect(funded.characters[merchant].gold).toBeGreaterThanOrEqual(price);
+  expect(totalGold(funded)).toBe(totalGold(before));
+  const ledger=(await live.state()).nativeStand;
+  const offer=Object.values(ledger.offers).find((entry:any)=>entry.itemId==='leather') as {slot:string;rid:string;token:string};
+  expect(offer).toBeTruthy();
+  // Real game mutations, no synthesized acknowledgements or heartbeat state.
+  await live.clients[merchant].run(`(async()=>{await unequip(${JSON.stringify(offer.slot)});await wishlist(${JSON.stringify(offer.slot)},'leather',${price},0,3);await close_stand();await open_stand();})()`);
+  await expect.poll(async ()=>{
+    const state=await live.state(), offers=Object.values(state.nativeStand.offers) as any[];
+    return offers.some(entry=>entry.itemId==='leather' && entry.phase==='live' && entry.rid!==offer.rid && !entry.problem);
+  },{timeout:45_000,message:'Reopened native identity must reconcile without an inferred purchase'}).toBe(true);
+  const after=await live.state();
+  expect(after.standBids.leather.quantity).toBe(3);
+  expect(Object.values((await live.clients[merchant].snapshot()).slots).filter((item:any)=>item?.b && item.name==='leather')).toHaveLength(1);
+  await record(live,info,'native-wtb-funding-and-reconciliation',before,{funded,originalOffer:offer,after});
+  await info.attach('native-wtb-reopened-stand',{body:await live.clients[merchant].page.screenshot(),contentType:'image/png'});
+});
+
+
+test('native WTB retries an empty never-confirmed reservation after restart without counting a fill', async ({live},info) => {
+  test.setTimeout(240_000);
+  // Historical boundary: an empty stand slot and a persisted reservation with no
+  // native identity. Failure modes: restart retains a permanent block; retry
+  // decrements bid quantity; a retry places duplicate offers or spends gold.
+  await catalog(live,'hpot0');
+  await seed(live,{10:{name:'stand0'}});
+  const before=await economy(live);
+  await live.restoreHistoricalSettings(()=>({
+    standBids:{leather:{price:1000,quantity:3,minimumQuality:0,useStandSlot:true,revision:1}},
+    nativeStand:{sequence:1,offers:{'native-1':{token:'native-1',itemId:'leather',auto:false,slot:'trade1',revision:1,level:0,price:1000,quantity:3,acknowledged:0,phase:'blocked',problem:'Offer disappeared without a confirmed fill/removal; reconciliation required'}},problems:{}},
+  }));
+  await expect.poll(async ()=>Object.values((await live.state()).nativeStand.offers).some((offer:any)=>offer.itemId==='leather' && offer.phase==='live' && offer.rid && !offer.problem),{timeout:90_000}).toBe(true);
+  const state=await live.state(), current=await live.clients[merchant].snapshot();
+  expect(state.standBids.leather.quantity).toBe(3);
+  expect(Object.values(current.slots).filter((item:any)=>item?.b && item.name==='leather')).toHaveLength(1);
+  expect(totalGold(await economy(live))).toBe(totalGold(before));
+  await record(live,info,'native-unconfirmed-wtb-recovered',before,{state,slots:current.slots});
+  await info.attach('native-unconfirmed-wtb-recovered-stand',{body:await live.clients[merchant].page.screenshot(),contentType:'image/png'});
+});
+
+test('native Tracktrix stays in the final inventory slot through full-bag cleanout and merchant tidying', async ({ live }, info) => {
+  test.setTimeout(240_000);
+  // Failure modes: display name mistaken for native tracker ID; unmarked tracker
+  // collected in a full bag; occupied final slot loses cargo; merchant tidy
+  // repacks the tracker; restart loses protection or item conservation.
+  await live.post('/merchant/force-stand', { enabled: true });
+  const initial = await economy(live);
+  const seeded = await live.admin(`output=(()=>{
+    const w=get_player('E2EWarrior'),m=get_player('E2EMerchant');
+    if(w.items[10]||m.items[10]||m.items[11])throw Error('Tracker seed slots occupied');
+    w.items[10]={name:'tracker'};m.items[10]={name:'tracker'};m.items[11]={name:'stand0'};
+    for(let i=0;i<w.items.length;i++)if(!w.items[i])w.items[i]={name:'feather0',q:1};
+    for(const p of [w,m]){cache_player_items(p);calculate_player_stats(p);resend(p,'reopen+cid');}
+    return {warrior:w.items,merchant:m.items};
+  })()`);
+  await expect.poll(async () => {
+    const current=await economy(live);
+    return ['E2EWarrior',merchant].every(name=>current.characters[name].items.at(-1)?.name==='tracker');
+  }, {timeout:30_000}).toBe(true);
+  const before=await economy(live);
+  expect(quantity(before.characters.E2EWarrior.items,'tracker')).toBe(1);
+  expect(before.characters.E2EWarrior.items.filter(Boolean)).toHaveLength(42);
+  expect(quantity(before.characters.E2EWarrior.items,'feather0')).toBe(quantity(seeded.warrior,'feather0'));
+  await live.post('/merchant/force-stand', { enabled: false });
+  await live.post('/merchant/routine-priorities', { priorities: {}, enabled: { 'inventory cleanout': true } });
+  await live.post('/merchant/cleanout', { character:'E2EWarrior' });
+  await expect.poll(async () => quantity((await economy(live)).characters.E2EWarrior.items,'feather0'),
+    {timeout:150_000}).toBeLessThan(quantity(before.characters.E2EWarrior.items,'feather0'));
+  await jobFinished(live);
+  await restartAndObserve(live);
+  const after=await economy(live);
+  for(const name of ['E2EWarrior',merchant]) {
+    expect(after.characters[name].items.at(-1)?.name).toBe('tracker');
+    expect(quantity(after.characters[name].items,'tracker')).toBe(1);
+  }
+  const totalFeathers=(value:Economy)=>bankQuantity(value,'feather0')+Object.values(value.characters).reduce((sum,c)=>sum+quantity(c.items,'feather0'),0);
+  expect(totalFeathers(after)).toBe(totalFeathers(before));
+  await record(live,info,'tracktrix-full-bag-cleanout-retained',before,{initial,seeded});
+  await info.attach('tracktrix-final-native-inventory',{body:await live.clients.E2EWarrior.page.screenshot(),contentType:'image/png'});
+});

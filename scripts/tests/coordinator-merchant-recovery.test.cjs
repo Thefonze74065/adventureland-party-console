@@ -45,7 +45,7 @@ test('continuous non-anniversary deferrals cannot reset the watchdog',()=>{
 test('stale command acknowledgements cannot retain a replacement job',()=>{
  const f=fixture({id:'new',commandId:10,target:'M',reason:'Ponty purchases',phase:'assigned',startedAt:70000,recoveryAttempts:20});
  f.observe('M',[],{jobId:'new',commandId:9,state:'deferred',reason:'escape',at:100000});
- assert.equal(f.state.current,null);assert.equal(f.state.queue[0].retryAt,400000);
+ assert.equal(f.state.current,null);
 });
 
 test('production deferral keeps its actual reason through watchdog requeue',()=>{

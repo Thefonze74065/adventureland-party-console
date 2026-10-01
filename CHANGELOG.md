@@ -41,6 +41,42 @@ from the commits merged into `main`.
 
 ### Fixed
 
+- Protect personal Tracktrix items from merchant collection and emergency cleanout
+  using the native `tracker` ID rather than the display name. Keep trackers and
+  supercomputers in the final inventory slot, including during merchant tidying.
+
+- Recover empty native WTB reservations that never received an offer ID, without
+  counting them as purchases. Back off failed placements before retrying, and
+  adopt matching offers that moved before their first acknowledgement.
+- Make WTB price options fill each grid column and place Farm price information
+  inside the option’s upper-right corner without changing the price when clicked.
+
+- Fix market “Hide unaffordable” using the account’s bank gold even when the Bank
+  panel is closed (#38). Active WTB price buttons reopen the full price/quantity
+  editor with current terms and price options. Rename “New WTB order” and “Farm
+  price,” explain the farming estimate, and display stand status as plain colored text.
+- Reconcile moved or replaced native WTB offers when the stand reopens without
+  inferring purchases from replacement. Queue a bank withdrawal for affordable
+  orders when the merchant lacks carried gold; report inventory and funding separately.
+- Preserve Hunt blacklists across farming mode changes, restarts, and settings
+  exports; retain explicit removals during catalog startup. Add a searchable manual
+  blacklist picker, contain its sprites, and restore catalog scrolling.
+- Route exchange rewards through shared automatic item rules, including future
+  stock and nested exchange boxes. Stage bulk catalog rule changes until Done,
+  preserve existing stand prices, and keep manual exchange independently available.
+- Recover interrupted merchant work and rare-monster loot approaches. Wait for
+  production receipts before retrying merchant operations, retire stale NPC sale
+  marks, release recovery deadlocks, and recover lucky upgrade swaps after stack
+  quantities change. Pass rule command context through merchant validation.
+- Discover available setup realms from the game at gateway startup.
+- Keep native drawing and convoy readiness working under delayed clients; retain
+  Hunt farming ownership after fallback arrival, reassemble interrupted Town rallies,
+  and reserve passing attacks before bounded native timer delays.
+- Maintain warrior Warcry and priest Dark Blessing independently, after emergency
+  defense, aggro rescue, and healing, while retaining survival mana reserves.
+- Confirm Hunt blacklist “Clear all” before removing entries, with Cancel preserving the list.
+- Add passive-monster level caps and map previews for preferred Hunt spawn areas.
+
 - Map viewers include NPC cosmetic layers (including Dorr's head) and the Cave
   entrance's native stonework, animated flames and starry portal.
 
@@ -114,7 +150,7 @@ from the commits merged into `main`.
   successful Steam-to-headless transfer no longer hides the character behind a
   false "Connection lost" card.
 
-- Hunt off/on now resets execution, holds, failure counts and blacklist while retaining live quests and saved settings. Removed arbitrary-door route recovery; exhausted routes try another actual monster spawn. Retire saved relocation detours.
+- Hunt off/on now resets execution, holds, and failure counts while retaining live quests, blacklists, and saved settings. Removed arbitrary-door route recovery; exhausted routes try another actual monster spawn. Retire saved relocation detours.
 
 - Added Farming Settings > Set preferred hunt spawns: expand monsters with multiple available spawns and save a destination for future Monster Hunts. Automatic selection remains the default; normal farming is unaffected.
 
@@ -193,7 +229,7 @@ from the commits merged into `main`.
 - Invisible rogue recipients reveal themselves for merchant servicing, then resume
   their normal invisibility behavior. ([#10](https://github.com/Ryan-Haines/adventureland-party-console/pull/10))
 
-- Enabled passive targets with �keep moving� off now interrupt outbound travel
+- Enabled passive targets with “keep moving” off now interrupt outbound travel
   for coordinated combat, including neutral Phoenix sightings and targets already
   admitted as passing attacks. Explicit stop rules override Hunt travel exceptions.
 

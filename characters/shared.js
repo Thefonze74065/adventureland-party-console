@@ -2917,7 +2917,7 @@
       if(control && control.primary && passingKey(e)!==passingKey(control.primary))return false;
       var rule = e && passiveHunting.rules[e.mtype];
       var defending = returning && e && (e.target === character.name || currentPartyList().indexOf(e.target) >= 0);
-      return (control && control.primary || defending || hunting && e && e.mtype === hunting || rule && rule.enabled && rule.keepMoving) && !committedHuntEncounter(e) && e.type === 'monster' && e.visible && !e.dead && e.hp > 0 &&
+      return (control && control.primary || defending || hunting && e && e.mtype === hunting || rule && rule.enabled && rule.keepMoving && passiveLevelAllowed(e)) && !committedHuntEncounter(e) && e.type === 'monster' && e.visible && !e.dead && e.hp > 0 &&
         (!e.map || e.map === character.map) && e.mtype !== 'fieldgen0' && is_in_range(e) &&
         (returning || isPassingEncounter(e) || !(e.target === character.name || currentPartyList().indexOf(e.target) >= 0)) &&
         !isExternallyClaimedMonster(e) && (returning || !groupedCombat || !groupedCombat.target || groupedCombat.target.id !== e.id) &&
@@ -2926,6 +2926,11 @@
     candidates.sort(function(a,b) {return Number(currentPartyList().indexOf(b.target)>=0)-Number(currentPartyList().indexOf(a.target)>=0) || monsterPriority(b)-monsterPriority(a) || Math.hypot(character.x-a.x,character.y-a.y)-Math.hypot(character.x-b.x,character.y-b.y) || String(a.id).localeCompare(String(b.id));});
     return candidates[0] || null;
   }
+  function passiveLevelAllowed(target) {
+    var rule=target && passiveHunting.rules[target.mtype], cap=rule && rule.maxLevel;
+    return cap==null || cap===-1 || Number.isFinite(target.level) && target.level<=cap;
+  }
+
   function walkingPassiveTarget(reserveAhead) {
     var convoy = typeof convoyTraveling !== 'undefined' && convoyTraveling;
     if (!(character.moving || convoy && convoy.phase === 'travelling') ||
@@ -2935,7 +2940,7 @@
         !passingTravelAllowed()) return null;
     return Object.values(parent.entities || {}).filter(function(e) {
       var rule = e && passiveHunting.rules[e.mtype];
-      return rule && rule.enabled && rule.keepMoving && e.type === 'monster' && e.visible && !e.dead && e.hp > 0 &&
+      return rule && rule.enabled && rule.keepMoving && passiveLevelAllowed(e) && e.type === 'monster' && e.visible && !e.dead && e.hp > 0 &&
         (!e.map || e.map === character.map) && (e.in == null || e.in === character.in) &&
         e.mtype !== 'fieldgen0' && !committedHuntEncounter(e) &&
         (is_in_range(e) || reserveAhead && character.moving &&
@@ -2972,7 +2977,7 @@
       if (!e || e.type !== "monster" || !(passiveRareHunts[e.mtype] || e.mtype === "phoenix") || isPassingEncounter(e) || !e.visible || e.dead) return;
       rareKnown[String(e.id)] = e.mtype;
       result.push({ id: String(e.id), mtype: e.mtype, x: e.real_x !== undefined ? e.real_x : e.x,
-        y: e.real_y !== undefined ? e.real_y : e.y, hp: e.hp, target: e.target || null, visible: true,
+        y: e.real_y !== undefined ? e.real_y : e.y, hp: e.hp, level: e.level, target: e.target || null, visible: true,
         reachable: typeof can_attack==='function' && can_attack(e),
         partyEngaged: typeof root !== 'undefined' && !!(root.partyLootClient && root.partyLootClient.rare.engaged({id:String(e.id),realm:':'+String(parent.server_region||'')+String(parent.server_identifier||''),map:character.map,in:String(character.in||character.map)})) });
     });
@@ -3651,8 +3656,7 @@
     for (var i = 0; i < entries.length; i += 1) {
       var entry = entries[i], item = character.items[entry.slot];
       if (!item) continue;
-      if (entry.identities.indexOf(bankStackIdentity(item)) < 0)
-        throw new Error("Bank sort buffer changed; manual recovery required");
+      if (entry.identities.indexOf(bankStackIdentity(item)) < 0) continue;
       if (character.map !== entry.floor) await movement.move(entry.floor);
       await bankStoreFully(entry.slot);
     }
@@ -4167,7 +4171,15 @@
   }
   async function recoverProductionJournalWork() {
     var journal = JSON.parse(root.localStorage.getItem(productionJournalKey()) || "null");
-    if (!journal) return;
+    if (!journal) {
+      var pending = await request("/merchant/production", {method:"POST",body:{character:character.name,action:"pending"}});
+      if (!pending || !Array.isArray(pending.pending)) throw Error("Production recovery inspection unavailable");
+      if (pending.pending.length) {
+        var orphaned = pending.pending[0];
+        throw Error("Production recovery needs review: " + orphaned.id + " (" + orphaned.kind + " " + orphaned.name + " +" + orphaned.level + "); no local journal");
+      }
+      return;
+    }
     if (journal.phase === "complete") return finishProductionJournal(journal);
     if (character.q && (character.q.upgrade || character.q.compound)) throw Error("Production recovery waiting for game operation");
     var inspection = await request("/merchant/production", {method:"POST",body:Object.assign({},journal.request,{character:character.name,action:"inspect"})});
@@ -4794,7 +4806,27 @@
   }
 
   function cleanoutProtected(item) {
-    return item.l || item.b || ["tracktrix", "hpot0", "mpot0", "hpot1", "mpot1"].indexOf(item.name) >= 0;
+    return item.l || item.b || ["tracker", "supercomputer", "hpot0", "mpot0", "hpot1", "mpot1"].indexOf(item.name) >= 0;
+  }
+
+  function isPersonalTracker(item) {
+    return !!item && ["tracker", "supercomputer"].indexOf(item.name) >= 0;
+  }
+
+  async function keepTracktrixLast() {
+    if (!runtimeCurrent() || character.rip || root.__partyInventoryCommands ||
+        banking || bankQueued || upgrading || stocking || anniversaryBusy ||
+        gatheringActive || root.__merchantActiveJob || root.__merchantInventoryTidy ||
+        root.__partyUpgradePreviewInFlight || (luckyUpgradeService && luckyUpgradeService.pending())) return;
+    var last = character.items.length - 1;
+    if (last < 0 || isPersonalTracker(character.items[last])) return;
+    var source = character.items.findIndex(isPersonalTracker);
+    if (source < 0 || typeof swap !== "function") return;
+    // Native imove swaps different items, including an occupied final cell.
+    // Wait for the authoritative inventory before dispatching another command.
+    await swap(source, last);
+    var deadline = Date.now() + 2000;
+    while (runtimeCurrent() && Date.now() < deadline && !isPersonalTracker(character.items[last])) await sleep(50);
   }
 
   function cleanoutPriority(entry) {
@@ -4930,6 +4962,7 @@
       requests = requests.filter(function (entry) { return !cleanoutProtected(entry.item); });
       requests.sort(function (a, b) { return cleanoutPriority(a) - cleanoutPriority(b); });
     }
+    requests = requests.filter(function (entry) { return !isPersonalTracker(entry.item); });
     var capacity = Math.max(0, Number(command.capacity) || 0);
     var cleanoutFreeSlots = freeInventorySlots();
     var cleanoutEmergency = cleanoutFreeSlots <= 3;
@@ -4961,7 +4994,7 @@
         await refreshCompoundProtection(command);
         if (!compoundAvailableStock(command)[slot]) continue;
       }
-      if (command.cleanout && cleanoutProtected(character.items[slot])) continue;
+      if (isPersonalTracker(character.items[slot]) || command.cleanout && cleanoutProtected(character.items[slot])) continue;
       var sendQuantity = Math.min(Number(requests[i].quantity) || itemQuantity(character.items[slot]),
         itemQuantity(character.items[slot]));
       if (requests[i].mark && (requests[i].mark.deconstructionId || requests[i].mark.npcSaleId) && (character.items[slot].l || character.items[slot].b)) continue;
@@ -9093,6 +9126,13 @@
   }
 
   async function handle(command) {
+    if (root.__partyTracktrixMove) await root.__partyTracktrixMove;
+    root.__partyInventoryCommands = (root.__partyInventoryCommands || 0) + 1;
+    try { return await handleOwnedCommand(command); }
+    finally { root.__partyInventoryCommands -= 1; }
+  }
+
+  async function handleOwnedCommand(command) {
     if (root.__partyDungeonRuntime && root.__partyDungeonRuntime.owns()) return;
     if (escapeOwns() && !(escapeState.stage === "recovery-convoy" && command && command.purpose === "escape-recovery")) {
       reportMerchantCommand(command, "deferred", "escape"); return;
@@ -9143,6 +9183,14 @@
       return;
     }
     if(command.type==='party-monster-travel')root.__partyConvoyDefense=null;
+    if (command.type === "merchant-production-recover") {
+      if (root.__merchantActiveJob) return;
+      try { await recoverProductionJournal(); }
+      catch (error) { reportMerchantCommand(command, "deferred", error.message || String(error)); return; }
+      lastCommand = command.id; root.__partyLastCommand = lastCommand;
+      reportMerchantCommand(command, "accepted");
+      return;
+    }
     // Stand return can travel safely before checking inventory recovery. Its
     // own guard runs before any listing, consolidation, or tidy mutation.
     var returningToStand = command.type === "merchant-idle" && !command.inPlace;
@@ -9812,6 +9860,13 @@
           throw recoveryError;
         recordStatusFailure(recoveryError, statusPhase);
       }
+      // Bank recovery belongs to bank operations, which call it before moving
+      // inventory. Status, combat and navigation must remain available.
+      statusPhase = "Tracktrix inventory position";
+      root.__partyTracktrixMove = keepTracktrixLast();
+      try { await root.__partyTracktrixMove; }
+      catch (error) { game_log("Tracktrix positioning retry: " + (error.reason || error.message || error), "red"); }
+      finally { root.__partyTracktrixMove = null; }
       statusPhase = "snapshot";
       var statusSentAt = Date.now();
       var statusBody = snapshot();
@@ -12482,7 +12537,7 @@
       fightDeaths.push({id:id,map:character.map,in:character.in,server:reunionRealm(),at:Date.now()+coordinatorClockOffset});
     if(root.partyQueueClient) { root.partyQueueClient.reportEvidence(fightDeaths); if(root.partyQueueClient.death)root.partyQueueClient.death(id);else root.partyQueueClient.flush(); }
   }
-  function groupedEntityReport(e) { return {id:e.id,mtype:e.mtype,map:character.map,in:character.in,x:e.x,y:e.y,hp:e.hp,max_hp:e.max_hp}; }
+  function groupedEntityReport(e) { return {id:e.id,mtype:e.mtype,level:e.level,map:character.map,in:character.in,x:e.x,y:e.y,hp:e.hp,max_hp:e.max_hp}; }
   function currentTravelAttackers() {
     return Object.values(parent.entities || {}).filter(function(e) {
       if(typeof outboundHuntTravel === 'function' && outboundHuntTravel() || typeof convoyTraveling!=='undefined' && convoyTraveling && convoyTraveling.continuousReturn===1)return e && e.type==='monster' && e.visible && !e.dead && e.hp>0 &&
@@ -12618,7 +12673,7 @@
       .map(function(e){return Object.assign(groupedEntityReport(e),{priority:monsterPriority(e),passiveRare:passiveRareCandidate(e)});});
   }
   function passiveRareCandidate(target) {
-    return !!(target && (passiveRareHunts[target.mtype] || target.mtype === 'phoenix' && monsterFocus.indexOf('phoenix')>=0));
+    return !!(target && passiveLevelAllowed(target) && (passiveRareHunts[target.mtype] || target.mtype === 'phoenix' && monsterFocus.indexOf('phoenix')>=0));
   }
   function queueRetentions() {
     if (character.cave) return (groupedCombat?.queue || []).map(function(t) {
@@ -12994,6 +13049,7 @@
     if(typeof root!=='undefined' && root.partyLootClient && root.partyLootClient.huntPending() &&
       target && target.type==='monster' && !isAttackingPartyMember(target))return reject("hunt loot pending");
     if (!target) return reject("missing target");
+    if (passiveHunting.rules[target.mtype]?.enabled && !passiveLevelAllowed(target) && !isAttackingPartyMember(target) && !unfinishedFight() && !eventTargetTypes.includes(target.mtype) && monsterFocus.indexOf(target.mtype)<0) return reject("passive max level");
     if (isPassingEncounter(target)) return reject("passing attack owns this encounter");
     if (typeof combatRecoveryActive==='function' && combatRecoveryActive() &&
         (root.__partyCombatRecovery.phase!=='finishing' || !(root.__partyCombatRecovery.targets||[]).some(function(t){

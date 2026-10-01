@@ -1,4 +1,188 @@
 import { test, expect } from './fixtures';
+import { createServer } from 'node:http';
+import { mkdirSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import path from 'node:path';
+import { gateway } from '../tools/hosting/gateway';
+import { Access } from '../tools/hosting/access';
+import { startupRealms } from '../tools/hosting/realms';
+import { accountConfig, sessionValue } from '../tools/hosting/account';
+
+test('Hunt blacklist picker adds unseen monsters manually and survives restart', async ({page,app},info) => {
+  // Failure modes: catalog excludes unseen monsters; search hides valid entries;
+  // details cannot open; add targets the wrong character; manual reason displays
+  // death counts; repeat clicks duplicate entries; restart loses the addition.
+  await page.goto('/');
+  const warrior=page.locator('article').filter({has:page.getByRole('heading',{name:'W',exact:true})});
+  await warrior.getByRole('button',{name:'Farming settings',exact:true}).click();
+  const settings=page.getByRole('dialog',{name:'Farming settings · W',exact:true});
+  await settings.getByRole('button',{name:'Add',exact:true}).click();
+  const picker=page.getByRole('dialog',{name:'Add to Hunt blacklist',exact:true});
+  await picker.getByRole('textbox',{name:'Search blacklist monsters'}).fill('goo');
+  await picker.getByRole('button',{name:'Inspect Goo',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Goo',exact:true})).toBeVisible();
+  await page.keyboard.press('Escape');
+  await picker.getByRole('button',{name:'Add Goo to blacklist',exact:true}).click();
+  await expect(picker.getByRole('button',{name:'Goo is blacklisted',exact:true})).toBeDisabled();
+  await info.attach('manual-blacklist-picker',{body:await page.screenshot(),contentType:'image/png'});
+  await page.keyboard.press('Escape');
+  await expect(picker).toHaveCount(0);
+  await expect(settings.getByText('manually added',{exact:false})).toBeVisible();
+  const before=await app.state();
+  expect(before.farmingProfiles.W.huntBlacklist.goo).toMatchObject({reason:'Manually blacklisted',deaths:0});
+  await info.attach('manual-blacklist-section',{body:await page.screenshot(),contentType:'image/png'});
+  await app.restartCoordinator();
+  expect((await app.state()).farmingProfiles.W.huntBlacklist).toEqual(before.farmingProfiles.W.huntBlacklist);
+  await info.attach('manual-blacklist-state',{body:JSON.stringify({before,after:await app.state()}),contentType:'application/json'});
+  await settings.getByRole('button',{name:'Clear all',exact:true}).click();
+  const confirmation=page.getByRole('dialog',{name:'Clear Hunt blacklist?',exact:true});
+  await expect(confirmation).toContainText('for W');
+  expect((await app.state()).farmingProfiles.W.huntBlacklist).toEqual(before.farmingProfiles.W.huntBlacklist);
+  await info.attach('hunt-blacklist-clear-confirmation',{body:await page.screenshot({animations:'disabled'}),contentType:'image/png'});
+  await confirmation.getByRole('button',{name:'Cancel',exact:true}).click();
+  expect((await app.state()).farmingProfiles.W.huntBlacklist).toEqual(before.farmingProfiles.W.huntBlacklist);
+  await settings.getByRole('button',{name:'Clear all',exact:true}).click();
+  await confirmation.getByRole('button',{name:'Clear all',exact:true}).click();
+  await expect(confirmation).not.toBeVisible();
+  await expect.poll(async ()=>(await app.state()).farmingProfiles.W.huntBlacklist).toEqual({});
+  await info.attach('hunt-blacklist-cleared-state',{body:JSON.stringify(await app.state()),contentType:'application/json'});
+
+});
+
+test('blacklists survive Hunt mode changes, restart and dashboard export import', async ({page,app},info) => {
+  // Failure modes: Hunt reset deletes durable exclusions/counts; exports omit
+  // solo profiles; import overwrites execution state or admits unknown owners;
+  // merchant exclusions disappear; explicit clear fails or affects other owners.
+  const post = async (route: string, data: unknown) => {
+    const response = await page.request.post(app.url + '/party-api' + route, {data,headers:{Origin:app.url}});
+    expect(response.ok(), await response.text()).toBe(true);
+    return response.json();
+  };
+  const restore = async (settings: unknown) => {
+    const source=JSON.stringify({format:'party-console-settings',version:1,settings});
+    const headers={'Content-Type':'text/plain',Origin:app.url};
+    const preview=await page.request.post(app.url+'/party-api/dashboard-state/preview',{data:source,headers});
+    expect(preview.ok(),await preview.text()).toBe(true);
+    const summary=await preview.json();
+    const imported=await page.request.post(app.url+'/party-api/dashboard-state/import',{data:source,headers:{...headers,'X-State-Preview':summary.digest}});
+    expect(imported.ok(),await imported.text()).toBe(true);
+    return summary;
+  };
+  const blacklist={goo:{monsterId:'goo',at:Date.now(),deaths:2,expirations:0,reason:'Hunt death threshold reached'}};
+  const failures={goo:{deaths:2,expirations:0}};
+  const seed=await restore({farmingProfiles:{W:{huntBlacklist:blacklist,huntFailures:failures},P:{huntBlacklist:blacklist,huntFailures:failures},Unknown:{huntBlacklist:blacklist}}});
+  expect(seed.skippedCharacters.Unknown).toContain('farmingProfiles');
+  await post('/merchant/blacklist',{seller:'ExcludedMerchant',minutes:-1});
+  await page.goto('/');
+  const warrior=page.locator('article').filter({has:page.getByRole('heading',{name:'W',exact:true})});
+  await warrior.getByRole('button',{name:/^Farming settings .+/}).click();
+  await warrior.getByRole('button',{name:'Hunt',exact:true}).click();
+  const preparation=page.getByRole('dialog',{name:'Getting ready to hunt',exact:true});
+  await preparation.getByRole('button',{name:'No monsters selected 0',exact:true}).click();
+  await page.getByRole('checkbox',{name:/\bGoo · goo\b/}).check();
+  await page.keyboard.press('Escape');
+  await preparation.locator('button[aria-pressed]').first().click();
+  await preparation.getByRole('button',{name:'Save backup and start Hunt',exact:true}).click();
+  await expect(preparation).not.toBeVisible();
+  await post('/farming-mode',{character:'W',mode:'default'});
+  expect((await app.state()).farmingProfiles.W.huntBlacklist).toEqual(blacklist);
+  await app.restartCoordinator();
+  expect((await app.state()).farmingProfiles.W.huntFailures).toEqual(failures);
+  const exported=await (await page.request.get(app.url+'/party-api/dashboard-state/export')).json();
+  expect(exported.settings.farmingProfiles.P.huntBlacklist).toEqual(blacklist);
+  expect(exported.settings.farmingProfiles.W).not.toHaveProperty('monsterHunt');
+  await post('/hunt-blacklist',{character:'W',action:'clear'});
+  expect((await app.state()).farmingProfiles.W.huntBlacklist).toEqual({});
+  expect((await app.state()).farmingProfiles.P.huntBlacklist).toEqual(blacklist);
+  await post('/merchant/blacklist',{action:'clear'});
+  await restore(exported.settings);
+  await app.restartCoordinator();
+  const final=await app.state();
+  expect(final.farmingProfiles.W.huntBlacklist).toEqual(blacklist);
+  expect(final.farmingProfiles.P.huntBlacklist).toEqual(blacklist);
+  expect(final.merchantBlacklist).toEqual(exported.settings.merchantBlacklist);
+  await page.goto('/');
+  await info.attach('blacklist-export-round-trip',{body:JSON.stringify({seed,exported,final}),contentType:'application/json'});
+  await info.attach('blacklist-dashboard',{body:await page.screenshot({fullPage:true}),contentType:'image/png'});
+});
+
+test('setup calculates startup realms and validates account availability', async ({ browser }, info) => {
+  // Failure modes: static options omit new/PVP realms; Roman-numeral validation
+  // rejects live keys; every page load refetches; unavailable account realms pass;
+  // a subsequent startup retains the previous list instead of discovering anew.
+  let keys = ['SR_USV', 'SR_EUPVP', 'SR_ASIAV'], discoveries = 0;
+  const configuredRealms: string[] = [];
+  const upstream = createServer((req, res) => {
+    res.setHeader('Content-Type', req.url === '/' ? 'text/html' : 'application/json');
+    if (req.url === '/') { discoveries++; res.end(`<script>X.servers=${JSON.stringify(keys.map(key => ({ key })))};</script>`); }
+    else res.end(JSON.stringify({ characters: [{ name: 'SetupMerchant', type: 'merchant' }], servers: keys.filter(key => key !== 'SR_ASIAV').map(key => ({ key })) }));
+  });
+  await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  const upstreamUrl = `http://127.0.0.1:${(upstream.address() as { port: number }).port}`;
+  const directory = path.resolve('.build/e2e', `setup-${randomUUID()}`);
+  mkdirSync(directory, { recursive: true });
+  const access = new Access(path.join(directory, 'access.json')); await access.load();
+  let configured = false;
+  const start = async () => {
+    const server = gateway({ access, configured: () => configured, dashboardPort: 1,
+      realms: startupRealms(upstreamUrl), configure: async (raw, realm) => {
+        const config = await accountConfig(sessionValue(raw), realm, (_url, init) => fetch(upstreamUrl + '/account', init));
+        configuredRealms.push(config.characters.SetupMerchant.realm); configured = true;
+      } });
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    return server;
+  };
+  let server = await start();
+  const page = await browser.newPage();
+  try {
+    const url = () => `http://127.0.0.1:${(server.address() as { port: number }).port}/setup`;
+    await page.goto(url());
+    const realm = page.getByLabel('Realm', { exact: true });
+    await expect(realm).toContainText('SR_USV'); await expect(realm).toContainText('SR_EUPVP'); await expect(realm).toContainText('SR_ASIAV');
+    keys = [...keys, 'SR_EUVII'];
+    await page.reload();
+    await expect(realm).toContainText('SR_USV');
+    expect(discoveries).toBe(1);
+    await page.getByLabel('Game session', { exact: true }).fill('US_E2E-token');
+    await realm.selectOption('SR_ASIAV'); await page.getByRole('button', { name: 'Connect account', exact: true }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'That realm is not available' })).toBeVisible();
+    expect(configuredRealms).toEqual([]);
+    await realm.selectOption('SR_USV'); await page.getByRole('button', { name: 'Connect account', exact: true }).click();
+    await expect(page.getByText('Account connected. Choose how to run your characters below.')).toBeVisible();
+    expect(configuredRealms).toEqual(['SR_USV']);
+    await info.attach('startup-realm-account-connection', { body: await page.screenshot(), contentType: 'image/png' });
+    server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve()));
+    configured = false; server = await start();
+    await page.goto(url()); await expect(realm).toContainText('SR_EUVII');
+    expect(discoveries).toBe(2);
+    await info.attach('startup-realm-discovery', { body: JSON.stringify({ keys, discoveries, configuredRealms, state: await (await fetch(url().replace('/setup', '/setup/state'))).json() }), contentType: 'application/json' });
+  } finally {
+    await page.close(); server.closeAllConnections(); upstream.closeAllConnections();
+    await Promise.all([new Promise<void>(resolve => server.close(() => resolve())), new Promise<void>(resolve => upstream.close(() => resolve()))]);
+  }
+});
+
+test('setup reports failed startup realm discovery without offering stale realms', async ({ browser }, info) => {
+  // Failure modes: startup outage crashes the gateway; stale fallback realms are
+  // offered; connecting is enabled with no valid selection; the failure is hidden.
+  const upstream = createServer((_req, res) => { res.writeHead(503); res.end('Unavailable'); });
+  await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  const access = new Access(path.resolve('.build/e2e', `setup-access-${randomUUID()}.json`)); await access.load();
+  const server = gateway({ access, configured: () => false, dashboardPort: 1,
+    realms: startupRealms(`http://127.0.0.1:${(upstream.address() as { port: number }).port}`), configure: async () => { throw Error('No realm available'); } });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const page = await browser.newPage();
+  try {
+    await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}/setup`);
+    await expect(page.getByRole('status').filter({ hasText: 'Could not load game realms' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Connect account', exact: true })).toBeDisabled();
+    await expect(page.getByLabel('Realm', { exact: true })).toBeDisabled();
+    await info.attach('startup-realm-discovery-unavailable', { body: await page.screenshot(), contentType: 'image/png' });
+  } finally {
+    await page.close(); server.closeAllConnections(); upstream.closeAllConnections();
+    await Promise.all([new Promise<void>(resolve => server.close(() => resolve())), new Promise<void>(resolve => upstream.close(() => resolve()))]);
+  }
+});
 
 const pageErrors = new WeakMap<object, string[]>();
 
@@ -380,4 +564,53 @@ test.describe('unassigned merchant dialog names', () => {
     await expect(page.getByText(/match exact items currently held by the merchant or recorded/)).toBeVisible();
     await info.attach('unassigned-merchant-market',{body:await page.screenshot(),contentType:'image/png'});
   });
+});
+
+
+test('market affordability uses core bank gold and active WTB prices open the full editor', async ({page,app},info) => {
+  // Failure modes: opening only market omits bank gold; affordability hides every
+  // listing; price opens a bare input; editing resets quantity or preferences.
+  await page.route('**/party-api/state*', async route => {
+    const response = await route.fetch(), state = await response.json();
+    await route.fulfill({response,json:{...state,bank:undefined,bankGold:5000,
+      standBids:{leather:{price:1200,quantity:7,minimumQuality:0,useStandSlot:false,acceptHigherLevels:false}},
+      aldata:{...state.aldata,listings:[{key:'affordable-leather',seller:'AffordableSeller',item:{name:'leather'},price:4000,quantity:1,
+        slot:'trade1',serverRegion:'US',serverIdentifier:'II',seenAt:Date.now(),lastSeen:new Date().toISOString()}]}}});
+  });
+  await page.goto('/');
+  await expect(page.getByRole('heading',{name:'M',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'View market',exact:true}).click();
+  await expect(page.getByRole('button',{name:'New WTB order',exact:true})).toBeVisible();
+  const active=page.getByRole('button',{name:/^Active WTB orders/});
+  if(await active.getAttribute('aria-expanded') !== 'true') await active.click();
+  await page.getByRole('button',{name:'Edit price for Leather',exact:true}).click();
+  const editor=page.getByRole('dialog',{name:/Add to WTB/});
+  await expect(editor.getByLabel('Maximum price')).toHaveValue('1200');
+  await expect(editor.getByLabel('Quantity',{exact:true})).toHaveValue('7');
+  await expect(editor.getByRole('button',{name:/Farm price/}).first()).toBeVisible();
+  const farm=editor.getByRole('button',{name:/^Farm price/});
+  const npc=editor.getByRole('button',{name:/^NPC sale/});
+  const farmBox=await farm.boundingBox(), npcBox=await npc.boundingBox();
+  const infoBox=await editor.getByRole('button',{name:'Information: Farm price',exact:true}).boundingBox();
+  expect(farmBox).toBeTruthy(); expect(npcBox).toBeTruthy(); expect(infoBox).toBeTruthy();
+  expect(Math.abs(farmBox!.width-npcBox!.width)).toBeLessThan(1);
+  expect(infoBox!.x).toBeGreaterThan(farmBox!.x+farmBox!.width/2);
+  expect(infoBox!.x+infoBox!.width).toBeLessThanOrEqual(farmBox!.x+farmBox!.width);
+  expect(infoBox!.y).toBeGreaterThanOrEqual(farmBox!.y);
+  expect(infoBox!.y+infoBox!.height).toBeLessThan(farmBox!.y+farmBox!.height/2);
+  await editor.getByRole('button',{name:'Information: Farm price',exact:true}).click();
+  await expect(editor.getByLabel('Maximum price')).toHaveValue('1200');
+  await expect(page.getByText(/Estimated gold you would earn while farming/)).toBeVisible();
+  await page.keyboard.press('Escape');
+  await editor.getByLabel('Maximum price').fill('1500');
+  await editor.getByLabel('Quantity',{exact:true}).fill('9');
+  await info.attach('prefilled-wtb-price-options',{body:await page.screenshot(),contentType:'image/png'});
+  const saved=page.waitForRequest(request=>request.url().includes('/merchant/bid') && request.method()==='POST');
+  await editor.getByRole('button',{name:'Place WTB',exact:true}).click();
+  expect((await saved).postDataJSON()).toMatchObject({price:1500,quantity:9,useStandSlot:false,acceptHigherLevels:false});
+  await expect.poll(async ()=>(await app.state()).standBids.leather).toMatchObject({price:1500,quantity:9,useStandSlot:false,acceptHigherLevels:false});
+  await page.getByRole('button',{name:/^Live WTS/}).click();
+  await page.getByText('Hide unaffordable',{exact:true}).click();
+  await expect(page.getByRole('button',{name:/AffordableSeller/}).first()).toBeVisible();
+  await info.attach('market-core-bank-gold-affordability',{body:await page.screenshot(),contentType:'image/png'});
 });

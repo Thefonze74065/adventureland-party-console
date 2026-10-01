@@ -26,6 +26,7 @@ interface AnniversaryControl {
   busy: boolean;
 }
 export interface DispatchPorts {
+  productionPending?(): {id: string; name: string; level: number; kind: string}[];
   eventReserved?(): boolean;
   enabled?(job: MerchantWork): boolean;
   travel?(realm: string): Promise<unknown>;
@@ -68,6 +69,8 @@ export interface DispatchPorts {
 export function createMerchantDispatcher(state: DispatchState, ports: DispatchPorts) {
   const realmCheck = createPartyRealmCheck(state, ports);
   let capacityBankAt = -Infinity;
+  let productionHold = '';
+  let productionProbeAt = -Infinity;
   function clearCollectionCapacity(): boolean {
     if (!state.queue.some(job => ports.capacityBlocked(job))) return false;
     const merchant = ports.merchant()!, work = ports.inputs().work(merchant);
@@ -234,8 +237,32 @@ export function createMerchantDispatcher(state: DispatchState, ports: DispatchPo
     const merchant = ports.status(ports.merchant());
     return !!merchant && !merchant.rip && merchant.seenAt >= ports.now() - 10000;
   }
+  function productionHeld(): boolean {
+    const pending = ports.productionPending?.() || [];
+    if (pending.length) {
+      const identity = JSON.stringify(pending);
+      if (productionHold !== identity) {
+        productionHold = identity;
+        ports.log('Production recovery pending; merchant work held for receipt reconciliation', 'error', {pending});
+      }
+      // Keep active work intact. An idle merchant can reconcile its journal
+      // without travelling, moving inventory, or admitting another operation.
+      if (!state.current && merchantAlive() && ports.now() - productionProbeAt >= 5000) {
+        productionProbeAt = ports.now();
+        ports.command(ports.merchant(), {id:ports.nextCommand(), type:'merchant-production-recover'});
+      }
+      return true;
+    }
+    productionHold = '';
+    productionProbeAt = -Infinity;
+    return false;
+  }
   function dispatch(): void {
     if (ports.eventReserved?.()) return;
+    if (productionHeld()) return;
+    dispatchReady();
+  }
+  function dispatchReady(): void {
     if (gatheringCastActive(ports.status(ports.merchant()), ports.now())) return;
     if (realmCheck.advance()) return;
     state.queue.forEach(realmCheck.eligibility);

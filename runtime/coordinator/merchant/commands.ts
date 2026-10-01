@@ -118,7 +118,7 @@ export function ownMerchantCommand(
     ...reasonDetails[job.reason]?.(job, inputs),
     ...improvements(work, status, true, inputs.bankboiItems),
     ...sharedImprovements(job, inputs),
-    goldTarget: goldTarget(work, 0),
+    goldTarget: job.reason === "native stand funding" ? Number(job.goldTarget) : goldTarget(work, 0),
     buyUpgradeBatchSize: inputs.buyUpgradeBatchSize ?? 1,
     order: job.order || null,
     resumeState: job.resumeState || null,

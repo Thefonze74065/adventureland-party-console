@@ -24,7 +24,7 @@ export interface Member {
 }
 export interface Death { id: string; map: string; in?: string | number; server: string; at: number }
 export interface Fight extends Target { state?: 'planned' | 'pending' | 'engaged'; score?: number; server: string | undefined; fighter: string; startedAt: number }
-export interface Target { target?: string | null; id: string; mtype: string; map: string; in?: string | number; x: number; y: number; hp?:number; max_hp?:number }
+export interface Target { level?: import('typed-adventureland').MonsterEntity['level']; target?: string | null; id: string; mtype: string; map: string; in?: string | number; x: number; y: number; hp?:number; max_hp?:number }
 export interface Group {
   caveScope?: string;
   pairRevision?:string | null; successorGrant?:SuccessorGrant;

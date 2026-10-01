@@ -9,6 +9,7 @@ import { trustHelper } from './trust.ts';
 import { requestOrigin } from './request-origin.ts';
 import { transfer } from './setup-transfer.ts';
 export interface Options {
+  realms?: Promise<import('./realms.ts').RealmDiscovery>;
   debug?: import('../debug/service.ts').DebugInstances;
   steam?: import('../steam/service.ts').LocalSteam;
   tls?: LocalTLS;
@@ -54,7 +55,7 @@ async function setupState(req: IncomingMessage, options: Options) {
   const secure = options.tls?.trusted(req);
   const origin = options.publicUrl || (secure ? requestOrigin(req, options) : undefined);
   const tls = options.tls ? { tls: await options.tls.status(), secure, httpPort: Number(process.env.AL_HTTP_PUBLIC_PORT || process.env.AL_PORT || 3010) } : {};
-  return { configured: options.configured(), requirePairing: options.access.required, canConfigureAccount: !!options.configure, serverAddress: setupAddress(req, origin), steamPreferences: await options.steam?.preferences.read(), ...tls };
+  return { configured: options.configured(), requirePairing: options.access.required, canConfigureAccount: !!options.configure, serverAddress: setupAddress(req, origin), steamPreferences: await options.steam?.preferences.read(), ...await options.realms, ...tls };
 }
 async function readSetup(
   req: IncomingMessage,

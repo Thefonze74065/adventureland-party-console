@@ -1,11 +1,11 @@
 import { requestObject, type HttpRequest, type HttpResponse } from "./contracts.ts";
-import { createNativeStand, nativeLedger, type NativeStandState, type NativeObservation } from "../commerce/native-stand.ts";
+import { createNativeStand, nativeAllocation, nativeLedger, type NativeStandState, type NativeObservation } from "../commerce/native-stand.ts";
 import { bidAcceptsLevel } from "../commerce/bid-matching.ts";
 import type { Item } from "../contracts/item.ts";
 import type { MerchantWork } from "../merchant/work.ts";
 
-interface State extends NativeStandState { merchantCharacter: string | null; merchantCurrent: MerchantWork | null }
-interface Ports { fulfill(item: Item, quantity: number): unknown; persist(): void }
+interface State extends NativeStandState { merchantCharacter: string | null; merchantCurrent: MerchantWork | null; merchantQueue: MerchantWork[]; nextCommandId: number }
+interface Ports { fulfill(item: Item, quantity: number): unknown; persist(): void; dispatch(): void; stamp(job: MerchantWork): MerchantWork }
 export function createNativeStandRoute(state: State, ports: Ports) {
   const service = createNativeStand(state, (item, quantity) => ports.fulfill(item, quantity));
   function purchased(jobId: string, key: string, res: HttpResponse): unknown {
@@ -47,6 +47,17 @@ export function createNativeStandRoute(state: State, ports: Ports) {
     if (typeof body.enabled !== "boolean") return res.status(400).json({ error: "invalid automatic fill setting" });
     state.autoStandBuys = body.enabled; ports.persist(); return res.json({ ok: true });
   }
+  function fundStand(observation: NativeObservation, suspended: boolean): void {
+    if (suspended || !observation.open || observation.space === false) return;
+    const carried = Number(observation.gold) || 0;
+    const available = carried + Number(state.bankSnapshot?.gold || 0);
+    const target = fundingTarget(state, available);
+    if (target <= carried) return;
+    if ([state.merchantCurrent, ...state.merchantQueue].some(job => job?.reason === "native stand funding")) return;
+    state.merchantQueue.push(ports.stamp({ id: "native-funding-" + state.nextCommandId++, target: state.merchantCharacter,
+      reason: "native stand funding", goldTarget: target, queuedAt: Date.now() }));
+    ports.persist(); ports.dispatch();
+  }
   return (req: HttpRequest, res: HttpResponse): unknown => {
     const body = requestObject(req.body);
     if (body.action === "configure") return configure(body, res);
@@ -57,6 +68,7 @@ export function createNativeStandRoute(state: State, ports: Ports) {
     const observation = nativeObservation(body);
     service.observe(observation);
     const actions = service.plan(observation, suspend(body));
+    fundStand(observation, suspend(body));
     ports.persist();
     const ledger = nativeLedger(state);
     return res.json({ ok: true, ...actions, offers: ledger.offers, bids: state.standBids });
@@ -78,4 +90,9 @@ function nativeObservation(body: Record<string, unknown>): NativeObservation {
   return { slots: requestObject(body.slots) as NativeObservation["slots"], open: body.open === true,
     receipts: requestObject(body.receipts) as Record<string, number>, removed: typeof body.removed === "string" ? body.removed : undefined,
     failed: typeof body.failed === "string" ? body.failed : undefined, gold: Number(body.gold), space: body.space !== false };
+}
+
+function fundingTarget(state: NativeStandState, available: number): number {
+  return Math.max(0, ...nativeAllocation(state).map(entry => state.standBids[entry.itemId]!)
+    .filter(bid => bid.price <= available && bid.price <= 99999999999 && Number(bid.minimumQuality || 0) <= 12).map(bid => bid.price));
 }

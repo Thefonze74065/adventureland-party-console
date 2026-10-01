@@ -8,6 +8,10 @@ interface CompoundRule { name: string; targetTier?: number; quantity?: number }
 interface ReceiptRule { family: 'upgrade' | 'compound'; key: string; signature: string }
 export interface ProductionAttempt { name: string; level: number; kind: 'upgrade' | 'compound'; rules: ReceiptRule[]; automaticCompoundTarget?: number; completed?: boolean; success?: boolean; requestId?: string; offering?: string; resolution?: { outcome: 'unknown'; reason: string; at: number } }
 export interface ProductionState { attempts: Record<string, ProductionAttempt> }
+export function pendingProduction(production: ProductionState) {
+  return Object.entries(production.attempts).filter(([, attempt]) => !attempt.completed)
+    .map(([id, attempt]) => ({id, name:attempt.name, level:attempt.level, kind:attempt.kind}));
+}
 interface State extends ConflictState {
   upgrades?: Record<string, {requestId?: string}[] | undefined>;
   upgradeOfferingRules?: UpgradeOfferingRule[];
@@ -88,6 +92,7 @@ export function installProductionRoutes(router: HttpRouter, state: State, persis
     const body = requestObject(req.body);
     if (body.character !== state.merchantCharacter) return res.status(400).json({error:'Only the merchant performs production'});
     try {
+      if (body.action === 'pending') return res.json({ok:true,pending:pendingProduction(state.production)});
       if (body.action === 'inspect') return res.json({ok:true,...inspectProduction(state, body)});
       if (body.action === 'resolve-unknown') {
         resolveUnknownProduction(state, body);
@@ -108,8 +113,7 @@ export function installProductionRoutes(router: HttpRouter, state: State, persis
 export function inspectProduction(state: State, body: Record<string, unknown>) {
   const input = attemptInput(body), attempt = state.production.attempts[input.id];
   if (attempt) validateReceipt(attempt, input);
-  const pending = Object.entries(state.production.attempts)
-    .filter(([, value]) => !value.completed).map(([id, value]) => ({id, name:value.name, level:value.level, kind:value.kind}));
+  const pending = pendingProduction(state.production);
   return {attempt:attempt || null, pending};
 }
 

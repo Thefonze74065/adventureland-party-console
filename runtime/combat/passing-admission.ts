@@ -1,4 +1,5 @@
 import {passiveStopRequired, type PassiveTravelSettings} from './passive-travel.ts';
+import {passiveLevelAllowed} from '../coordinator/navigation/passive-settings.ts';
 import { collectPassing, passingIdentity, type PassingEncounter } from './passing.ts';
 import type { Member } from './grouped.ts';
 import {updateHuntTravel, type HuntTravelConvoy, type HuntTravelControl} from './hunt-travel.ts';
@@ -32,7 +33,7 @@ export function passingControl(members: Member[], convoy: unknown, now: number, 
   const encounters = collectPassing(ordered, [], now);
   const hunt=huntConvoy ? updateHuntTravel(huntConvoy,ordered,now,scope,settings) : undefined;
   const admitted = ready ? encounters.filter(e => e.admission?.scope === scope &&
-    (e.keepMoving && settings?.rules[e.mtype]?.enabled && settings.rules[e.mtype].keepMoving ||
+    (e.keepMoving && settings?.rules[e.mtype]?.enabled && settings.rules[e.mtype].keepMoving && passiveLevelAllowed(settings.rules[e.mtype],e.level) ||
       !hunt || !hunt.reason && !passiveStopRequired(settings,e.mtype) && !hunt.defending && !!hunt.primary && passingIdentity(e)===passingIdentity(hunt.primary)) &&
     ordered.every(m => m.status?.groupedCombat?.passingAcknowledgement?.tokens.includes(e.admission!.token)))
     .map(e => e.admission!.token) : [];

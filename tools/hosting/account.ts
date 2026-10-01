@@ -1,4 +1,3 @@
-import { realmPattern } from "./realms.ts";
 interface Character {
   name: string;
   type?: string;
@@ -37,9 +36,9 @@ export function accountPayload(payload: unknown): Account {
     throw new Error("Invalid game account response");
   return account as unknown as Account;
 }
-export async function accountConfig(session: string, realm: string) {
-  if (!realmPattern.test(realm)) throw new Error("Invalid realm");
-  const response = await fetch("https://adventure.land/api/servers_and_characters", {
+export async function accountConfig(session: string, realm: string, request: typeof fetch = fetch) {
+  if (!realm) throw new Error("Choose a realm");
+  const response = await request("https://adventure.land/api/servers_and_characters", {
     method: "POST",
     headers: { Cookie: "auth=" + session, "Content-Type": "application/json" },
     body: "{}",

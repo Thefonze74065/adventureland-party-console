@@ -1,4 +1,5 @@
 "use client";
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { abbreviatedGold } from "./abbreviated-gold";
 
@@ -8,8 +9,10 @@ export function StandPriceButton({
   disabled,
   onClick,
   tone,
+  information,
 }: {
   label: string;
+  information?: ReactNode;
   value?: number;
   disabled?: boolean;
   onClick: () => void;
@@ -24,12 +27,13 @@ export function StandPriceButton({
   }[tone];
   const usableValue = Number.isFinite(value) && Number(value) > 0 ? Number(value) : 0;
   return (
+    <div className="relative w-full">
     <Button
       size="sm"
       variant="outline"
       disabled={disabled}
       onClick={onClick}
-      className={`h-auto min-h-14 flex-col gap-0.5 bg-black px-3 py-2 ${toneClasses}`}
+      className={`h-auto min-h-14 w-full flex-col gap-0.5 bg-black px-3 py-2 ${toneClasses}`}
     >
       <span className="font-semibold">{label}</span>
       <span className="font-mono text-[11px] opacity-75">
@@ -38,5 +42,7 @@ export function StandPriceButton({
           : "Unavailable"}
       </span>
     </Button>
+    {information && <div className="absolute right-1 top-1">{information}</div>}
+    </div>
   );
 }

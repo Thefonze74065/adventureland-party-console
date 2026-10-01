@@ -10,7 +10,7 @@ function fixture(){
  findItem:()=>0,freeInventorySlots:()=>10,itemQuantity:i=>i.q||1,game_log(){},encodeURIComponent,
  send_item:async(to,slot,q)=>{sent.push({to,slot,q});context.character.items[slot].q-=q;if(!context.character.items[slot].q)context.character.items[slot]=null;},
  request:async(url,options)=>{requests.push({url,body:options?.body});return{collectionPickups:{keep:current},craftProtection:protection};},partyAvailableCraftStock:availableCraftStock};
- vm.createContext(context);vm.runInContext(['merchantHandoff','compoundAvailableStock','merchantOperationStage'].map(declaration).join('\n'),context);
+ vm.createContext(context);vm.runInContext(['isPersonalTracker','merchantHandoff','compoundAvailableStock','merchantOperationStage'].map(declaration).join('\n'),context);
  return{context,pickup,sent,requests,command:{jobId:'j',merchant:'M',capacity:3,merchantMarked:[pickup]},disable(){current=[]},protect(){protection={requirements:[{id:'gem',level:0,quantity:5}]}}};
 }
 test('automatic pickup sends only the currently authorized unreserved quantity as kept cargo',async()=>{

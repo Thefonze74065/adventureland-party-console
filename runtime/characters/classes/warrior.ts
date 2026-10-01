@@ -27,8 +27,8 @@ export const role: Partial<Role> = {
   name: "warrior",
   combat: true,
   beforeTarget: async function () {
-    if (sharedRoutine.frankyCombatActive?.()) return false;
-    return await sharedRoutine.emergencyWarriorStomp();
+    if (!sharedRoutine.frankyCombatActive?.() && await sharedRoutine.emergencyWarriorStomp()) return true;
+    return await sharedRoutine.skillSupport?.() ?? false;
   },
   chooseTarget: function () {
     const scatterBreak = sharedRoutine.getScatterBreakTarget();

@@ -25,14 +25,6 @@ const identity = (a: Item, b: Item) =>
 export const readyNpcSales = (marks: NpcSale[], now: number) =>
   marks.filter((mark) => mark.source !== "character" && mark.state !== "blocked" && (mark.retryAt || 0) <= now);
 
-// An upgrade, stat re-roll, or other identity-changing edit leaves the old auto
-// mark's stored item permanently unable to match anything live (sameMarkedItem
-// compares every non-transient field), while a fresh, correctly-identified mark
-// for the item's new form gets created and sells normally on the next scan.
-// Give a real, still-recoverable block (e.g. a transient missing-inventory
-// report) time to resolve before treating a stuck auto mark as an orphan.
-const autoOrphanGraceMs = 5 * 60 * 1000;
-
 function clearBlocked(mark: NpcSale): void {
   if (mark.state !== "blocked") return;
   mark.retryAt = 0;
@@ -41,11 +33,29 @@ function clearBlocked(mark: NpcSale): void {
   delete mark.blockedAt;
 }
 
+function blockInventory(mark: NpcSale, locked: boolean, signature: string, now: number): void {
+  if (locked) delete mark.blockedAt;
+  else mark.blockedAt ??= now;
+  mark.state = 'blocked';
+  mark.error = locked ? 'Item is locked' : 'Marked item is not in merchant inventory';
+  mark.blockedInventory = signature;
+}
+
+function retainBlocked(mark: NpcSale, now: number): NpcSale | null {
+  if (mark.error !== 'Marked item is not in merchant inventory') {
+    delete mark.blockedAt;
+    return mark;
+  }
+  mark.blockedAt ??= now;
+  return mark.auto && now - mark.blockedAt > 300_000 ? null : mark;
+}
+
 function reconcileInventory(
   mark: NpcSale,
   inventory: Inventory,
   used: Map<number, number>,
   signature: string,
+  now: number,
 ): "duplicate" | "blocked" | "ready" {
   const matches = inventory.filter(
     (entry): entry is NonNullable<Inventory[number]> => !!entry && identity(entry.item, mark.item),
@@ -56,37 +66,13 @@ function reconcileInventory(
     matches.find((entry) => entry.slot === mark.slot && available(entry)) || matches.find(available);
   if (!entry && matches.length && !mark.character) return "duplicate";
   if (!entry || entry.item.l) {
-    mark.state = "blocked";
-    mark.error = entry ? "Item is locked" : "Marked item is not in merchant inventory";
-    mark.blockedInventory = signature;
+    blockInventory(mark, !!entry, signature, now);
     return "blocked";
   }
   used.set(entry.slot, (used.get(entry.slot) || 0) + mark.quantity);
   mark.slot = entry.slot;
   clearBlocked(mark);
   return "ready";
-}
-
-function orphanedAutoMark(mark: NpcSale, now: number): boolean {
-  return !!mark.auto && mark.error === "Marked item is not in merchant inventory" &&
-    now - (mark.blockedAt || now) > autoOrphanGraceMs;
-}
-
-function reconcileMerchantMark(
-  mark: NpcSale,
-  inventory: Inventory,
-  used: Map<number, number>,
-  signature: string,
-  now: number,
-): NpcSale | null {
-  const result = reconcileInventory(mark, inventory, used, signature);
-  if (result === "duplicate") return null;
-  if (result === "blocked") {
-    mark.blockedAt ??= now;
-    return orphanedAutoMark(mark, now) ? null : mark;
-  }
-  mark.state = (mark.retryAt || 0) > now ? "retrying" : "queued";
-  return mark;
 }
 
 function reconcileMark(
@@ -103,10 +89,12 @@ function reconcileMark(
     mark.state = "running";
     return mark;
   }
-  if (mark.state === "blocked" && mark.blockedInventory === signature)
-    return orphanedAutoMark(mark, now) ? null : mark;
-  if (mark.source === "merchant") return reconcileMerchantMark(mark, inventory, used, signature, now);
-  clearBlocked(mark);
+  if (mark.state === "blocked" && mark.blockedInventory === signature) return retainBlocked(mark, now);
+  if (mark.source === "merchant") {
+    const result = reconcileInventory(mark, inventory, used, signature, now);
+    if (result === "duplicate") return null;
+    if (result === "blocked") return retainBlocked(mark, now);
+  } else clearBlocked(mark);
   mark.state = (mark.retryAt || 0) > now ? "retrying" : "queued";
   return mark;
 }

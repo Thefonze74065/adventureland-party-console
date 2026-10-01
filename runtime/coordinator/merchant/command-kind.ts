@@ -3,6 +3,7 @@ import type { MerchantWork } from "./work.ts";
 const commandTypes: Readonly<Record<string, string>> = {
   "bank unlock": "merchant-bank-unlock",
   "manual bank exchange": "merchant-self-bank",
+  "native stand funding": "merchant-self-bank",
   restock: "merchant-self-restock",
   "merchant commerce": "merchant-commerce",
   exchange: "merchant-exchange",

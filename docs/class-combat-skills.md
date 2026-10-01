@@ -50,6 +50,8 @@ and use the low damage roll.
 
 | Class | Skill | Policy |
 |---|---|---|
+| Warrior | Warcry | Maintain when its own effect is absent and cooldown is ready; emergency defense takes priority and survival MP is reserved. |
+| Priest | Dark Blessing | Maintain when its own effect is absent and cooldown is ready; aggro rescue and healing take priority and healing MP is reserved. |
 | Ranger | 3-Shot (60), 5-Shot (75) | Choose useful damage across authorized targets; five-shot is not automatically better against three targets. |
 | Ranger | Piercing Shot (72) | Replace a basic shot only when the armor-piercing result is better. |
 | Ranger | Supershot | Independent burst; avoid negligible remaining HP. |

@@ -143,7 +143,7 @@ export function createCoordinatorOwnershipPorts<Block extends { enabled?: boolea
     !!(
       state.bankboiTransaction ||
       ((state.statuses[name]?.seenAt ?? 0) > ports.now() - 5000 && inventoryBusy(state.statuses[name])) ||
-      (name === state.merchantCharacter && state.merchantCurrent)
+      ((state.statuses[name]?.seenAt ?? 0) > ports.now() - 5000 && name === state.merchantCharacter && state.merchantCurrent)
     );
   return {
     now: ports.now,
@@ -158,12 +158,7 @@ export function createCoordinatorOwnershipPorts<Block extends { enabled?: boolea
       if (name === state.merchantCharacter && state.bankboiTransaction && ports.releaseBankboi)
         await ports.releaseBankboi((worker) => confirmOffline(worker, ports));
     },
-    nativeBusy: () =>
-      !!(
-        state.bankboiTransaction ||
-        inventoryBusy(state.statuses[String(state.nativeOwner)]) ||
-        (state.merchantCurrent && state.nativeOwner === state.merchantCharacter)
-      ),
+    nativeBusy: () => busy(String(state.nativeOwner)),
     realm: () => state.activeRealm || ports.configuredRealm,
     observedRealm,
     realmContext: () => {

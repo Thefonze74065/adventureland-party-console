@@ -1,5 +1,5 @@
 import { refreshRareApproach } from './rare-progress.ts';
-import { migratePassiveSettings, applyPassivePatch, committedPassiveRules, validPassivePatch } from "./passive-settings.ts";
+import { migratePassiveSettings, applyPassivePatch, committedPassiveRules, validPassivePatch, passiveLevelAllowed } from "./passive-settings.ts";
 import { interruptibleTravel } from '../../combat/hunt-travel.ts';
 import { createRareRetryEvidence } from './rare-retry-evidence.ts';
 // Rare encounters own temporary travel; the saved farming intent remains authoritative.
@@ -299,6 +299,7 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
       x: r.x,
       y: r.y,
       hp: r.hp,
+      level: r.level,
       target: r.target,
       reachable: r.reachable === true,
       partyEngaged: r.partyEngaged === true,
@@ -545,7 +546,7 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
     else if (e.generator === "field active") e.generator = "outside field; ordinary attacks";
   }
   function enabled(s: Sight) {
-    return party.passiveRareHunts[s.mtype] || assist(s) || combat.locked(s);
+    return party.passiveRareHunts[s.mtype] && passiveLevelAllowed(party.passiveHunting?.rules[s.mtype], s.level) || assist(s) || combat.locked(s);
   }
   function tickEncounter() {
     const e = encounter!;

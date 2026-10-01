@@ -10,6 +10,7 @@ export interface Owner {
   revisions: Record<string, number>;
 }
 export interface Sight extends Point {
+  level?: import('typed-adventureland').MonsterEntity['level'];
   id: string;
   mtype: string;
   hp: number;

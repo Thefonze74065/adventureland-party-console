@@ -76,6 +76,13 @@ export function createMerchantRecovery(state: RecoveryState, ports: RecoveryPort
   function requeue(name: string, removedFields: (keyof RecoverableWork)[], message: string): void {
     const current = state.current;
     if (!current) return;
+    if (Number(current.recoveryAttempts || 0) >= 3 && current.phase !== 'checkpointed') {
+      ports.clearCommand(name, current.id);
+      state.current = null;
+      ports.log('Stopped unresponsive merchant work after three retries', 'error', { jobId: current.id, reason: current.reason });
+      ports.persist();
+      return;
+    }
     const recovered: RecoverableWork = {
       ...current,
       resumedFrom: current.id,
@@ -164,7 +171,16 @@ export function createMerchantRecovery(state: RecoveryState, ports: RecoveryPort
         recoveryMessage(state.current),
       );
   }
-  return { observe };
+  function expire(name: string): void {
+    const job = state.current;
+    // A timer can recover offline workers. Marketplace sales retain their
+    // existing no-replay recovery because completion may be ambiguous.
+    if (!job || job.reason === 'ALData marketplace sales') return;
+    if (ports.now() - Number(job.heartbeatAt || job.startedAt || 0) <= 180_000) return;
+    requeue(name, ['phase', 'startedAt', 'checkpointAt', 'heartbeatAt', 'progressAt', 'handoff'],
+      'Merchant stopped reporting; retry scheduled for ');
+  }
+  return { observe, expire };
 }
 
 function recoveryMessage(job: RecoverableWork): string {

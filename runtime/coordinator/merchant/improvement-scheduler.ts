@@ -1,4 +1,5 @@
 import { ruleOwner, sharedMember, itemRuleConflicts } from "../inventory/shared-rules.ts";
+import { pendingProduction, type ProductionState } from '../inventory/production.ts';
 import { sharedCompoundRules, improvementItems, runnableBankUpgrades, planUpgradeStorage, type BankImprovementState } from "./banked-improvements.ts";
 import type { InventoryEntry } from "../contracts/item.ts";
 import type { BankboiInventory, StorageReference } from "../inventory/bankboi-completion.ts";
@@ -25,6 +26,7 @@ interface ExchangeJob {
   queuedAt: number;
 }
 interface SchedulerState extends BankImprovementState {
+  production: ProductionState;
   bankbois?: Record<string, BankboiInventory>;
   bankboiTransaction?: unknown;
   withdrawals?: Record<string, StorageReference[] | undefined>;
@@ -119,6 +121,10 @@ export function createImprovementScheduler(state: SchedulerState, ports: Schedul
       local.concat(workers.flatMap(worker => worker.items || []))).length > 0;
   }
   function compound(name: string, status: Status | null | undefined): boolean {
+    if (pendingProduction(state.production).length) return false;
+    return evaluateCompound(name, status);
+  }
+  function evaluateCompound(name: string, status: Status | null | undefined): boolean {
     if (!sharedMember(state,name)) return false;
     reportReservationError();
     bankUpgrades(name);
@@ -146,6 +152,7 @@ export function createImprovementScheduler(state: SchedulerState, ports: Schedul
   }
 
   function exchange(status: Status | null | undefined): boolean {
+    if (pendingProduction(state.production).length) return false;
     if (state.merchantAutomations['automatic exchange'] === false) return false;
     const merchant = state.merchantCharacter;
     if (!merchant || status?.name !== merchant || !Array.isArray(status.items)) return false;

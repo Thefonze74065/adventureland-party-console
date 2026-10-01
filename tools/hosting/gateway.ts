@@ -6,6 +6,7 @@ import type { Options } from "./setup-routes.ts";
 import { websocket } from "./websocket.ts";
 import { acceptTransfer } from './setup-transfer.ts';
 import { steamAction, isSteamAction } from '../steam/routes.ts';
+import { startupRealms } from './realms.ts';
 export { loaderCode } from "./setup-routes.ts";
 async function health(res: ServerResponse, options: Options) {
   const ready = options.healthy ? await options.healthy() : true;
@@ -34,6 +35,7 @@ async function forward(req: import('node:http').IncomingMessage, res: ServerResp
   proxy(req, res, upstreamPort(route, options), !/^\/(party-api|CODE)\//.test(route));
 }
 export function gateway(options: Options) {
+  options = { ...options, realms: options.realms ?? (options.configure ? startupRealms() : Promise.resolve({ realms: [] })) };
   const server = createServer(async (req, res) => {
     res.setHeader("Referrer-Policy", "no-referrer");
     res.setHeader("Cache-Control", "no-store");

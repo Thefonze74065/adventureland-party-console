@@ -39,11 +39,9 @@ export function createDashboardImportRoutes(state: State, ports: ImportPorts) {
       ports.persist();
       return true;
     } catch {
-      applyDashboardImport(state, {
-        values: previous,
-        fields: parsed.fields,
-        characters: parsed.characters,
-      });
+      // Restore the exact collections, including profiles introduced by a
+      // failed import, rather than merging their preferences again.
+      for (const [key, value] of Object.entries(previous)) state[key] = value;
       try {
         ports.persist();
       } catch {

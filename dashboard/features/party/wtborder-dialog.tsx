@@ -9,6 +9,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Info } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useState } from 'react';
 import { exactLevelPrice } from './exact-level-price';
 import { Item } from './item';
@@ -116,7 +118,7 @@ export function WTBOrderDialog({
     number | undefined,
     'amber' | 'emerald' | 'cyan' | 'violet' | 'slate',
   ][] = [
-    ['Suggested', valuation.suggested, 'amber'],
+    ['Farm price', valuation.suggested, 'amber'],
     ['NPC sale +10%', npcPrice * 1.1, 'emerald'],
     ['Ponty price', pontyValue, 'violet'],
     ['Base value −10%', defaultPrice * 0.9, 'emerald'],
@@ -227,6 +229,10 @@ export function WTBOrderDialog({
                   disabled={!value}
                   onClick={() => apply(value)}
                   tone={tone}
+                  information={label === 'Farm price' ? <Popover>
+                    <PopoverTrigger render={<button type="button" aria-label="Information: Farm price" className="flex h-5 w-5 items-center justify-center rounded border border-amber-700 bg-black text-amber-200 hover:bg-amber-950 hover:text-white" />}><Info className="h-3 w-3" /></PopoverTrigger>
+                    <PopoverContent className="max-w-xs border-amber-700 bg-black text-sm text-amber-100">Estimated gold you would earn while farming enough monsters to obtain one of this item, based on its drop rate and those monsters' gold rewards.</PopoverContent>
+                  </Popover> : undefined}
                 />
               ))}
             </div>

@@ -2,7 +2,7 @@ import { createManaBudget } from './budget.ts';
 import { errorReason } from '../roles/types.ts';
 import { blocked, cost, reserve, unlocked } from './eligibility.ts';
 import { bestAttack, damageChoices } from './offense.ts';
-import { absorbDecision, paladinSupport, rogueSupport, opener } from './protection.ts';
+import { absorbDecision, paladinSupport, rogueSupport, combatBuffSupport, opener } from './protection.ts';
 import type { Combatant, SkillDecision, SkillDiagnostic, SkillId, SkillWorld } from './types.ts';
 
 export interface SkillPorts {
@@ -96,7 +96,8 @@ export function createSkillEngine(ports: SkillPorts) {
     async absorb() { const d = absorbDecision(world()); return d ? execute(d) : false; },
     support() {
       const w = world();
-      const choices = w.actor.ctype === 'paladin' ? paladinSupport(w) : rogueSupport(w);
+      const choices = w.actor.ctype === 'paladin' ? paladinSupport(w) :
+        w.actor.ctype === 'rogue' ? rogueSupport(w) : combatBuffSupport(w);
       return first(choices.filter(d => d.skill !== 'paladin_aura' ||
         w.now - auraAt >= 10000 && d.argument !== auraState));
     },

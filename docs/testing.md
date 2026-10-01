@@ -1,5 +1,71 @@
 # Testing
 
+The full-catalog Hunt blacklist regression uses
+`npm test -- -- --project=live --grep "Hunt blacklist full catalog"` and
+`npm run test:e2e:verify`. It uses the native game's many-monster catalog and
+sprites, clicks both row text and sprite areas, scrolls with the mouse wheel to
+the last row, searches Goo and manually adds it. Native catalog screenshots and
+selected monster names are retained as repeatable evidence. If the live character
+watcher races the pretest character build for its operation lock, run the same
+scenario with `npx playwright test --project=live --grep "Hunt blacklist full catalog"`
+after the runtime has built. This UI-only repair uses coordinator/dashboard-only
+activation and preserves the published character generation.
+
+Manual Hunt blacklisting uses `npm test -- -- --project=console --grep "Hunt blacklist picker"`
+and `npm run test:e2e:verify`. The browser opens Farming settings, searches the
+full monster catalog, opens Goo's details, adds it without any encounter or
+death, observes the disabled repeat-add action and "manually added" label,
+and verifies that the saved entry survives coordinator restart. Picker and
+section screenshots, state, trace and checksummed evidence are retained under
+the standard E2E directories. Coordinator/dashboard-only activation suffices.
+
+Hunt blacklist persistence uses `npm test -- -- --project=console --grep "blacklists survive"`
+and `npm run test:e2e:verify`. The console journey imports distinct owned profiles,
+skips an unknown owner, starts Hunt through the backup picker, exits Hunt, and
+restarts the coordinator. It exports both profiles' blacklist/count/settings
+preferences, clears one profile independently, imports the export, and restarts
+again. Merchant exclusions also round-trip. Execution checkpoints are excluded
+from exported profiles and existing profile state is preserved on import.
+The screenshot, export, final state, trace and journal are retained under the
+standard E2E report/results directories. Coordinator-only activation suffices.
+
+Production receipt recovery uses `npm test -- -- --project=live --grep "production recovery"`
+and `npm run test:e2e:verify`. Two native journeys restore a declared unfinished
+compound receipt with queued bank work. Without a local journal, the receipt
+holds dispatch across restart without movement or inventory changes. With an
+admitted prepared journal, the recovery-only command reconciles it before native
+bank travel resumes. Recovery does not infer success or replay production.
+The focused run retains native observations and checksummed evidence under
+`.build/e2e-results/` and `.build/e2e-report/`; it does not claim a full-suite run.
+This fix changes both coordinator and character code: activate it with the
+supported ordinary full restart when requested, rather than CoordinatorOnly.
+Orphans still require explicit review through the documented production
+`resolve-unknown` operation; the fix never automatically clears their receipts.
+
+Issue #40 uses `npm test -- -- --project=console --grep "startup realm"` and
+`npm run test:e2e:verify`. The setup browser journeys use the real gateway and
+startup JSON parser against a loopback public-page/account-service fixture.
+They verify new/PVP realm options, account-specific rejection, connection on US V,
+one discovery per startup, fresh discovery after restart, and a visible startup
+failure with disabled connection controls. Screenshots and state evidence are
+retained in `.build/e2e-results/` with the checksummed `.build/e2e-report/` manifest.
+Production discovery reads the public game's `X.servers` JSON without credentials;
+account connection still validates against the authenticated server list.
+
+Issues #41/#42 use `npm test -- -- --grep "stale merchant recovery"` followed by
+`npm run test:e2e:verify`. The native scenarios restore declared historical sale
+intent, verify expiry against unchanged inventory and retention of manual/locked
+marks, preserve an unrelated item under stale bank recovery, and deposit it through
+the native bank API. The offline-worker scenario admits one real status report,
+drops its command response, then withholds further merchant reports for the real
+three-minute timeout before resuming native reporting. It checks login admission
+while the job still exists and status is stale by reaching the normal assignment
+conflict instead of an inventory-busy rejection; it does not claim a full native
+group reconnect. Its exhausted retry
+counter is declared historical setup. This is focused coverage, not a full-suite
+result. Reports, native observations, screenshots and checksummed evidence remain
+under `.build/e2e-report/` and `.build/e2e-results/`.
+
 `npm test` runs console and real-game E2E through the dashboard, hosting gateway,
 built coordinator, maintained character runtime and a disposable upstream game
 server backed by MongoDB. Use `npx playwright test --list` for the current scenario
