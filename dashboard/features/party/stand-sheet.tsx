@@ -123,7 +123,6 @@ export const StandSheet = memo(function StandSheet({
   merchant,
 
   bank,
-  bankGold,
 
   bankGold,
 
@@ -183,7 +182,6 @@ export const StandSheet = memo(function StandSheet({
   merchant?: Char;
 
   bank?: BankSnapshot | null;
-  bankGold?: number | null;
 
   /** Always-fetched fallback for when the bank panel/domain isn't open (bank?.gold is then stale/undefined). */
   bankGold?: number | null;
