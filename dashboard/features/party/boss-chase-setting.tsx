@@ -47,7 +47,8 @@ export function BossChaseSetting({ chase }: { chase?: BossChaseState | null }) {
     </div>
     <p className="text-xs text-slate-400">Hop Sickness lasts 12 minutes; the remaining time is estimated from each boss&apos;s observed HP drain.</p>
     {chase?.trip && <p className="rounded border border-violet-700 bg-violet-950/40 p-2 text-xs text-violet-100">
-      {bossLabel[chase.trip.boss] || chase.trip.boss} · {chase.trip.arrived ? 'fighting on ' : 'moving to '}{realmLabel(chase.trip.realm)}
+      {bossLabel[chase.trip.boss] || chase.trip.boss} · {chase.trip.arrived ? (chase.trip.respawnAt ? 'waiting for respawn on ' : 'fighting on ') : 'moving to '}{realmLabel(chase.trip.realm)}
+      {chase.trip.respawnAt ? ` at ${new Date(chase.trip.respawnAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
       {chase.trip.returnRealm ? ` · returns to ${realmLabel(chase.trip.returnRealm)}` : ''}
     </p>}
     {enabled && (chase?.sightings?.length ? <ul className="grid gap-1 text-xs text-slate-200">
@@ -56,6 +57,12 @@ export function BossChaseSetting({ chase }: { chase?: BossChaseState | null }) {
         <span className="font-mono">{(sighting.hp / 1e6).toFixed(1)}M HP · {sighting.etaMinutes == null ? 'estimating…' : `~${Math.round(sighting.etaMinutes)} min`}</span>
       </li>)}
     </ul> : <p className="text-xs text-slate-400">{chase?.checkedAt ? 'No live bosses reported.' : 'Waiting for the first check…'}</p>)}
+    {enabled && !!chase?.respawns?.length && <ul className="grid gap-1 text-xs text-slate-300">
+      {chase.respawns.map(entry => <li key={'respawn' + entry.boss + entry.realm} className="flex justify-between gap-2">
+        <span>{bossLabel[entry.boss] || entry.boss} · {realmLabel(entry.realm)}</span>
+        <span className="font-mono">respawns {new Date(entry.respawnAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+      </li>)}
+    </ul>}
     {chase?.lastError && <p role="alert" className="text-xs text-rose-200">{chase.lastError}</p>}
     {action.error && <p role="alert" className="text-xs text-rose-200">{action.error.message}</p>}
   </fieldset>;

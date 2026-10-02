@@ -5,7 +5,8 @@ import { requestObject, type HttpRequest, type HttpResponse } from "../http/cont
  * Giga Crab, and the seasonal world bosses) when none is live on the current realm, then returns home once that boss is gone. These
  * can take long enough to kill that a hop is still worthwhile after Hop Sickness (12 minutes of -80%
  * luck/xp/gold): only chase one whose estimated remaining lifetime, from its observed HP drain,
- * exceeds `minEtaMinutes`.
+ * exceeds `minEtaMinutes`. Respawning seasonal bosses are also chased ahead of time: ALData reports a
+ * dead one's `estimatedRespawn`, so the party can arrive before the spawn with Hop Sickness cleared.
  */
 // Giga Crab (960k HP) usually dies well inside Hop Sickness; the ETA gate only lets slow fights through.
 // Seasonal bosses (24M-36M HP) only exist while their season runs.
@@ -20,6 +21,8 @@ export const chasedBossEvents: Record<ChasedBoss, string> = {
 export interface BossChaseTrip {
   boss: ChasedBoss;
   realm: string;
+  /** Set for a trip made ahead of an ALData-estimated respawn; the boss isn't live yet. */
+  respawnAt?: number;
   returnRealm: string | null;
   bossId: string;
   startedAt: number;
@@ -33,6 +36,7 @@ export interface BossChaseSighting {
   etaMinutes: number | null;
   target: string | null;
 }
+export interface BossChaseRespawn { boss: ChasedBoss; realm: string; respawnAt: number }
 export interface BossChaseState {
   enabled: boolean;
   minEtaMinutes: number;
@@ -41,6 +45,7 @@ export interface BossChaseState {
   lastError: string | null;
   checkedAt: number;
   sightings: BossChaseSighting[];
+  respawns: BossChaseRespawn[];
 }
 export interface BossChaseParty {
   bossChase: BossChaseState;
@@ -76,6 +81,11 @@ const minRateSpanMs = 50_000;
 const retryDelayMs = 5 * 60_000;
 // Two consecutive polls without the chased boss (ALData can briefly miss an entity).
 const goneAfterMissingPolls = 2;
+// Respawn trips leave 13-16 minutes ahead (Hop Sickness plus travel), and wait out a late estimate.
+const respawnMinLeadMs = 13 * 60_000, respawnMaxLeadMs = 16 * 60_000, respawnGraceMs = 10 * 60_000;
+// A boss respawning on the current realm this soon is worth waiting for rather than hopping.
+const homeRespawnHorizonMs = 30 * 60_000;
+const respawningBosses: readonly ChasedBoss[] = ["mrpumpkin", "mrgreen", "dragold", "grinch"];
 
 export function initialBossChase(saved: unknown): BossChaseState {
   const value = requestObject(saved);
@@ -88,10 +98,24 @@ export function initialBossChase(saved: unknown): BossChaseState {
     lastError: null,
     checkedAt: 0,
     sightings: [],
+    respawns: [],
   };
 }
 
 interface LiveBoss { boss: ChasedBoss; id: string; realm: string; hp: number; target: string | null }
+function realmOf(item: Record<string, unknown>): string | null {
+  return typeof item.serverRegion === "string" && typeof item.serverIdentifier === "string"
+    ? "SR_" + item.serverRegion + item.serverIdentifier : null;
+}
+/** Dead respawning bosses ALData expects back soon (it omits hp and reports `estimatedRespawn`). */
+function parseRespawns(bosses: readonly ChasedBoss[], value: unknown, now: number): BossChaseRespawn[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    const item = requestObject(entry), at = Date.parse(String(item.estimatedRespawn)), realm = realmOf(item);
+    const boss = bosses.find((type) => type === item.type && respawningBosses.includes(type));
+    return boss && realm && Number.isFinite(at) && at > now - respawnGraceMs ? [{ boss, realm, respawnAt: at }] : [];
+  });
+}
 function parseLive(bosses: readonly ChasedBoss[], value: unknown, now: number): LiveBoss[] {
   if (!Array.isArray(value)) throw new Error("ALData returned an unexpected boss payload");
   return value.flatMap((entry) => {
@@ -158,9 +182,12 @@ export function createBossChase(party: BossChaseParty, ports: BossChasePorts) {
     trip.arrived = true;
     if (live.some((boss) => boss.boss === trip.boss && boss.realm === trip.realm)) {
       trip.missingPolls = 0;
+      delete trip.respawnAt;
       ports.persist();
       return;
     }
+    // Waiting ahead of a respawn: the boss isn't expected yet, so its absence means nothing.
+    if (trip.respawnAt && ports.now() < trip.respawnAt + respawnGraceMs) return ports.persist();
     if (++trip.missingPolls < goneAfterMissingPolls) return ports.persist();
     chase.trip = null;
     ports.persist();
@@ -182,7 +209,9 @@ export function createBossChase(party: BossChaseParty, ports: BossChasePorts) {
   async function observe(bosses: ChasedBoss[], now: number): Promise<LiveBoss[] | null> {
     const chase = party.bossChase;
     try {
-      const live = parseLive(bosses, await ports.fetchLive(bosses), now);
+      const value = await ports.fetchLive(bosses);
+      const live = parseLive(bosses, value, now);
+      chase.respawns = parseRespawns(bosses, value, now);
       record(live, now);
       chase.checkedAt = now;
       chase.lastError = null;
@@ -194,14 +223,35 @@ export function createBossChase(party: BossChaseParty, ports: BossChasePorts) {
     }
   }
 
+  /** The soonest respawn elsewhere that leaves enough time for Hop Sickness to clear before it. */
+  function pickRespawn(current: string, now: number): BossChaseRespawn | null {
+    return party.bossChase.respawns
+      .filter((entry) => entry.realm !== current && !entry.realm.endsWith("PVP") && ports.realmExists(entry.realm))
+      .filter((entry) => entry.respawnAt - now >= respawnMinLeadMs && entry.respawnAt - now <= respawnMaxLeadMs)
+      .sort((a, b) => a.respawnAt - b.respawnAt)[0] || null;
+  }
+
+  async function startRespawnTrip(current: string, now: number): Promise<void> {
+    const chase = party.bossChase, target = pickRespawn(current, now);
+    if (!target) return;
+    chase.trip = {
+      boss: target.boss, realm: target.realm, respawnAt: target.respawnAt, returnRealm: ports.homeRealm() || current,
+      bossId: "", startedAt: now, arrived: false, missingPolls: 0,
+    };
+    ports.persist();
+    ports.log("Boss chase: " + bossNames[target.boss] + " respawns on " + target.realm + " at " + new Date(target.respawnAt).toISOString() + "; moving the party ahead of it", "info");
+    if (!(await travel(target.realm))) { chase.trip = null; ports.persist(); }
+  }
+
   async function startTrip(live: LiveBoss[], now: number): Promise<void> {
     const chase = party.bossChase;
     const current = ports.currentRealm();
     if (now < chase.retryAt || !current || ports.paused()) return;
-    // Any wanted boss already live here beats hopping for another.
+    // Any wanted boss already live here, or about to respawn here, beats hopping for another.
     if (live.some((boss) => boss.realm === current)) return;
+    if (chase.respawns.some((entry) => entry.realm === current && entry.respawnAt - now <= homeRespawnHorizonMs)) return;
     const target = pick(live, current);
-    if (!target) return;
+    if (!target) return startRespawnTrip(current, now);
     chase.trip = {
       boss: target.boss,
       realm: target.realm,
@@ -225,7 +275,7 @@ export function createBossChase(party: BossChaseParty, ports: BossChasePorts) {
     if (ports.realmSwitchBusy()) return;
     // Keep watching the chased boss even if its selection changes mid-trip.
     const bosses = chasedBosses.filter((boss) => ports.selected(chasedBossEvents[boss]) || chase.trip?.boss === boss);
-    if (!bosses.length) { chase.sightings = []; return; }
+    if (!bosses.length) { chase.sightings = []; chase.respawns = []; return; }
     const now = ports.now();
     const live = await observe(bosses, now);
     if (!live) return;
