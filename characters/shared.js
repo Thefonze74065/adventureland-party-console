@@ -10051,20 +10051,6 @@
     root.__partyStatusAttemptAt = Date.now();
     var statusPhase = "bank sort recovery";
     try {
-      try { await recoverBankSortBeforeWork(); }
-      catch (recoveryError) {
-        // Recovery blocks inventory work, not visibility of the connected character.
-        await request("/status", { method: "POST", body: snapshot() });
-        // A permanently-unconfirmable bank-stack transfer (escalated past its
-        // bounded retries -- see runtime/characters/bank-stacks.ts) must not hold
-        // the whole character hostage forever waiting on a human. Surface it
-        // (deduped, like any other status failure) and let normal work continue;
-        // the backed-off recheck inside bank-stack recovery itself still runs and
-        // will pick back up automatically if the underlying issue clears.
-        if (!/manual recovery required/.test((recoveryError && recoveryError.message) || ""))
-          throw recoveryError;
-        recordStatusFailure(recoveryError, statusPhase);
-      }
       // Bank recovery belongs to bank operations, which call it before moving
       // inventory. Status, combat and navigation must remain available.
       statusPhase = "Tracktrix inventory position";

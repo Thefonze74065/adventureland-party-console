@@ -1165,22 +1165,15 @@
     function active() {
       if (!p.current()) throw Error("Bank stack runtime replaced");
     }
-    const maxPendingAttempts = 5, manualRecoveryBackoffMs = 6e4;
-    function diverged(expected) {
-      const identities = expected.filter((e) => e.item).map((e) => stackIdentity(e.item));
-      return expected.some((e) => {
-        const actual = e.bank ? at2(e.bank) : p.items()[e.inventory];
-        if (!actual) return false;
-        return e.item ? stackIdentity(actual) !== stackIdentity(e.item) : !identities.includes(stackIdentity(actual));
-      });
-    }
-    async function settle(expected) {
+    async function settle(expected, recovering = false) {
       active();
       const deadline = p.now() + 5e3;
       while (!expected.every((e) => equal(e.bank ? at2(e.bank) : p.items()[e.inventory], e.item))) {
         active();
-        if (diverged(expected)) throw Error("Bank stack transfer target changed; recovery abandoned");
-        if (p.now() >= deadline) throw Error("Bank stack transfer not confirmed; recovery pending");
+        if (p.now() >= deadline) {
+          if (recovering && expected.some((e) => stackIdentity(e.bank ? at2(e.bank) : p.items()[e.inventory]) !== stackIdentity(e.item))) return;
+          throw Error("Bank stack transfer not confirmed; recovery pending");
+        }
         await p.sleep(100);
       }
       active();
@@ -1230,31 +1223,13 @@
         ]);
       }
     }
-    async function recoverPending(journal) {
-      if (diverged(journal.pending)) {
-        p.write({ ...journal, pending: void 0, pendingAttempts: void 0, pendingNextCheckAt: void 0 });
-        return;
-      }
-      const attempts = journal.pendingAttempts || 0;
-      const stuckMessage = "Bank stack transfer not confirmed after repeated attempts; manual recovery required";
-      if (attempts >= maxPendingAttempts && p.now() < (journal.pendingNextCheckAt || 0)) throw Error(stuckMessage);
-      try {
-        await settle(journal.pending);
-        p.write({ ...journal, pending: void 0, pendingAttempts: void 0, pendingNextCheckAt: void 0 });
-      } catch (error) {
-        if (/recovery abandoned/.test(error.message)) {
-          p.write({ ...journal, pending: void 0, pendingAttempts: void 0, pendingNextCheckAt: void 0 });
-          return;
-        }
-        const next = attempts + 1;
-        p.write({ ...journal, pendingAttempts: next, pendingNextCheckAt: p.now() + manualRecoveryBackoffMs });
-        throw next >= maxPendingAttempts ? Error(stuckMessage) : error;
-      }
-    }
-    async function recover() {
+    async function recoverOnce() {
       const journal = p.read();
       if (!journal) return;
-      if (journal.pending) await recoverPending(journal);
+      if (journal.pending) {
+        await settle(journal.pending, true);
+        p.write({ ...journal, pending: void 0 });
+      }
       let buffers = [...new Map(journal.buffers.map((buffer) => [buffer.slot, buffer])).values()];
       if (!journal.pending && buffers.length !== journal.buffers.length) {
         buffers = buffers.filter((buffer) => stackIdentity(p.items()[buffer.slot]) === buffer.identity);
@@ -1263,6 +1238,23 @@
       for (const buffer of buffers.sort((a, b) => Number(b.source !== void 0) - Number(a.source !== void 0)))
         await returnBuffer(buffer);
       p.write(null);
+    }
+    async function recover() {
+      const journal = p.read();
+      if (!journal) return;
+      const startedAt = journal.recoveryStartedAt ?? p.now();
+      if (p.now() - startedAt >= 3e4) {
+        p.write(null);
+        return;
+      }
+      if ((journal.retryAt || 0) > p.now()) throw Error("Bank stack recovery cooling down");
+      p.write({ ...journal, recoveryStartedAt: startedAt });
+      try {
+        await recoverOnce();
+      } catch (error) {
+        if (p.current() && p.read()) p.write({ ...p.read(), recoveryStartedAt: startedAt, retryAt: p.now() + 5e3 });
+        throw error;
+      }
     }
     function remember(buffers) {
       const old = p.read();
