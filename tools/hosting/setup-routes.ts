@@ -8,6 +8,7 @@ import type { LocalTLS } from './tls.ts';
 import { trustHelper } from './trust.ts';
 import { requestOrigin } from './request-origin.ts';
 import { transfer } from './setup-transfer.ts';
+import { toString as qrToString } from 'qrcode';
 export interface Options {
   realms?: Promise<import('./realms.ts').RealmDiscovery>;
   debug?: import('../debug/service.ts').DebugInstances;
@@ -109,7 +110,12 @@ export async function setupRoute(req: IncomingMessage, res: ServerResponse, path
       await options.configure(text(input.session), text(input.realm));
       return { ok: true };
     },
-    "/setup/invite": async () => ({ token: await options.access.invitation() }),
+    "/setup/invite": async () => {
+      const token = await options.access.invitation();
+      const url = `${requestOrigin(req, options)}/setup#${token}`;
+      const qrSvg = await qrToString(url, { type: "svg", margin: 1 });
+      return { token, url, qrSvg };
+    },
     "/setup/revoke": async () => {
       await options.access.revokeSteam();
       return { ok: true };

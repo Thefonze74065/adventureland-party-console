@@ -91,7 +91,7 @@ action('pairButton',async()=>{await call('pair',{token:location.hash.slice(1)});
 action('connect',async()=>{await call('session',{session:el('session').value,realm:el('realm').value});el('session').value='';sessionVisible(false);await refresh();el('success').hidden=false;el('success').textContent='Account connected. Choose how to run your characters below.'});
 action('copy',async()=>{try{await navigator.clipboard.writeText(el('code').value);if(!countingDown)el('linkStatus').textContent='Copied. Paste into CODE and click Engage.'}catch{el('code').focus();el('code').select();if(!countingDown)el('linkStatus').textContent='Code selected. Copy it and paste into CODE.'}});
 action('revoke',async()=>{if(confirm('Revoke private client tokens? Direct tokenless loaders are unaffected.')){await call('revoke',{});stopLinking();el('success').hidden=true;el('code').value='';el('copy').disabled=true;el('linkStatus').textContent='Client tokens revoked. Choose your setup again to create a new loader.'}});
-action('invite',async()=>{const r=await call('invite',{});el('invitation').textContent=location.origin+'/setup#'+r.token});
+action('invite',async()=>{const r=await call('invite',{});el('invitation').textContent=r.url;el('invitationQr').innerHTML=r.qrSvg;el('invitationQr').hidden=false});
 function resumeConnection(){if(document.visibilityState!=='hidden')void watchConnection(linkGeneration)}
 addEventListener('focus',resumeConnection);document.addEventListener('visibilitychange',resumeConnection);
 el('continue').onclick=stopLinking;addEventListener('pagehide',stopLinking);restorePreferences();
