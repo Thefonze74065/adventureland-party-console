@@ -457,8 +457,16 @@
       });
       return { slotAt: slotAt || undefined, slotKind: kind || undefined, id: id, name: id === "anniversary" ? "Anniversary" : id === "snowman" ? "Snowman" : G.events[id].name || id,
         live: !!status[id] && value.live !== false && value.active !== false,
-        next: anniversaryEpoch(value.next) || undefined, expires: anniversaryEpoch(value.expires || value.end) || undefined };
+        next: eventEpoch(value.next || (value.live === false ? value.spawn : null)) || undefined,
+        expires: eventEpoch(value.expires || value.end) || undefined };
     });
+  }
+  // Server event times arrive as epoch seconds/ms or, for monster events (`spawn`, `end`), ISO strings.
+  function eventEpoch(input) {
+    var numeric = anniversaryEpoch(input);
+    if (numeric) return numeric;
+    var parsed = Date.parse(input);
+    return Number.isFinite(parsed) ? parsed : 0;
   }
   var eventTargetTypes = [];
   var eventTraveling = false; travellingEventName = null;

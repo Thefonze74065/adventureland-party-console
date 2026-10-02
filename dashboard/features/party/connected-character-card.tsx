@@ -144,9 +144,11 @@ export const ConnectedCharacterCard = memo(function ConnectedCharacterCard({
       eventsByCharacter: state.eventsByCharacter,
       eventSelectionsByCharacter: state.eventSelectionsByCharacter,
       eventSchedules: state.eventSchedules,
+      dailyChase: state.dailyChase,
+      realmControl: state.realmControl,
     }),
     [state.leader, state.merchantCharacter, state.followers, state.eventsByCharacter,
-      state.eventSelectionsByCharacter, state.eventSchedules],
+      state.eventSelectionsByCharacter, state.eventSchedules, state.dailyChase, state.realmControl],
   );
   const onRadiusSave = useCallback(
     (radius: number) => setFocus(name, monsterFocusSelected, monsterFocusPriorities, radius),
