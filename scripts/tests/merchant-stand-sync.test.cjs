@@ -2,7 +2,7 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const source=fs.readFileSync('characters/shared.js','utf8');
 function fixture(){
  const calls=[];const c=vm.createContext({root:{__merchantActiveJob:{jobId:'job'}},runtimeCurrent:()=>true,lastCommand:5,merchantIdleActive:false,merchantIdlePending:null,
- character:{name:'M',ctype:'merchant',map:'main',x:0,y:0,stand:true,slots:{},items:[{name:'pants'}]},merchantMarketLocation:{map:'main',x:0,y:0},merchantHomeRealm:'SR_USII',parent:{server_region:'US',server_identifier:'II'},
+ character:{name:'M',ctype:'merchant',map:'main',x:0,y:0,stand:true,slots:{},items:[{name:'pants'}]},merchantMarketLocation:{map:'main',x:0,y:0},merchantStandSavedSpot:()=>({map:'main',x:0,y:0}),selectMerchantStandSpot:()=>({map:'main',x:0,y:0}),merchantStandSpotFree:()=>true,merchantHomeRealm:'SR_USII',parent:{server_region:'US',server_identifier:'II'},
  merchantLuckyUpgrade:()=>({recover:async()=>{},tidy:async()=>{}}),
  gatheringMode:null,gatheringGeneration:0,gatheringTimer:null,gatheringSession:null,stop:async()=>{},
  sameItem:(a,b)=>!!a&&!!b&&a.name===b.name,findItem:()=>0,fingerprint:i=>i,consolidateMerchantInventory:async()=>{},game_log(){},

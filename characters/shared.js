@@ -726,6 +726,56 @@
     if (parent.socket && typeof parent.socket.emit === "function") parent.socket.emit("players", {});
   }
   var merchantMarketLocation = { map: "main", x: -63, y: 100 };
+  // Independent installs sharing a home realm would otherwise stack their merchants on
+  // this exact tile. Candidates are tried in order so unrelated installs settle into a
+  // grid instead of colliding; spacing/positions need in-game validation for walkability.
+  // Spacing must exceed merchantStandOccupiedRadius, or neighboring candidates would
+  // falsely flag each other as taken.
+  var merchantStandGrid = [
+    { dx: 0, dy: 0 }, { dx: 50, dy: 0 }, { dx: 100, dy: 0 }, { dx: 150, dy: 0 },
+    { dx: 0, dy: 50 }, { dx: 50, dy: 50 }, { dx: 100, dy: 50 }, { dx: 150, dy: 50 },
+  ];
+  // Matches the "already home" arrival tolerance used elsewhere for this same spot
+  // (merchantTownReturn/merchantIdle): an unfixed install can rest anywhere within that
+  // tolerance of the nominal coordinate, so detection has to cover the same radius or it
+  // will miss an already-parked merchant that isn't standing exactly on the pixel.
+  var merchantStandOccupiedRadius = 35;
+  function merchantStandSpotKey() { return "party-merchant-stand-spot:" + character.name; }
+  function merchantStandCandidate(index) {
+    var offset = merchantStandGrid[index] || merchantStandGrid[0];
+    return { map: merchantMarketLocation.map, x: merchantMarketLocation.x + offset.dx, y: merchantMarketLocation.y + offset.dy };
+  }
+  function merchantStandSavedSpot() {
+    var saved = root.localStorage && Number(root.localStorage.getItem(merchantStandSpotKey()));
+    return merchantStandCandidate(Number.isInteger(saved) ? saved : 0);
+  }
+  function merchantStandSpotFree(spot) {
+    var occupied = false;
+    Object.keys(parent.entities || {}).forEach(function (id) {
+      if (occupied) return;
+      var other = parent.entities[id];
+      if (!other || other.type !== "character" || other.name === character.name || !other.stand) return;
+      if (other.map !== spot.map) return;
+      if (Math.hypot(Number(other.x) - spot.x, Number(other.y) - spot.y) <= merchantStandOccupiedRadius) occupied = true;
+    });
+    return !occupied;
+  }
+  // Picks the party's already-claimed spot when it is still free, otherwise the first
+  // free candidate in grid order; only meaningful once nearby entities are populated
+  // (arrive and wait briefly, as merchantStandSearch already does, before calling this).
+  function selectMerchantStandSpot() {
+    var saved = root.localStorage && Number(root.localStorage.getItem(merchantStandSpotKey()));
+    if (Number.isInteger(saved) && merchantStandGrid[saved] && merchantStandSpotFree(merchantStandCandidate(saved)))
+      return merchantStandCandidate(saved);
+    for (var index = 0; index < merchantStandGrid.length; index += 1) {
+      var candidate = merchantStandCandidate(index);
+      if (merchantStandSpotFree(candidate)) {
+        if (root.localStorage) root.localStorage.setItem(merchantStandSpotKey(), String(index));
+        return candidate;
+      }
+    }
+    return merchantStandCandidate(0);
+  }
 
   async function merchantTownReturn(activity, owns) {
     owns = owns || function () { return true; };
@@ -8440,8 +8490,13 @@
         try { if (typeof stop === "function") await stop("smart"); }
         catch (_standSyncStopError) { /* No gathering path was active. */ }
       }
-      var atStandLocation = character.map === merchantMarketLocation.map &&
-        Math.hypot(character.x - merchantMarketLocation.x, character.y - merchantMarketLocation.y) <= 35;
+      var currentStandSpot = merchantStandSavedSpot();
+      var atStandLocation = character.map === currentStandSpot.map &&
+        Math.hypot(character.x - currentStandSpot.x, character.y - currentStandSpot.y) <= 35;
+      // Being "home" only means we are near our own last-claimed spot; someone else may
+      // have since parked on top of it after we settled in, so re-check every visit
+      // instead of trusting the sticky assignment forever.
+      if (atStandLocation && !command.inPlace && !merchantStandSpotFree(currentStandSpot)) atStandLocation = false;
       // Closing hides trade1..trade16 from the owner's character snapshot, but
       // the server keeps those items in persistent stand storage. A local sync
       // may therefore open, mutate and close the stand anywhere without
@@ -8455,9 +8510,15 @@
         await merchantTownReturn(null, ownsIdle);
         if (!ownsIdle()) return;
         await anniversaryWithTimeout(smart_move(merchantMarketLocation), 90000, "Merchant stand return");
+        if (!ownsIdle()) return;
+        // Entities populate shortly after arrival; merchantStandSearch uses the same delay.
+        await new Promise(function (resolve) { setTimeout(resolve, 1200); });
+        currentStandSpot = selectMerchantStandSpot();
+        if (Math.hypot(character.x - currentStandSpot.x, character.y - currentStandSpot.y) > 35)
+          await anniversaryWithTimeout(smart_move(currentStandSpot), 90000, "Merchant stand spot");
       }
-      if (!command.inPlace && (character.map !== merchantMarketLocation.map ||
-          Math.hypot(character.x - merchantMarketLocation.x, character.y - merchantMarketLocation.y) > 35)) {
+      if (!command.inPlace && (character.map !== currentStandSpot.map ||
+          Math.hypot(character.x - currentStandSpot.x, character.y - currentStandSpot.y) > 35)) {
         throw new Error("Merchant stand return ended before reaching the market");
       }
       if (!runtimeCurrent() || lastCommand !== idleOwner ||
@@ -8469,6 +8530,13 @@
       // Trade-slot mutations require the stand to be open, but they can be
       // reconciled in place while it remains open.
       if (!character.stand) {
+        // A town-teleport arrival can outrun the entities sync; re-check right before the
+        // irreversible open rather than trusting only the earlier post-arrival scan.
+        if (!command.inPlace && !merchantStandSpotFree(currentStandSpot)) {
+          currentStandSpot = selectMerchantStandSpot();
+          if (Math.hypot(character.x - currentStandSpot.x, character.y - currentStandSpot.y) > 35)
+            await anniversaryWithTimeout(smart_move(currentStandSpot), 90000, "Merchant stand spot");
+        }
         await open_stand();
         await new Promise(function (resolve) { setTimeout(resolve, 250); });
         if (!character.stand) throw new Error("Merchant stand did not open");
