@@ -186,11 +186,15 @@ export function installRosterRoutes(
       throw new RosterConflict("Resolve the pending handoff first");
     if (state.slots[slot - 1] || state.slots.includes(name) || state.steam?.includes(name) || state.native === name)
       throw new RosterConflict("Slot or character is already assigned");
-    ports.validateParticipants([
+    const participants = [
       ...state.slots.filter((value): value is string => !!value),
       ...(state.steam || (state.native ? [state.native] : [])),
       name,
-    ]);
+    ];
+    if (participants.length > 4) throw new RosterConflict("maximum characters logged in");
+    // Characters already online keep their slots, so their own busy work (e.g. a long merchant
+    // job) must not block someone else logging in; only the newcomer and global locks matter.
+    ports.validateParticipants([name]);
   }
   route("/party-api/slots/:slot/spawn", async (request) => {
     const { slot, name } = spawnDestination(request);
