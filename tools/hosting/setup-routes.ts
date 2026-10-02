@@ -112,7 +112,10 @@ export async function setupRoute(req: IncomingMessage, res: ServerResponse, path
     },
     "/setup/invite": async () => {
       const token = await options.access.invitation();
-      const url = `${requestOrigin(req, options)}/setup#${token}`;
+      // POSTs are origin-checked (sameBrowserOrigin), so Origin is the address this browser really uses;
+      // the Host header can be an internal address behind a reverse proxy or public URL.
+      const origin = req.headers.origin || options.publicUrl || requestOrigin(req, options);
+      const url = `${origin}/setup#${token}`;
       const qrSvg = await qrToString(url, { type: "svg", margin: 1 });
       return { token, url, qrSvg };
     },
