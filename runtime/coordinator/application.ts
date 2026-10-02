@@ -1106,7 +1106,7 @@ export function startCoordinatorApplication(
     const dailyChase = coordinatorPolicies.createDailyChase(party, {
       ...chasePorts,
       gameVersion: () => party.gameVersion,
-      fetchBosses: () => aldataFetch("/monsters/crabxx,rgoo,bgoo"),
+      fetchBosses: () => aldataFetch("/monsters/crabxx,rgoo,bgoo,icegolem,franky"),
       reports: () =>
         realmParticipants().flatMap((name) => {
           const status = party.statuses[name];
@@ -1116,7 +1116,7 @@ export function startCoordinatorApplication(
             .filter((entry) => entry.live === true)
             .map((entry) => entry.id)
             .filter((id): id is coordinatorPolicies.DailyEvent =>
-              (coordinatorPolicies.dailyEvents as readonly unknown[]).includes(id));
+              (coordinatorPolicies.scheduledEvents as readonly unknown[]).includes(id));
           return [{ realm: "SR_" + status.server.replace(/^SR_/, ""), live }];
         }),
       realms: () => realmControlPayload().realms.filter((realm) => !realm.pvp).map((realm) => realm.key),
