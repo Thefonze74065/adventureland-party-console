@@ -39,7 +39,8 @@ CMD ["node", "/opt/party-seed/tools/hosting/docker-dev.mts"]
 
 FROM node:24.14.0-bookworm-slim AS production
 ARG RELEASE_VERSION=development
-LABEL org.opencontainers.image.title="Adventureland Party Console" org.opencontainers.image.version=$RELEASE_VERSION org.opencontainers.image.source="https://github.com/ryan-haines/adventureland-party-console"
+ARG RELEASE_REPOSITORY=thefonze74065/adventureland-party-console
+LABEL org.opencontainers.image.title="Adventureland Party Console" org.opencontainers.image.version=$RELEASE_VERSION org.opencontainers.image.source="https://github.com/$RELEASE_REPOSITORY"
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tini gosu && rm -rf /var/lib/apt/lists/*
 COPY --from=docker-client /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker-client /usr/local/libexec/docker/cli-plugins/docker-buildx /usr/local/libexec/docker/cli-plugins/docker-buildx

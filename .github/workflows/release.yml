@@ -123,24 +123,28 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # The image lives under the repository named in distribution.json (GHCR requires lowercase).
+      - id: image
+        run: echo "repository=$(node -p "require('./distribution.json').repository.toLowerCase()")" >> "$GITHUB_OUTPUT"
       - id: build
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ghcr.io/ryan-haines/adventureland-party-console:${{ needs.version.outputs.version }}
+          tags: ghcr.io/${{ steps.image.outputs.repository }}:${{ needs.version.outputs.version }}
           build-args: |
             RELEASE_VERSION=${{ needs.version.outputs.version }}
+            RELEASE_REPOSITORY=${{ steps.image.outputs.repository }}
             RELEASE_COMMIT=${{ github.sha }}
       - name: Smoke-test both architectures
         run: |
           for arch in amd64 arm64; do
-            docker run --rm --platform linux/$arch --entrypoint node ghcr.io/ryan-haines/adventureland-party-console@${{ steps.build.outputs.digest }} --check .build/runtime/coordinator-application.cjs
-            bash scripts/ci/smoke-docker.sh ghcr.io/ryan-haines/adventureland-party-console@${{ steps.build.outputs.digest }} "$arch"
+            docker run --rm --platform linux/$arch --entrypoint node ghcr.io/${{ steps.image.outputs.repository }}@${{ steps.build.outputs.digest }} --check .build/runtime/coordinator-application.cjs
+            bash scripts/ci/smoke-docker.sh ghcr.io/${{ steps.image.outputs.repository }}@${{ steps.build.outputs.digest }} "$arch"
             # The runner's classic image store cannot retain two architectures
             # under one manifest digest. Remove only this completed local test image.
-            docker image rm ghcr.io/ryan-haines/adventureland-party-console@${{ steps.build.outputs.digest }}
+            docker image rm ghcr.io/${{ steps.image.outputs.repository }}@${{ steps.build.outputs.digest }}
           done
   publish:
     needs: [version, windows, docker]
@@ -171,4 +175,6 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/setup-buildx-action@v3
       - name: Promote validated image
-        run: docker buildx imagetools create --tag ghcr.io/ryan-haines/adventureland-party-console:latest ghcr.io/ryan-haines/adventureland-party-console@${{ needs.docker.outputs.digest }}
+        run: |
+          image="ghcr.io/$(node -p "require('./distribution.json').repository.toLowerCase()")"
+          docker buildx imagetools create --tag "$image:latest" "$image@${{ needs.docker.outputs.digest }}"

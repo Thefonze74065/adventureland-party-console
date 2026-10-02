@@ -1,7 +1,7 @@
 name: adventureland-party-console
 services:
   party-console:
-    image: ghcr.io/ryan-haines/adventureland-party-console:latest
+    image: ghcr.io/thefonze74065/adventureland-party-console:latest
     ports:
       - "${AL_HOST:-0.0.0.0}:${AL_PORT:-3010}:3010"
     environment:
@@ -17,7 +17,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 30s
   updater:
-    image: ghcr.io/ryan-haines/adventureland-party-console:latest
+    image: ghcr.io/thefonze74065/adventureland-party-console:latest
     user: root
     command: [node, tools/update/agent.mts]
     environment:
