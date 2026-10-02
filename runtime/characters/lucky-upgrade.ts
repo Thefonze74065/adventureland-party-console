@@ -148,6 +148,17 @@ export function createLuckyUpgrade(ports: Ports) {
     ports.write(null);
     return true;
   }
+  /**
+   * Operator escape hatch for a journal that recovery can't reconcile. Items stay wherever they
+   * are now (nothing is lost, the upgraded item may simply remain in the lucky slot); only the
+   * journal that blocks every merchant job is dropped. Refused while an upgrade is in flight.
+   */
+  function discard(): { cleared: boolean; journal: Journal | null } {
+    if (active || ports.busy()) return { cleared: false, journal: ports.read() };
+    const journal = ports.read();
+    if (journal) ports.write(null);
+    return { cleared: !!journal, journal };
+  }
   function runInput(from: number, scroll: number, lucky: unknown, offering?: number) {
     if (active) throw failure('another upgrade owns the inventory');
     const to = validSlot(lucky) ? Number(lucky) : from;
@@ -215,6 +226,6 @@ export function createLuckyUpgrade(ports: Ports) {
     // ever swapping two occupied cells while packing the bag.
     await swapConfirmed(target, empty, () => !ports.item(target) && same(ports.item(empty), displaced));
   }
-  return {run, recover, retireSettled, tidy, pending: () => active || !!ports.read()};
+  return {run, recover, retireSettled, discard, tidy, pending: () => active || !!ports.read()};
 }
 (globalThis as unknown as {createPartyLuckyUpgrade: typeof createLuckyUpgrade}).createPartyLuckyUpgrade = createLuckyUpgrade;

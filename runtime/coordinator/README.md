@@ -1595,3 +1595,13 @@ minimum 14) before the slot so Hop Sickness clears first. Other regions' slots a
 after the slot), or 90 minutes after the slot. The boss chase and this predictor pause each other
 while either has a trip. The move uses the dashboard realm-switch route without changing home.
 Coordinator-only restart suffices.
+
+## Stuck lucky-slot journal
+
+While the merchant reports `upgradeInventoryBusy` with no current job, the dispatcher holds the
+queue instead of sending jobs that would only defer at the character's recovery gate, and logs the
+reason once (`luckyRecoveryError`, reported by the character's idle recovery). Both fields are
+dashboard live fields. When recovery keeps failing, the merchant card offers "Clear stuck
+lucky-slot journal" (`POST /party-api/merchant/clear-lucky-journal`): the character drops the
+journal, refusing while an upgrade is in flight, and leaves every item where it is. Character changes
+require the full restart workflow; the discard ships in the staged character generation.

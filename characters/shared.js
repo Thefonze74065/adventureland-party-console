@@ -2576,6 +2576,7 @@
       merchantEventReserved: merchantEventWorkReserved(),
       upgradeInventoryBusy: !!(root.__merchantInventoryTidy || (luckyUpgradeService ? luckyUpgradeService.pending() :
         root.localStorage.getItem("party-lucky-upgrade:" + character.name))),
+      luckyRecoveryError: root.__partyInventoryRecoveryError || null,
       steamPrimary: !parent.caracAL && !parent.no_html && !parent.is_bot,
       escape: escapeLocal,
       platform: parent.caracAL ? "caracal" : (parent.game && parent.game.platform || "browser"),
@@ -9406,6 +9407,17 @@
     }
     // Stand return can travel safely before checking inventory recovery. Its
     // own guard runs before any listing, consolidation, or tidy mutation.
+    if (command.type === "merchant-clear-lucky-journal" && character.ctype === "merchant") {
+      // Operator escape hatch: handled before the lucky-slot gate below, which would only retry
+      // the same failing recovery. Items stay where they are; only the blocking journal goes.
+      lastCommand = command.id; root.__partyLastCommand = lastCommand;
+      var discarded = luckyUpgradeService ? luckyUpgradeService.discard() : { cleared: false, journal: null };
+      if (discarded.cleared) {
+        root.__partyInventoryRecoveryError = null;
+        game_log("Cleared stuck lucky-slot journal: " + JSON.stringify(discarded.journal), "#F0B742");
+      } else game_log(discarded.journal ? "Lucky-slot journal is in use; not cleared" : "No lucky-slot journal to clear", "#F0B742");
+      return;
+    }
     var returningToStand = command.type === "merchant-idle" && !command.inPlace;
     if (!returningToStand && character.ctype === "merchant" && root.__merchantInventoryTidy) await root.__merchantInventoryTidy;
     if (!returningToStand && character.ctype === "merchant" && luckyUpgradeService && luckyUpgradeService.pending()) {
@@ -10095,8 +10107,10 @@
       // telemetry itself holds dispatch. Inspect receipts before stale layouts.
       if (character.ctype === "merchant" && luckyUpgradeService && luckyUpgradeService.pending() &&
           !root.__merchantActiveJob && !root.__partyProductionWorking && !root.__merchantInventoryTidy) {
-        try { await recoverProductionJournal(); await luckyUpgradeService.recover(); }
+        try { await recoverProductionJournal(); await luckyUpgradeService.recover(); root.__partyInventoryRecoveryError = null; }
         catch (error) {
+          // Reported in status so the dashboard can show why merchant work is held.
+          root.__partyInventoryRecoveryError = { message: String(error.message || error), at: Date.now() };
           if (Date.now() - (root.__partyInventoryRecoveryLogAt || 0) > 30000) {
             root.__partyInventoryRecoveryLogAt = Date.now();
             game_log("Inventory recovery retry: " + String(error.message || error), "red");

@@ -192,6 +192,25 @@ export const MerchantCardControls = memo(function MerchantCardControls({
           </div>
           <MerchantActivityLog entries={state.merchantActivity || []} />
         </details>
+      {merchant?.upgradeInventoryBusy && merchant.luckyRecoveryError && !state.merchantCurrent ? (
+        <div role="alert" className="grid gap-2 rounded border border-amber-600 bg-[#1a1206] p-2 text-xs text-amber-100">
+          <p className="font-semibold">Merchant work is held: inventory recovery keeps failing</p>
+          <p className="break-words font-mono text-[10px] text-amber-200">{merchant.luckyRecoveryError.message}</p>
+          <p>Clearing drops the stuck lucky-slot journal so jobs can run again. Items stay where they are; check the lucky slot afterwards.</p>
+          <Button
+            variant="outline"
+            disabled={action.isPending}
+            onClick={() => {
+              if (!confirm("Clear the merchant's stuck lucky-slot journal? Items stay where they are.")) return;
+              action.reset();
+              action.mutate({ path: '/merchant/clear-lucky-journal', body: {} });
+            }}
+            className="h-9 border-amber-400 bg-[#07100f] text-xs text-amber-100 hover:bg-amber-950 hover:text-white"
+          >
+            Clear stuck lucky-slot journal
+          </Button>
+        </div>
+      ) : null}
       <div className="grid grid-cols-2 gap-2">
         <Button
           variant="outline"
