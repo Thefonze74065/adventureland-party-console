@@ -6,7 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
 const realmLabel = (realm: string) => realm.replace(/^SR_/, '').replace(/(US|EU|ASIA)/, '$1 ');
-const bossLabel: Record<string, string> = { franky: 'Franky', icegolem: 'Ice Golem' };
+const bossLabel: Record<string, string> = {
+  franky: 'Franky', icegolem: 'Ice Golem', crabxx: 'Giga Crab',
+  mrpumpkin: 'Mr. Pumpkin', mrgreen: 'Mr. Green', dragold: 'Dragold', grinch: 'Grinch',
+};
 
 export function BossChaseSetting({ chase }: { chase?: BossChaseState | null }) {
   // An unsaved edit overrides the coordinator value; clearing it follows the server again.
@@ -24,7 +27,7 @@ export function BossChaseSetting({ chase }: { chase?: BossChaseState | null }) {
     <div className="flex items-center justify-between gap-3">
       <div>
         <p className="font-semibold text-violet-100">Chase event bosses across realms</p>
-        <p className="text-xs text-slate-300">When Franky or the Ice Golem isn&apos;t live here, move the party to a realm where one is, then return home once it&apos;s gone. Only bosses whose event is selected are chased.</p>
+        <p className="text-xs text-slate-300">When an event boss (Franky, Ice Golem, Giga Crab, or a seasonal boss) isn&apos;t live here, move the party to a realm where one is, then return home once it&apos;s gone. Only bosses whose event is selected are chased.</p>
       </div>
       <Button type="button" variant="outline" aria-pressed={enabled} onClick={() => save({ enabled: !enabled })}
         className={enabled

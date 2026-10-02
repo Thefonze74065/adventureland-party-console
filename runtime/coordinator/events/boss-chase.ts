@@ -1,14 +1,21 @@
 import { requestObject, type HttpRequest, type HttpResponse } from "../http/contracts.ts";
 
 /**
- * Moves the whole party to a realm where ALData reports a live long-lived event boss (Franky, Ice
- * Golem) when none is live on the current realm, then returns home once that boss is gone. These
- * take long enough to kill that a hop is still worthwhile after Hop Sickness (12 minutes of -80%
+ * Moves the whole party to a realm where ALData reports a live event boss (Franky, Ice Golem,
+ * Giga Crab, and the seasonal world bosses) when none is live on the current realm, then returns home once that boss is gone. These
+ * can take long enough to kill that a hop is still worthwhile after Hop Sickness (12 minutes of -80%
  * luck/xp/gold): only chase one whose estimated remaining lifetime, from its observed HP drain,
  * exceeds `minEtaMinutes`.
  */
-export const chasedBosses = ["franky", "icegolem"] as const;
+// Giga Crab (960k HP) usually dies well inside Hop Sickness; the ETA gate only lets slow fights through.
+// Seasonal bosses (24M-36M HP) only exist while their season runs.
+export const chasedBosses = ["franky", "icegolem", "crabxx", "mrpumpkin", "mrgreen", "dragold", "grinch"] as const;
 export type ChasedBoss = (typeof chasedBosses)[number];
+/** The event a character selects (a G.events key) to opt into chasing each boss. */
+export const chasedBossEvents: Record<ChasedBoss, string> = {
+  franky: "franky", icegolem: "icegolem", crabxx: "crabxx",
+  mrpumpkin: "halloween", mrgreen: "halloween", dragold: "lunarnewyear", grinch: "holidayseason",
+};
 
 export interface BossChaseTrip {
   boss: ChasedBoss;
@@ -40,8 +47,8 @@ export interface BossChaseParty {
 }
 export interface BossChasePorts {
   now(): number;
-  /** ALData `/monsters/<boss>`: every instance currently observed on any realm. */
-  fetchLive(boss: ChasedBoss): Promise<unknown>;
+  /** ALData `/monsters/<a,b,...>`: every instance of these types currently observed on any realm. */
+  fetchLive(bosses: readonly ChasedBoss[]): Promise<unknown>;
   /** The party's shared realm, or null while split/unknown. */
   currentRealm(): string | null;
   homeRealm(): string | null;
@@ -49,8 +56,8 @@ export interface BossChasePorts {
   realmSwitchBusy(): boolean;
   /** Another realm errand (e.g. the daily chase) currently owns the party's realm. */
   paused(): boolean;
-  /** Whether any active character has this boss's event selected. */
-  selected(boss: ChasedBoss): boolean;
+  /** Whether any active character has this event (a G.events key) selected. */
+  selected(event: string): boolean;
   /** Starts the ordinary party realm switch (no home change); resolves with its HTTP outcome. */
   switchRealm(realm: string): Promise<{ ok: boolean; error?: string }>;
   log(message: string, level: string): void;
@@ -58,7 +65,10 @@ export interface BossChasePorts {
 }
 
 export const defaultBossChaseMinEtaMinutes = 15;
-const bossNames: Record<ChasedBoss, string> = { franky: "Franky", icegolem: "Ice Golem" };
+const bossNames: Record<ChasedBoss, string> = {
+  franky: "Franky", icegolem: "Ice Golem", crabxx: "Giga Crab",
+  mrpumpkin: "Mr. Pumpkin", mrgreen: "Mr. Green", dragold: "Dragold", grinch: "Grinch",
+};
 const pollMs = 60_000;
 const staleSightingMs = 5 * 60_000;
 const rateWindowMs = 10 * 60_000;
@@ -82,13 +92,15 @@ export function initialBossChase(saved: unknown): BossChaseState {
 }
 
 interface LiveBoss { boss: ChasedBoss; id: string; realm: string; hp: number; target: string | null }
-function parseLive(boss: ChasedBoss, value: unknown, now: number): LiveBoss[] {
-  if (!Array.isArray(value)) throw new Error("ALData returned an unexpected " + bossNames[boss] + " payload");
+function parseLive(bosses: readonly ChasedBoss[], value: unknown, now: number): LiveBoss[] {
+  if (!Array.isArray(value)) throw new Error("ALData returned an unexpected boss payload");
   return value.flatMap((entry) => {
     const item = requestObject(entry);
     const seen = Date.parse(String(item.lastSeen));
     const hp = Number(item.hp);
-    if (item.type !== boss || !(hp > 0) || !Number.isFinite(seen) || now - seen > staleSightingMs) return [];
+    const boss = bosses.find((type) => type === item.type);
+    // Dead respawning bosses come back with `estimatedRespawn` and no hp; they aren't live.
+    if (!boss || !(hp > 0) || !Number.isFinite(seen) || now - seen > staleSightingMs) return [];
     if (typeof item.serverRegion !== "string" || typeof item.serverIdentifier !== "string") return [];
     return [{
       boss,
@@ -170,7 +182,7 @@ export function createBossChase(party: BossChaseParty, ports: BossChasePorts) {
   async function observe(bosses: ChasedBoss[], now: number): Promise<LiveBoss[] | null> {
     const chase = party.bossChase;
     try {
-      const live = (await Promise.all(bosses.map(async (boss) => parseLive(boss, await ports.fetchLive(boss), now)))).flat();
+      const live = parseLive(bosses, await ports.fetchLive(bosses), now);
       record(live, now);
       chase.checkedAt = now;
       chase.lastError = null;
@@ -212,7 +224,7 @@ export function createBossChase(party: BossChaseParty, ports: BossChasePorts) {
     }
     if (ports.realmSwitchBusy()) return;
     // Keep watching the chased boss even if its selection changes mid-trip.
-    const bosses = chasedBosses.filter((boss) => ports.selected(boss) || chase.trip?.boss === boss);
+    const bosses = chasedBosses.filter((boss) => ports.selected(chasedBossEvents[boss]) || chase.trip?.boss === boss);
     if (!bosses.length) { chase.sightings = []; return; }
     const now = ports.now();
     const live = await observe(bosses, now);

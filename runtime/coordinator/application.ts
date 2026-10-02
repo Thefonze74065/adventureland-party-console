@@ -1095,7 +1095,7 @@ export function startCoordinatorApplication(
     };
     const bossChase = coordinatorPolicies.createBossChase(party, {
       ...chasePorts,
-      fetchLive: (boss) => aldataFetch("/monsters/" + boss),
+      fetchLive: (bosses) => aldataFetch("/monsters/" + bosses.join(",")),
       realmExists: (realm) => !!my_acc.resolve_realm(realm),
       paused: () => !!party.dailyChase.trip,
     });

@@ -1554,9 +1554,12 @@ Cave encounter votes open an automatic dashboard dialog; resolved encounters rem
 
 ## Event boss realm chase
 
-`events/boss-chase.ts` polls ALData `/monsters/franky` and `/monsters/icegolem` once a minute
-through the shared ALData client budget. It only fetches bosses whose event an active character
-has selected. It acts only when enabled (Realm panel, `POST /party-api/realm/boss-chase`) and when
+`events/boss-chase.ts` polls ALData `/monsters/<types>` once a minute, in a single request through
+the shared ALData client budget. It covers Franky, Ice Golem and Giga Crab, plus the seasonal world
+bosses: Mr. Pumpkin and Mr. Green (`halloween`), Dragold (`lunarnewyear`) and Grinch
+(`holidayseason`). A boss is polled only while an active character has its event selected. Giga
+Crab usually dies well before Hop Sickness clears, so the lifetime gate below rarely lets it through.
+It acts only when enabled (Realm panel, `POST /party-api/realm/boss-chase`) and when
 no selected boss is live on the party's current realm. A candidate's remaining lifetime is
 estimated from its HP drain across polls (at least 50 seconds apart). The party moves only when
 that estimate meets `minEtaMinutes` (default 15), because Hop Sickness (12 minutes) must clear
