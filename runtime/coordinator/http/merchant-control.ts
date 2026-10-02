@@ -138,5 +138,24 @@ export function createMerchantControlRoutes(state: ControlState, ports: ControlP
     ports.persist();
     return res.json({ ok: true });
   }
-  return { cancel, clear, force, retry, clearLuckyJournal };
+  /**
+   * Manual "send the merchant to the bank": one bank exchange that deposits, withdraws pending
+   * requests (bank stand/NPC sales, deliveries) and refreshes the bank snapshot (#28 2c).
+   */
+  function visitBank(_req: HttpRequest, res: HttpResponse): unknown {
+    const merchant = state.merchantCharacter;
+    if (!merchant) return res.status(409).json({ error: "configure a merchant first" });
+    const existing = [state.merchantCurrent, ...state.merchantQueue].find(
+      (job) => job?.target === merchant && job.reason === "manual bank exchange");
+    if (existing) return res.json({ ok: true, queued: false });
+    state.merchantQueue.push(ports.stamp({
+      id: "merchant-" + ports.now() + "-" + ports.nextCommand(), target: merchant,
+      reason: "manual bank exchange", manual: true, queuedAt: ports.now(),
+    }));
+    ports.log("Queued a manual merchant bank visit", "info");
+    ports.persist();
+    ports.dispatch();
+    return res.json({ ok: true, queued: true });
+  }
+  return { cancel, clear, force, retry, clearLuckyJournal, visitBank };
 }

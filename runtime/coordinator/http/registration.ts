@@ -201,7 +201,7 @@ export interface MerchantTransactionsHandlers<Handler> {
   manualMarketOrderRoutes: { stand: Handler; purchase: Handler; ponty: Handler; sale: Handler };
   merchantOrderRoute: { handle: Handler };
   merchantExchangeRoutes: { progress: Handler; supply: Handler; order: Handler };
-  merchantControlRoutes: { clear: Handler; force: Handler; clearLuckyJournal: Handler };
+  merchantControlRoutes: { clear: Handler; force: Handler; clearLuckyJournal: Handler; visitBank: Handler };
   merchantHandoffRoutes: {
     handoff: Handler;
     complete: Handler;
@@ -240,6 +240,7 @@ export function installMerchantTransactionsRoutes<Handler>(
   router.post("/party-api/merchant/clear", handlers.merchantControlRoutes.clear);
   router.post("/party-api/merchant/force-stand", handlers.merchantControlRoutes.force);
   router.post("/party-api/merchant/clear-lucky-journal", handlers.merchantControlRoutes.clearLuckyJournal);
+  router.post("/party-api/merchant/bank-visit", handlers.merchantControlRoutes.visitBank);
   router.post("/party-api/merchant/handoff", handlers.merchantHandoffRoutes.handoff);
   router.post("/party-api/merchant/handoff-complete", handlers.merchantHandoffRoutes.complete);
   router.post("/party-api/merchant/cleanout", handlers.merchantHandoffRoutes.cleanout);

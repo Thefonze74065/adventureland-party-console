@@ -94,10 +94,29 @@ export function createAutomaticMerchantSales(state: SalesState, ports: SalesPort
     return true;
   }
 
+  // Withdrawals carry whole stacks; cap each pass so auto NPC sales can't flood the merchant's bags.
+  const bankNpcWithdrawalsPerPass = 10;
+  /**
+   * Bank stock matching an auto NPC-sale rule is withdrawn; once carried, the inventory scan above
+   * marks it for sale like any other item (Ryan-Haines/adventureland-party-console#28 2b).
+   */
+  function bankNpcEntry(entry: (InventoryEntry & { craftLocation: string }) | null): entry is InventoryEntry & SaleEntry & { craftLocation: string } {
+    if (!entry?.item || entry.item.l || !Number.isSafeInteger(entry.slot)) return false;
+    const key = automaticCommerceRuleKey(entry.item);
+    // A stand rule on the same item makes banked intent ambiguous; leave it where it is.
+    return !!state.autoNpcSales[key] && !state.autoStandMarks[key] && !saleConflict(entry.item);
+  }
+  function withdrawBankNpcSale(entry: (InventoryEntry & { craftLocation: string }) | null, queued: number): boolean {
+    if (queued >= bankNpcWithdrawalsPerPass || state.merchantAutomations?.['auto npc sales'] === false) return false;
+    if (!bankNpcEntry(entry)) return false;
+    ((state.withdrawals ||= {})[state.merchantCharacter!] ||= []).push({ pack: entry.craftLocation, slot: entry.slot, item: entry.item });
+    return true;
+  }
   function markBankStock(): boolean {
     if (!bankStockReady()) return false;
-    let changed = false;
+    let changed = false, npcWithdrawals = 0;
     for (const entry of availableBankStock()) {
+      if (withdrawBankNpcSale(entry, npcWithdrawals)) { npcWithdrawals++; changed = true; continue; }
       if (!bankStandEntry(entry)) continue;
       const key = automaticCommerceRuleKey(entry.item);
       if (!markStandSale(entry, key, entry.craftLocation)) continue;

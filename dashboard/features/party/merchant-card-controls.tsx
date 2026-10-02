@@ -255,6 +255,15 @@ export const MerchantCardControls = memo(function MerchantCardControls({
         <SendToPartyControl state={state} onSend={onBank} />
         <Button
           variant="outline"
+          disabled={action.isPending}
+          onClick={() => { action.reset(); action.mutate({ path: '/merchant/bank-visit', body: {} }); }}
+          className="h-9 border-sky-700 bg-[#07100f] text-xs text-sky-200 hover:bg-sky-950 hover:text-sky-50"
+        >
+          <Landmark className="mr-1.5 h-3.5 w-3.5" />
+          Visit bank
+        </Button>
+        <Button
+          variant="outline"
           aria-pressed={state.merchantForceStand === true}
           onClick={() => void onForceStand(state.merchantForceStand !== true)}
           className={
