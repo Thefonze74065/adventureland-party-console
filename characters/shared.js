@@ -13290,7 +13290,12 @@
           return t.id===target.id && t.map===character.map && t.in===character.in && t.server===reunionRealm();
         }))) return reject("combat recovery owns target");
     if (typeof root !== "undefined" && root.partyRoleRunner && root.partyRoleRunner.isKnownDead && root.partyRoleRunner.isKnownDead(target.id)) return reject("confirmed death");
-    if (typeof frankyCombatActive === "function" && frankyCombatActive()) return true;
+    if (typeof frankyCombatActive === "function" && frankyCombatActive()) {
+      // Off-tank positioning alone doesn't stop ranged pulls; attacks and skills wait for another holder.
+      if (frankyRoutine === "offtank" && (!target.target || target.target === character.name))
+        return reject("Off-tank waits for someone else to hold Franky");
+      return true;
+    }
     if (target.mtype === "fieldgen0") return reject("excluded monster");
     // Acquisition nominates a new target; only actual combat requires the group selection lock.
     // An attack already pending or engaged must still finish before another hunt pull.
