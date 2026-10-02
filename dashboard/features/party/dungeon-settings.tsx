@@ -1,5 +1,6 @@
 'use client';
 import { Settings } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useClock } from '@/hooks/use-clock';
 import {
   Dialog,
@@ -15,9 +16,13 @@ import { dungeonEntryLabel, useDungeons } from './dungeon-query';
 export const dungeonButton =
   'rounded border border-slate-500 bg-slate-950 px-3 py-2 text-emerald-50 hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-emerald-300 disabled:cursor-not-allowed disabled:opacity-50';
 export function CaveEventRow() {
+  const [open, setOpen] = useState(false);
   const query = useDungeons(),
     now = useClock(),
     view = query.data;
+  useEffect(() => {
+    if (view?.state.phase === 'active') setOpen(false);
+  }, [view?.state.phase]);
   const resume = view?.members[0]?.observation?.visit?.resume;
   const eligible =
     !!view?.members.length &&
@@ -33,7 +38,7 @@ export function CaveEventRow() {
   return (
     <div className="flex items-center gap-2 border-b border-slate-600 py-2">
       <span>Cave of Many Dreams — {dungeonEntryLabel(view, now)}</span>
-      <Dialog>
+      <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger
           aria-label="Cave of Many Dreams settings"
           className={dungeonButton + ' ml-auto'}

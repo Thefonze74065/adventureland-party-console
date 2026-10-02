@@ -116,7 +116,8 @@ test('movement retries retain allowances, grow backoff, and leave invalid orders
     retries.enqueue(job,retries.decide(job,{success:false,error:'ALClient found no route',failureKind:'commerce_movement'}));
     job=state.merchantQueue.shift();assert.equal(job.retryAt,1000+delay);assert.deepEqual(job.resumeState,{spent:42,attempts:9});
   }
-  assert.equal(retries.decide(job,{success:false,error:'90% estimated budget exhausted'}).retry,false);
+  assert.equal(retries.decide(job,{success:false,error:'90% estimated budget exhausted'}).retry,true);
+  assert.equal(retries.decide({...job,order:{buys:[{level:0}]}},{success:false,error:'Invalid order'}).retry,false);
 });
 test('queued order reservations protect survivors and completed results but release on cancellation',()=>{
   const state={merchantCharacter:'M',merchantQueue:[{id:'j',resumeState:{activeSlot:0,activeItem:{name:'coat',level:2},results:[{slot:1,item:{name:'coat',level:8}}]}}]};

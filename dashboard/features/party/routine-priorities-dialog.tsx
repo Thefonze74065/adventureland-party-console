@@ -58,7 +58,7 @@ export function RoutinePrioritiesDialog({
     ([keyA, labelA], [keyB, labelB]) =>
       (draft[keyB] ?? 50) - (draft[keyA] ?? 50) || labelA.localeCompare(labelB),
   );
-  const disabledRoutine = (key: string) => key === "deliveries" && enabled.deliveries === false;
+  const disabledRoutine = (key: string) => ["deliveries", "withdrawals"].includes(key) && enabled[key] === false;
   const movableRoutines = sortedRoutines.filter(([key]) => !disabledRoutine(key));
   const move = (source: string, target: string, after: boolean) => {
     if (source === target || disabledRoutine(source) || disabledRoutine(target)) return;
@@ -131,7 +131,7 @@ export function RoutinePrioritiesDialog({
               key={key}
               data-routine={key}
               aria-disabled={disabledRoutine(key) || undefined}
-              aria-describedby={disabledRoutine(key) ? "delivery-routine-help" : undefined}
+              aria-describedby={disabledRoutine(key) ? `${key}-routine-help` : undefined}
               className={`flex items-center gap-3 rounded border bg-slate-950 px-3 py-2 transition-transform ${disabledRoutine(key) ? "text-slate-400" : "text-emerald-50"} ${dragged === key ? "border-cyan-300 opacity-25" : "border-emerald-900/70"}`}
             >
               {automaticRoutineKeys.has(key) ||
@@ -149,12 +149,12 @@ export function RoutinePrioritiesDialog({
                 />
               ) : null}
               <span className="min-w-0 flex-1 text-sm">{label}
-                {disabledRoutine(key) && <span id="delivery-routine-help" className="block text-xs text-slate-300">Enable in Merchant settings</span>}
+                {disabledRoutine(key) && <span id={`${key}-routine-help`} className="block text-xs text-slate-300">Enable in Merchant settings</span>}
               </span>
               <Input
                 aria-label={`${label} priority`}
                 disabled={disabledRoutine(key)}
-                aria-describedby={disabledRoutine(key) ? "delivery-routine-help" : undefined}
+                aria-describedby={disabledRoutine(key) ? `${key}-routine-help` : undefined}
                 inputMode="numeric"
                 value={disabledRoutine(key) ? priorities[key] ?? 90 : draft[key] ?? priorities[key] ?? 50}
                 onChange={(event) => {
@@ -227,8 +227,10 @@ export function RoutinePrioritiesDialog({
               try {
                 const nextPriorities = { ...draft };
                 if (disabledRoutine("deliveries")) delete nextPriorities.deliveries;
+                if (disabledRoutine("withdrawals")) delete nextPriorities.withdrawals;
                 const nextEnabled = { ...enabledDraft };
                 delete nextEnabled.deliveries; // This toggle belongs to Merchant settings.
+                delete nextEnabled.withdrawals;
                 await onSave(nextPriorities, nextEnabled);
               } catch (failure) {
                 setError(

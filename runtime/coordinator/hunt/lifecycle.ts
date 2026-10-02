@@ -1,6 +1,7 @@
 import type { HuntCycle, HuntStatus, HuntTickState } from "./contracts.ts";
 import type { ReturnLocation } from "../events/return-types.ts";
 import { currentHuntParty } from "./current-party.ts";
+import * as policy from "../../hunt/policy.ts";
 
 interface HuntLifecycleState extends HuntTickState {
   monsterFocus?: string[];
@@ -116,6 +117,11 @@ export function createHuntLifecycle(state: HuntLifecycleState, ports: HuntLifecy
     ports.persist();
   }
 
+  function clearHuntCommands(hunt: HuntCycle): void {
+    for (const name of hunt.participants)
+      if (state.commands[name]?.purpose === "monster-hunt") delete state.commands[name];
+  }
+
   function resume(hunt: HuntCycle): boolean {
     delete hunt.routeRecovery; // Explicit user retry grants a fresh destination budget.
     ports.cancelConvoy();
@@ -126,10 +132,9 @@ export function createHuntLifecycle(state: HuntLifecycleState, ports: HuntLifecy
       (hunt.stage === "paused-event" && pickupStages.includes(hunt.resumeStage || ""))
     )
       hunt.pickupPending = true;
-    for (const name of hunt.participants)
-      if (state.commands[name]?.purpose === "monster-hunt") delete state.commands[name];
+    clearHuntCommands(hunt);
     hunt.stage = "checking-quests";
-    if (!hunt.loot || hunt.loot.complete) ports.prepare(hunt);
+    if ((!hunt.loot || hunt.loot.complete) && !combatEventPending(hunt)) ports.prepare(hunt);
     ports.persist();
     return true;
   }
@@ -187,13 +192,18 @@ export function createHuntLifecycle(state: HuntLifecycleState, ports: HuntLifecy
     if (pendingLoot) hunt.loot = pendingLoot;
     if (recoverBatch) hunt.batchPickup = true;
     hunt.stage = recoverBatch ? "batch-loot" : "checking-quests";
-    if (!recoverBatch && !hunt.loot) ports.prepare(hunt);
+    if (!recoverBatch && !hunt.loot && !combatEventPending(hunt)) ports.prepare(hunt);
     ports.persist();
     return true;
   }
 
   function unfinishedLoot(hunt: HuntCycle | null | undefined): HuntCycle["loot"] {
     return hunt?.loot && !hunt.loot.complete ? hunt.loot : undefined;
+  }
+
+  function combatEventPending(hunt: HuntCycle): boolean {
+    return !policy.priority(hunt) && hunt.participants.some(name =>
+      state.statuses[name]?.activeEvent || state.statuses[name]?.joinedEvent);
   }
 
   function begin(

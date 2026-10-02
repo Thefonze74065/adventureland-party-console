@@ -1,6 +1,7 @@
 import type { MerchantCommand, ServiceStatus } from "./work.ts";
 import { gatheringCastActive } from "./gathering.ts";
 import type { MerchantAnniversaryControl } from "./anniversary-control.ts";
+import { legacyStandLocation, type MerchantStandLocation } from './stand-location.ts';
 
 interface IdleStatus extends ServiceStatus {
   gatheringActive?: boolean;
@@ -18,6 +19,7 @@ interface StandListing {
   [field: string]: unknown;
 }
 interface IdlePorts {
+  standLocation?(): MerchantStandLocation | null;
   eventReserved?(): boolean;
   storagePending(): boolean;
   merchant(): string | null;
@@ -100,9 +102,10 @@ export function createMerchantIdle(ports: IdlePorts) {
   }
 
   function atMarket(status: IdleStatus): boolean {
+    const location = ports.standLocation?.() || legacyStandLocation;
     return (
-      status.map === "main" &&
-      Math.hypot((Number(status.x) || 0) + 63, (Number(status.y) || 0) - 100) <= 35
+      status.map === location.map &&
+      Math.hypot((Number(status.x) || 0) - location.x, (Number(status.y) || 0) - location.y) <= 35
     );
   }
 
@@ -112,6 +115,7 @@ export function createMerchantIdle(ports: IdlePorts) {
     const current = ports.command(ports.merchant());
     return (
       current?.type !== "merchant-idle" ||
+      (ports.standLocation && JSON.stringify(current.standLocation) !== JSON.stringify(ports.standLocation())) ||
       JSON.stringify(current.listings) !== JSON.stringify(ports.listings())
     );
   }
@@ -142,6 +146,9 @@ export function createMerchantIdle(ports: IdlePorts) {
     return !!ports.eventReserved?.() || ports.storagePending() ||
       navigationOwnsMovement(ports.status(ports.merchant()));
   }
+  function locationCommand() {
+    return ports.standLocation ? {standLocation:ports.standLocation()} : {};
+  }
   function idle(): void {
     if (reserved()) return;
     const merchant = ports.merchant(),
@@ -156,6 +163,7 @@ export function createMerchantIdle(ports: IdlePorts) {
     ports.issue(merchant, {
       id: ports.nextCommand(),
       type: "merchant-idle",
+      ...locationCommand(),
       listings: ports.listings(),
       homeRealm: ports.realm(),
       inventoryMerge: merge,

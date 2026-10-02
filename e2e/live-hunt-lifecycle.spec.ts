@@ -97,15 +97,21 @@ test.describe('native Hunt lifecycle', () => {
 
   test('an unfollowed priest completes a native solo Hunt without activating the warrior controller', async ({ live }, info) => {
     await live.post('/formation', { leader: W });
+    // CI reached the spawn without a travel kill and then had no authorized
+    // target. Native setup walking makes that boundary repeatable locally.
+    await live.clients[P].run("smart_move({map:'main',x:-32,y:719})");
     await quests(live, info, { [P]: { count: 1 } });
     const before = await world(live);
     await start(live, P);
+    await expect.poll(async () => (await live.clients[P].run('globalThis.__partyGroupedCombat'))?.members,
+      { timeout: 25_000, message: 'The independent priest must receive its own singleton combat group' }).toEqual([P]);
     const settings = await live.post('/hunt-settings', { character: P, deathThreshold: 4 });
     expect(settings).toMatchObject({ farmingOwner: P, savedFarmingPolicy: 'hunt', effectiveFarmingPolicy: 'hunt' });
     await live.post('/hunt-settings', { deathThreshold: 2 });
     expect(profile(await live.state(), P).huntSettings.deathThreshold).toBe(4);
     expect(profile(await live.state(), W).huntSettings.deathThreshold).toBe(2);
     await expect.poll(async () => tokens((await world(live))[P]), { timeout: 210_000 }).toBe(tokens(before[P]) + 1);
+    expect((await live.clients[P].events()).some(event => event.event === 'hit' && event.data?.kill)).toBe(true);
     expect(profile(await live.state(), W).monsterHunt).toBeFalsy();
     expect((await world(live))[W].quest).toBeNull();
     expect(tokens((await world(live))[W])).toBe(tokens(before[W]));

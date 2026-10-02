@@ -22,4 +22,5 @@ export type MapEntity = {
   dollHtml?: string | null;
   stand?: string | boolean | null;
   standSprite?: Sprite | null;
+  weapons?: {hand:string;name:string;sprite:Sprite|null}[];
 };

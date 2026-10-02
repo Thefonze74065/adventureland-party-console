@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {createImprovementScheduler}=require('../../runtime/coordinator/merchant/improvement-scheduler.ts');
 function fixture(){const state={merchantCharacter:'M',merchantAutomations:{},bankSnapshot:{packs:{}},autoCompounds:{},autoExchanges:{},merchantCatalog:{exchangeable:[]},merchantCurrent:null,merchantQueue:[]},calls=[];
- const service=createImprovementScheduler(state,{now:()=>100,nextCommand:()=>1,stamp:job=>({...job,priority:9}),queue:(...args)=>calls.push(args),persist:()=>calls.push('persist'),log:(...args)=>calls.push(args)});
+ const service=createImprovementScheduler(Object.assign(state,{production:state.production||{attempts:{}}}),{now:()=>100,nextCommand:()=>1,stamp:job=>({...job,priority:9}),queue:(...args)=>calls.push(args),persist:()=>calls.push('persist'),log:(...args)=>calls.push(args)});
  return {state,calls,service};}
 const ring=level=>({item:{name:'ring',level}});
 const stored=(slot,level=0)=>({slot,...ring(level)});

@@ -1,10 +1,5 @@
 # Changelog
 
-- Fix cave combat queue delivery and acknowledgement after farming resets or runtime reloads; preserve cave healing participants and stop issued travel segments when combat pauses movement.
-- Fixed coordinator startup on oversized saved-state journals: stream records and compact by size without constructing one giant string. Preserve existing state and writer locks.
-
-- Unified Hunt turn-in and anniversary staging returns: attack aggressors while planning and walking, cancel interrupted party Town casts together, resume Town after aggro clears, and retain bounded route retries. Removed independent anniversary casting and return combat/loot stops.
-
 ## Unreleased
 
 Changes queued for the next release. The release workflow determines its version
@@ -20,9 +15,22 @@ from the commits merged into `main`.
   progress; Stop running cancels startup or destroys the instance and saved data.
   Supports Windows/Linux Docker engines and Docker-hosted consoles with engine access.
 
-- Cave progress clears required rooms and travels through stairs automatically,
-  pausing for combat, loot, revival and manual choices. Pause/continue controls
-  preserve manual routing; leaving the final floor remains a manual decision.
+- Cave travel starts stopped. Choose a room or explicitly start automatic
+  exploration to clear required rooms and travel through stairs. Combat, loot,
+  revival and forced choices pause travel; encounter votes stop the route until
+  another destination is selected. Leaving the final floor remains manual.
+- Cave travel assembles participants at the leader, shares the native route and
+  slowest party cruise speed, and holds members that get ahead. Interrupted
+  routes regroup with bounded retries. Manual stairs remain selected through
+  farewell votes; objectives on other floors show a floor-specific error.
+- Cave panels show a full-floor map with party and encounter pins and one
+  replaceable waypoint. Encounter votes open a dialog automatically; resolved
+  encounters remain reviewable, and equipped weapons appear on map characters.
+
+- Add the default-enabled "Marked withdrawals create merchant jobs" setting
+  and a separate prioritized bank-trip routine (#28). Pending withdrawal marks
+  request a bank visit, including after restart. Disabling the setting retains
+  the marks for another bank visit without scheduling a withdrawal-only trip.
 - Visible cave hostiles use the normal shared combat queue, skills, formation,
   kiting and three target rings, with one coordinated primary target.
 
@@ -40,6 +48,71 @@ from the commits merged into `main`.
   Persisted action receipts prevent blind retries after lost entry or spending replies.
 
 ### Fixed
+
+- Keep independent farming combat authorized through a singleton group while
+  Follow is off, so solo priests attack at their Hunt spawn and finish turn-in.
+- Let BankBoi storage proceed independently of the merchant's production-receipt
+  recovery gate; retain native stack filling and protected stock during unload.
+- Recover newer merchant receipts after stale completed client journals without
+  restoring or replaying the completed attempt's old lucky-slot layout.
+- Fix cave combat queue delivery and acknowledgement after farming resets or
+  runtime reloads; preserve cave healing participants and stop issued travel
+  segments when combat pauses movement.
+- Stream and compact oversized coordinator state journals without constructing
+  one giant string; preserve existing state and writer locks.
+- Coordinate Hunt turn-in and anniversary staging returns: defend against
+  aggressors, cancel interrupted party Town casts together, resume after aggro
+  clears, and retain bounded route retries.
+
+- Pair manual inventory context actions with their automatic rules and expose
+  upgrade, deconstruction, stand and NPC-sale rules from bank menus. Persist
+  source-specific bank upgrade withdrawals until receipt reconciliation finds
+  the carried item; clearing bank marks also clears their pending intents.
+
+- Automatically retire stale lucky-slot layouts after the coordinator confirms
+  there are no pending production receipts and the displaced destination is
+  restored. Later source-slot deliveries or moved/finished gear no longer block
+  NPC sales, merchant luck and buy orders behind repeated inventory recovery.
+  Run recovery from the idle status pulse so the inventory-busy dispatch gate
+  cannot prevent the recovery needed to clear itself.
+
+- Preserve incoming party items while lucky-slot preparation waits for receipt
+  checkpoints. Refresh the destination and capture the actual displaced contents
+  after its native swap. Reconcile stack quantities when interrupted restoration
+  resumes, avoiding repeated inventory-recovery holds after deliveries or potion
+  use. Genuine mismatches now report expected and actual slot contents.
+  Keep the live lucky journal authoritative so delayed caracAL storage echoes
+  cannot resurrect a completed swap and strand the next upgrade in receipt review.
+
+- Apply merchant Mass Production immediately before buy-and-upgrade operations
+  as well as marked upgrades and compounds. Mass Production and Mass Exchange
+  prefer the ++ tier only when its cost leaves at least 20% MP, falling back to
+  the unlocked lower tier when affordable and ready. Log buff requests and
+  application; bounded waits prevent legacy skill promises from holding work.
+- Merchant passive recovery continues during production and uses HP/MP potions
+  below 20%, with HP priority, shared cooldowns and an overlap guard. Missing
+  potions fall through to free regeneration.
+
+- Remove "Left-click: details · Right-click: actions" from character inventories.
+- Keep Cave travel ownership through direct movement stops and suppress mainland
+  farm reunion during dungeon activity. Pause for nearby reachable threats or
+  active attackers rather than distant visible enemies; recognize hostile duel
+  participants when helping one side. Honor chest-open receipts and the native
+  pickup radius so cached loot animations do not hold travel indefinitely.
+- Preserve shared map geometry for followers and reconnects, and clear obsolete
+  Cave travel errors when selecting a new manual destination.
+
+- Preserve buy-with-upgrade orders through production failures, disabled routines,
+  and repeated worker stalls until completion or explicit cancellation. Keep
+  spending, attempts, owned stock and results across retries. Mirror production
+  and lucky-slot recovery journals in coordinator storage so lost client journals
+  can be reconstructed without replaying purchases or guessing destroyed items.
+
+- Keep Hunt paused during live combat events before quest preparation or expiry
+  can start a protected Daisy return, including when Hunt is enabled or resumed.
+  After respawning, retry temporary event travel denials and lost permission
+  replies while the event remains selected and live; still cancel on event end,
+  deselection, Escape, or replacement navigation.
 
 - Protect personal Tracktrix items from merchant collection and emergency cleanout
   using the native `tracker` ID rather than the display name. Keep trackers and
@@ -74,6 +147,7 @@ from the commits merged into `main`.
   and reserve passing attacks before bounded native timer delays.
 - Maintain warrior Warcry and priest Dark Blessing independently, after emergency
   defense, aggro rescue, and healing, while retaining survival mana reserves.
+  Cast only when off cooldown and the same buff is absent; both buffs can coexist.
 - Confirm Hunt blacklist “Clear all” before removing entries, with Cancel preserving the list.
 - Add passive-monster level caps and map previews for preferred Hunt spawn areas.
 

@@ -84,7 +84,7 @@ test('partial progress does not match an unrelated item in the marked slot', () 
 for(const response of [{failed:true,success:false,num:0},undefined,{failed:true,success:false,num:1}])
 test('destruction needs a matching server failure: '+JSON.stringify(response),async()=>{
  let now=0;const character={items:[{name:'coat',level:2}],q:{}};
- const c=vm.createContext({character,activeUpgrade:null,fingerprint:i=>i&&({...i}),
+ const c=vm.createContext({character,activeUpgrade:null,fingerprint:i=>i&&({...i}),merchantMassBuff:async()=>false,
   Date:{now:()=>now},setTimeout:(cb,ms)=>{now+=ms;cb();},
   upgrade:()=>{character.items[0]=null;return Promise.resolve(response);}});
  vm.runInContext(require('./helpers/named-function.cjs').namedFunction(source,'upgradeAtSlotConfirmed'),c);

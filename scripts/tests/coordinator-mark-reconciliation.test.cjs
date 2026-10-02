@@ -80,3 +80,18 @@ test('equipped upgrade marks survive bag reconciliation and resolve only the com
   assert.deepEqual(state.upgrades.W, [newer]);
   assert.equal(state.upgrades.W[0], newer);
 });
+
+for (const family of ['upgrade', 'compound']) test(`automatic merchant collects all copies alongside a finite ${family} rule`, () => {
+  const items = Array.from({length:12}, (_,slot)=>({slot,item:{name:'helmet',level:0}}));
+  const state = {merchantCharacter:'M',merchantRules:{version:1,owner:'M',members:['W','M'],conflicts:[]},marked:{},merchantMarked:{},
+    autoItemMarks:{M:{'helmet@+0':'merchant'}},autoUpgradeMarks:{M:{}},autoCompounds:{M:[]}};
+  if(family==='upgrade')state.autoUpgradeMarks.M['helmet@+0']={tiers:9,quantity:1};
+  else state.autoCompounds.M=[{name:'helmet',targetTier:1,quantity:1}];
+  collect(state,'W',{items});
+  assert.equal(state.merchantMarked.W.length,12);
+  assert.deepEqual(state.marked.W,[]);
+  state.autoItemMarks.M['helmet@+0']='bank';collect(state,'W',{items});
+  assert.deepEqual(state.marked.W,[]);assert.deepEqual(state.merchantMarked.W,[]);
+  state.autoItemMarks.M['helmet@+0']='merchant';state.autoNpcSales={'{"name":"helmet","level":0,"p":null,"stat_type":null}':true};
+  collect(state,'W',{items});assert.deepEqual(state.merchantMarked.W,[]);
+});

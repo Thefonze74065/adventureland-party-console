@@ -35,7 +35,9 @@ async function forward(req: import('node:http').IncomingMessage, res: ServerResp
   proxy(req, res, upstreamPort(route, options), !/^\/(party-api|CODE)\//.test(route));
 }
 export function gateway(options: Options) {
-  options = { ...options, realms: options.realms ?? (options.configure ? startupRealms() : Promise.resolve({ realms: [] })) };
+  // TLS is installed after the HTTP listener starts. Keep the shared options so
+  // HTTP and websocket authorization see its trusted HTTPS origin immediately.
+  options.realms ??= options.configure ? startupRealms() : Promise.resolve({ realms: [] });
   const server = createServer(async (req, res) => {
     res.setHeader("Referrer-Policy", "no-referrer");
     res.setHeader("Cache-Control", "no-store");

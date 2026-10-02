@@ -34,7 +34,7 @@ test('stock shared by stacks is reserved by quantity without modifying snapshots
 });
 function scheduler(stock,craft=true){
  const state={merchantCharacter:'M',statuses:{M:{items:[]}},merchantAutomations:{},autoCompounds:{M:[{name:'dexring',targetTier:3}]},bankSnapshot:{packs:{items0:stock}},merchantQueue:craft?[job()]:[],withdrawals:{}};
- const queued=[];const service=createImprovementScheduler(state,{now:()=>1,nextCommand:()=>1,stamp:x=>x,queue:(names,reason)=>queued.push(reason),persist(){},log(){}});
+ const queued=[];const service=createImprovementScheduler(Object.assign(state,{production:state.production||{attempts:{}}}),{now:()=>1,nextCommand:()=>1,stamp:x=>x,queue:(names,reason)=>queued.push(reason),persist(){},log(){}});
  return {state,queued,service};
 }
 test('empty merchant schedules bank-only triplets, but protected-only stock cannot interrupt crafting',()=>{

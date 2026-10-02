@@ -9,6 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gateway } from '../tools/hosting/gateway';
 import { Access } from '../tools/hosting/access';
+import { selectionFields, stateKeys } from '../runtime/coordinator/persistence/snapshots';
 import { loadouts, seedLoadout, type NativeLoadout } from './game/loadouts';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -25,15 +26,20 @@ export type LiveGame = {
   reconnectClient(name: string): Promise<void>;
 };
 
-export const test = base.extend<{ live: LiveGame; loadout: NativeLoadout; primaryClass: 'warrior' | 'ranger'; merchantDefault: string | null }>({
+export const test = base.extend<{ live: LiveGame; loadout: NativeLoadout; primaryClass: 'warrior' | 'ranger'; merchantDefault: string | null; initialPosition: {map: string; x: number; y: number} | null }>({
   loadout: ['god', {option:true}],
   primaryClass: ['warrior', {option:true}],
   merchantDefault: ['E2EMerchant', {option:true}],
-  live: [async ({ browser, dashboard, loadout, primaryClass, merchantDefault }, use, testInfo) => {
+  initialPosition: [null, {option:true}],
+  live: [async ({ browser, dashboard, loadout, primaryClass, merchantDefault, initialPosition }, use, testInfo) => {
     const directory = path.join(root, '.build/e2e', `live-${randomUUID()}`);
     mkdirSync(directory, { recursive: true });
     const manifest = await game.reset();
     const equipment = await seedLoadout(game.admin, loadout, primaryClass);
+    if (initialPosition) {
+      await game.admin("output=db.collection('character').updateMany({owner:data.owner},{$set:{'info.map':data.map,'info.x':data.x,'info.y':data.y}})", { owner: manifest.auth.split('-')[0], ...initialPosition });
+      await testInfo.attach('native-initial-position-seed', { body: JSON.stringify(initialPosition), contentType: 'application/json' });
+    }
     await testInfo.attach('native-loadout-seed', {body:JSON.stringify(equipment,null,2),contentType:'application/json'});
     await testInfo.attach('live-seed', { body: JSON.stringify({ ...manifest, auth: '[disposable credential omitted]' }, null, 2), contentType: 'application/json' });
     const port = await unusedPort(), log = path.join(directory, 'coordinator.log');
@@ -111,10 +117,23 @@ export const test = base.extend<{ live: LiveGame; loadout: NativeLoadout; primar
           const stored = Object.assign({}, ...entries);
           const settings = JSON.parse(stored[key]);
           const historical = restore(structuredClone(settings));
-          const allowed = new Set(['characterLocations', 'location', 'farmingPolicy', 'farmingProfiles', 'eventSelectionsByCharacter', 'activeConvoy', 'deferredEventReturns', 'eventReturn', 'monsterHunt', 'merchantDeliveries', 'npcSaleMarks', 'merchantCurrent', 'production', 'nativeStand', 'standBids']);
+          const allowed = new Set(['characterLocations', 'location', 'farmingPolicy', 'farmingProfiles', 'eventSelectionsByCharacter', 'activeConvoy', 'deferredEventReturns', 'eventReturn', 'monsterHunt', 'merchantDeliveries', 'npcSaleMarks', 'merchantCurrent', 'merchantCharacter', 'bankbois', 'bankboiTransaction', 'production', 'nativeStand', 'standBids', 'luckyUpgradeSlots', 'autoItemMarks', 'autoUpgradeMarks', 'autoCompounds']);
           if (Object.keys(historical).some(key => !allowed.has(key))) throw Error('Historical seed may only patch declared recovery, Hunt, navigation and native WTB settings');
           await testInfo.attach('declared-historical-settings-seed', { body: JSON.stringify(historical), contentType: 'application/json' });
-          appendFileSync(journal, JSON.stringify({ [key]: JSON.stringify({ ...settings, ...historical }) }) + '\n');
+          const bankKeys = new Set(['bankbois', 'bankboiTransaction']);
+          const bankPatch = Object.fromEntries(Object.entries(historical).filter(([field]) => bankKeys.has(field)));
+          const selectionKeys = new Set<string>(selectionFields);
+          const selectionsPatch = Object.fromEntries(Object.entries(historical).filter(([field]) => selectionKeys.has(field)));
+          const settingsPatch = Object.fromEntries(Object.entries(historical).filter(([field]) => !bankKeys.has(field) && !selectionKeys.has(field)));
+          const restored: Record<string, string> = { [key]: JSON.stringify({ ...settings, ...settingsPatch }) };
+          if (Object.keys(selectionsPatch).length)
+            restored[stateKeys.selections] = JSON.stringify({ ...JSON.parse(stored[stateKeys.selections] || '{}'), ...selectionsPatch });
+          if (Object.keys(bankPatch).length) {
+            const bankKey = 'party_dashboard_bank_state_v1';
+            restored[bankKey] = JSON.stringify({ ...JSON.parse(stored[bankKey] || '{}'), ...bankPatch });
+          }
+          for (const [stateKey, value] of Object.entries(restored))
+            appendFileSync(journal, JSON.stringify({ [stateKey]: value }) + '\n');
           await start();
         },
         async reconnectClient(name) {

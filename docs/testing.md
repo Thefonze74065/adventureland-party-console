@@ -1,5 +1,134 @@
 # Testing
 
+Merchant stand setup uses
+`npm test -- -- --project=live --grep "merchant stand location is valid"`.
+The native journey checks randomized, geometry-valid first setup, wall rejection,
+dashboard coordinate edits, native travel/stand opening with a declared stand
+item, and persistence through coordinator restarts. Retain the
+`merchant-stand-location-settings` screenshot and `merchant-stand-location-native`
+state/event ledger, then run `npm run test:e2e:verify`.
+
+`npm test -- -- --project=live --grep "merchant finishes native upgrades despite delayed"`
+replays the previous persisted lucky journal after every native storage clear,
+modeling delayed caracAL IPC echoes without replacing any game outcome. The
+merchant must finish a native buy-and-upgrade order to +3 with exactly one target
+item. Retain `lucky-journal-storage-echo` and verify its E2E evidence.
+The journey also moves the completed gear natively, reconnects with an older
+running journal, and requires idle recovery to clear inventory-busy telemetry
+before another order is submitted. The follow-up +1 order must finish while the
+original +3 result remains intact. This expanded run passed with 32 verified
+evidence files; the live original order advanced after autonomous recovery.
+The focused run passed with 32 verified evidence files. The subsequent native
+party-delivery and missing-journal restart journeys both passed with 60 verified
+evidence files; 58 retained lucky/production/recovery checks also passed.
+
+Lucky-slot party-delivery recovery uses
+`npm test -- -- --project=live --grep "lucky upgrade preserves party deliveries"`.
+The priest sends three native seashells into the empty lucky slot while its
+preparation checkpoint is held, then merges one more into the displaced stack
+while restoration is persisted. One injected failed return swap leaves a real
+completed upgrade for reconciliation. Coordinator restart must finish the order
+with exactly one +1 helmet, four seashells, a cleared lucky journal, and no replay
+after another restart. The first run reproduced the stale-preparation hold.
+Retain `lucky-party-delivery-restart` and verify the E2E artifacts. Use the ordinary
+full restart to activate the character change; retries preserve the original order.
+The fixed repeat passed with 32 verified evidence files. Typechecking, focused
+lint and 34 retained lucky-slot checks passed; this is focused coverage.
+
+Merchant mass skills and recovery use
+`npm test -- -- --project=live --grep "merchant mass skills use both tiers"`.
+Native buy-and-upgrade and exchange orders must request both ++ and lower tiers,
+with every ++ request leaving at least 20% MP after its native 200-MP cost.
+The low-MP scenario pauses the independent recovery timer and declares native
+starting MP; reconnect reinstalls the production timer. A subsequent busy order
+receives declared sub-20% HP/MP pools and must consume real HP and MP potions.
+Skill calls forward to the unmodified native implementation; no buff conditions,
+upgrade/exchange outcomes or potion receipts are fabricated. Retain the
+`merchant-mass-skills-and-recovery` inventory/skill ledger and native artifacts,
+then run `npm run test:e2e:verify`. Activate through the full supported restart.
+The focused native repeat passed with 32 verified evidence files. Typechecking
+and 53 retained passive-healing/item-operation/recovery checks also passed.
+
+Context-menu ordering and bank mark persistence use
+`npm test -- -- --project=console --grep "player context marks|bank context marks|inventory context menu and upgrade preview"`.
+The bank fixture enters through the storage checkpoint read boundary; actual
+menu clicks create, persist and clear a source-specific upgrade withdrawal.
+Player inventory is a declared read-boundary fixture. Screenshots, HTTP responses
+and persisted state are retained. This verifies menu behavior and coordinator
+intents, not native upgrade/deconstruction outcomes.
+
+Upgrade batch sizing with existing target-level stock uses
+`npm test -- -- --project=live --grep "upgrade purchase batch excludes"`.
+The native merchant starts with one +5 coat, sets the purchase batch to ten,
+and receives a new order for four +5 coats. Before the first upgrade, inventory
+must contain ten newly purchased level-0 coats and the untouched existing +5
+coat. The focused repeat passed with 31 verified evidence files via
+`npm run test:e2e:verify`; the initial run's artifact capture failed during
+teardown. This validates initial purchase sizing, not complete order fulfillment
+or continuous replenishment of level-0 stock while a batch is upgrading.
+
+BankBoi production-gate recovery uses
+`npm test -- -- --project=live --grep "BankBoi storage bypasses"`.
+The declared historical fixture designates a connected merchant as a storage
+worker with a waiting transaction and no production owner. Native banking must
+combine three nightberries with ten and four gifts with twenty, then preserve
+those quantities through coordinator restart. Worker registration/transaction
+fixtures declare recovery intent; no transfer receipt or merged result is seeded.
+Retain the native trace, inventory, bank, state and event attachments and run
+`npm run test:e2e:verify`. Activation requires the ordinary full restart.
+
+Durable buy-with-upgrade recovery uses
+`npm test -- -- --project=live --grep "buy with upgrade target survives"` and
+`npm run test:e2e:verify`. The native merchant buys/upgrades two helmets, loses one
+lucky restoration swap, and retains the original order. The test removes local
+local lucky and commerce journals and replays an older running production journal
+whose native receipt already completed. It restarts the coordinator and requires
+mirrored receipt recovery to produce exactly two +1 helmets without replay after
+another restart. The lost restoration occurs on the second item, after the first
+receipt completes. Initial lucky slot 30 is a declared configuration fixture, not
+a fabricated discovery or game outcome. The focused journey passed with 33
+verified evidence files; retained lucky-upgrade/recovery checks also passed (45).
+This is not full-suite coverage. Activation requires the ordinary full restart.
+
+The native `live-cave.spec.ts` journey covers cave party assembly/cruise, room
+arrival, stopping/resuming, encounter funds, full-floor pins/waypoint selection,
+native help-one-side duel completion and manual stairs through a farewell vote.
+Encounter selection is bounded to upstream duel/gift/shop definitions, avoiding
+the separate six-level-100-wolves challenge. The duel and farewell fixtures use
+native `cave_activate`/`cave_begin_vote`; no attack, death, vote receipt, completion,
+or transport result is fabricated. Inspect retained JSON, screenshots and traces
+and run `npm run test:e2e:verify` after the journey.
+
+Hunt/event respawn recovery uses
+`npm test -- -- --project=live --grep "disabling inherited Franky"` and
+`npm run test:e2e:verify`. The native fragile party fights Franky, enables Hunt
+with declared completed initial quests, and must remain paused without acquiring
+Daisy turn-in ownership. Native Rime Shatter kills the warrior; lost event
+permission replies must publish retryable recovery, then normal admission must
+rejoin the living boss. Deselection still evacuates both participants to Main.
+The focused run passed with 34 verified evidence files. A concurrent dashboard
+server required a temporary fixture using that existing isolated E2E dashboard;
+the game server, coordinator and native clients remained owned by the run.
+The initial `npm test` completed typechecking/building but stalled collecting the
+full test directory; the successful repeat selected this spec alone. This is
+focused validation, not a full-suite pass. Activate with the ordinary full restart.
+
+Issue #28's withdrawal-triggered bank trip uses
+`npm test -- -- --grep "marked withdrawals|marked bank deposit"` followed by
+`npm run test:e2e:verify`. The console journey checks the default-enabled Merchant
+settings checkbox, both saved values across restart, and the routine's disabled
+and editable priority states. The native round trip leaves a withdrawal marked
+while disabled, restarts, observes repeated heartbeats with stock still banked,
+then enables the routine and observes retrieval without another bank command.
+Stock and gold are conserved, and another restart does not replay retrieval.
+The focused final run passed both journeys with 43 verified evidence files under
+`.build/e2e-report/` and `.build/e2e-results/`; this is not a full-suite result.
+After a watcher build-lock race, the final repeat used
+`npx playwright test --grep "marked withdrawals|marked bank deposit"` against the
+already built coordinator/runtime. Coordinator/dashboard-only activation is
+sufficient. This does not certify the other automatic NPC-sale routing work in
+issue #28.
+
 The full-catalog Hunt blacklist regression uses
 `npm test -- -- --project=live --grep "Hunt blacklist full catalog"` and
 `npm run test:e2e:verify`. It uses the native game's many-monster catalog and
@@ -100,6 +229,26 @@ isolated assertion that a one-fighter group must disappear was removed; its
 surrounding Scatter, merchant-exclusion and disengagement checks remain.
 
 ## Run locally
+
+The independent solo-priest regression runs with:
+
+```sh
+npm test -- -- --project=live --grep "an unfollowed priest"
+npm run test:e2e:verify
+```
+
+CI run `36648481964`, shard 5, reached the Goo spawn but never attacked: the
+independent controller returned no combat group while the native priest waited
+for its group target authorization. Ordinary local runs and an isolated CI run
+passed when a native travel encounter completed the quest before spawn arrival.
+The regression now uses native setup walking to start inside the spawn, requires
+a priest-only combat group, then observes a native kill and exactly one Daisy
+reward while the warrior's Hunt remains off. The unfixed code fails the singleton
+group check locally. Ten related native Hunt/restart/death/merchant/solo-ranger
+journeys passed with the fix; this is focused coverage, not a complete suite run.
+The local run used a separate disposable Docker project and loopback ports to
+avoid another checkout's active test stack; those temporary settings are captured
+in its reproduction artifact and are not part of the fix.
 
 Issue #20 recovery can be repeated with:
 
@@ -479,3 +628,5 @@ are disconnected. Each result includes `native-loadout-seed` with exact equipmen
 and `live-server-initial` with the native calculated HP/MP, attack, frequency,
 speed, armor, and resistance. These scenarios validate workflow behavior rather
 than normal player combat difficulty or natural gear progression.
+
+The native Cave regression is in live-cave.spec.ts. Run npm test -- -- --project=live --grep 'Cave entry closes'. It seeds the party beside Dorr, uses native entry and votes, captures both participant maps, verifies both characters reach selected rooms, stops and restarts manual travel, inspects the shop item, and checks exit confirmation through the dashboard. Artifacts include native-cave-entry, native-cave-choice, participant cave-map screenshots, native-cave-manual-travel, and native-cave-exit. Fixture reset destroys only generated runs belonging entirely to its test account, preventing a prior failed run from becoming a resume visit.

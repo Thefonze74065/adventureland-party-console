@@ -6,6 +6,7 @@ interface Ports {
   swap(a: number, b: number): Promise<unknown>;
   read(): Journal | null;
   write(value: Journal | null): void;
+  checkpoint?(value: Journal): Promise<void>;
   sleep(ms: number): Promise<void>;
   now(): number;
   current(): boolean;
@@ -33,7 +34,9 @@ function sameStack(previous: Item | null, current: Item | null): boolean {
   return same(previousIdentity,currentIdentity);
 }
 function reconcileStack(j: Journal, current: Item | null): void {
-  if (j.phase === 'running' && sameStack(j.displaced,current)) j.displaced = copy(current);
+  // A saved restoration can resume after a potion or incoming transfer changed
+  // the displaced stack. Its identity, not its old quantity, owns the return.
+  if (sameStack(j.displaced,current)) j.displaced = copy(current);
 }
 function returnedResult(j: Journal, from: Item | null, to: Item | null): boolean {
   // Once a nonempty result is back in its source slot, an originally empty
@@ -44,8 +47,12 @@ function returnedResult(j: Journal, from: Item | null, to: Item | null): boolean
 }
 function originalLayout(j: Journal, from: Item | null, to: Item | null): boolean {
   if (returnedResult(j,from,to)) return true;
+  // Preparation has not issued an upgrade. A delivery into an originally
+  // empty destination does not invalidate the unchanged source item.
+  if (j.phase === 'preparing' && same(from,j.item))
+    return j.displaced === null || same(to,j.displaced) || sameStack(j.displaced,to);
   if (!same(to, j.displaced)) return false;
-  return j.phase === 'preparing' && same(from, j.item) || j.phase === 'restoring' && same(from, j.result ?? null);
+  return j.phase === 'restoring' && same(from, j.result ?? null);
 }
 function validResult(j: Journal, result: Item | null): boolean {
   return !result || result.name === j.item.name && [level(j.item), level(j.item) + 1].includes(level(result));
@@ -57,6 +64,10 @@ function failure(reason: string): Error & {reason: string; code: string} {
 }
 export function createLuckyUpgrade(ports: Ports) {
   let active = false;
+  async function save(journal: Journal): Promise<void> {
+    ports.write(journal);
+    await ports.checkpoint?.(journal);
+  }
   async function wait(check: () => boolean, reason: string): Promise<void> {
     if (!ports.current()) throw failure('runtime interrupted');
     const end = ports.now() + 5000;
@@ -85,23 +96,57 @@ export function createLuckyUpgrade(ports: Ports) {
     // A send/loot event can fill the source cell while the upgrade runs.
     // Adopt that incoming item as the displaced contents before the return
     // swap, so both items remain accounted for across interruption/restart.
-    if (j.phase === 'running' && j.displaced === null && ports.item(j.from) &&
-        validResult(j, ports.item(j.to))) {
-      j.displaced = copy(ports.item(j.from)); ports.write(j);
+    if (j.displaced === null && ports.item(j.from) && arrivalResult(j, ports.item(j.to))) {
+      j.displaced = copy(ports.item(j.from)); await save(j);
     }
-    if (!same(ports.item(j.from), j.displaced)) throw failure('displaced item changed; inventory recovery required');
+    if (!same(ports.item(j.from), j.displaced)) throw inventoryFailure(j);
     const result = ports.item(j.to);
     if (!validResult(j, result))
       throw failure('upgrade slot changed; inventory recovery required');
-    j.result = copy(result); j.phase = 'restoring'; ports.write(j);
+    j.result = copy(result); j.phase = 'restoring'; await save(j);
     await swapConfirmed(j.from, j.to, () => originalLayout(j, ports.item(j.from), ports.item(j.to)));
     ports.write(null);
+  }
+  function inventoryFailure(j: Journal): Error {
+    return failure('displaced item changed; inventory recovery required ' + JSON.stringify({
+      phase:j.phase,from:j.from,to:j.to,expected:j.displaced,actual:ports.item(j.from),upgrade:ports.item(j.to),
+    }));
+  }
+  function arrivalResult(j: Journal, item: Item | null): boolean {
+    if (j.phase === 'preparing') return same(item,j.item);
+    if (j.phase === 'restoring') return same(item,j.result ?? null);
+    return validResult(j,item);
+  }
+  async function refreshPreparation(j: Journal): Promise<void> {
+    if (!same(ports.item(j.from),j.item)) throw failure('source item changed during preparation');
+    const current = ports.item(j.to);
+    if (same(current,j.displaced)) return;
+    if (j.displaced !== null && !sameStack(j.displaced,current)) throw inventoryFailure(j);
+    j.displaced = copy(current);
+    await save(j);
+  }
+  function preparedSwap(j: Journal): boolean {
+    if (!same(ports.item(j.to),j.item)) return false;
+    const from = ports.item(j.from);
+    return same(from,j.displaced) || sameStack(j.displaced,from) || j.displaced === null;
   }
   async function recover(): Promise<void> {
     if (active) throw failure('another upgrade owns the inventory');
     await wait(() => !ports.busy(), 'upgrade still pending; inventory recovery required');
     const journal = ports.read();
     if (journal) await restore(journal);
+  }
+  function retireSettled(): boolean {
+    // Only the caller's authoritative absence of pending production receipts
+    // permits this path. The displaced destination proves the return layout is
+    // already restored; later cargo/gear movement need not match the old source.
+    if (active || ports.busy()) return false;
+    const journal = ports.read();
+    if (!journal) return false;
+    const destination = ports.item(journal.to);
+    if (!same(destination,journal.displaced) && !sameStack(journal.displaced,destination)) return false;
+    ports.write(null);
+    return true;
   }
   function runInput(from: number, scroll: number, lucky: unknown, offering?: number) {
     if (active) throw failure('another upgrade owns the inventory');
@@ -123,14 +168,18 @@ export function createLuckyUpgrade(ports: Ports) {
     try {
       if (from === to) { if (validSlot(lucky)) ports.log(to); return await action(from, scroll, offering); }
       const journal: Journal = {from, to, item, displaced: copy(ports.item(to)), scrollDisplaced: scroll === to, offeringDisplaced: offering === to, phase: 'preparing'};
-      ports.write(journal);
-      await swapConfirmed(from, to, () => same(ports.item(to), item) && same(ports.item(from), journal.displaced));
+      await save(journal);
+      await refreshPreparation(journal);
+      await swapConfirmed(from, to, () => preparedSwap(journal));
+      // The native swap may race another delivery after the checkpoint. Capture
+      // the actual displaced contents before admitting the game operation.
+      journal.displaced = copy(ports.item(from));
       const nextScroll = scroll === to ? from : scroll;
       const nextOffering = offering === to ? from : offering;
       if (nextOffering !== undefined && !same(ports.item(nextOffering), offeringItem)) throw failure("offering changed during preparation");
       if (!same(ports.item(nextScroll), scrollItem)) throw failure('scroll changed during preparation');
       // A scroll displaced from the lucky slot will be consumed by the operation.
-      journal.phase = 'running'; ports.write(journal); ports.log(to);
+      journal.phase = 'running'; await save(journal); ports.log(to);
       try { return await action(to, nextScroll, nextOffering); }
       finally {
         await restore(journal);
@@ -166,6 +215,6 @@ export function createLuckyUpgrade(ports: Ports) {
     // ever swapping two occupied cells while packing the bag.
     await swapConfirmed(target, empty, () => !ports.item(target) && same(ports.item(empty), displaced));
   }
-  return {run, recover, tidy, pending: () => active || !!ports.read()};
+  return {run, recover, retireSettled, tidy, pending: () => active || !!ports.read()};
 }
 (globalThis as unknown as {createPartyLuckyUpgrade: typeof createLuckyUpgrade}).createPartyLuckyUpgrade = createLuckyUpgrade;

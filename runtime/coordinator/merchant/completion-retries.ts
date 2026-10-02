@@ -28,6 +28,12 @@ function retryRendezvous(job: CompletionJob, error: string): boolean {
 function merchantDeath(body: CompletionReport): boolean {
   return !body.success && requestText(body.error || '').startsWith('Merchant died during rendezvous with ');
 }
+function preserveCommerce(job: CompletionJob, failed: boolean, interrupted: boolean): boolean {
+  return failed && buyUpgradeOrder(job) || interrupted && job.reason === 'merchant commerce';
+}
+function preserveOrder(job: CompletionJob, body: CompletionReport): boolean {
+  return !body.success && buyUpgradeOrder(job);
+}
 function classify(job: CompletionJob, body: CompletionReport): RetryDecision {
   const failed = !body.success,
     error = requestText(body.error || "");
@@ -45,8 +51,8 @@ function classify(job: CompletionJob, body: CompletionReport): RetryDecision {
     storageYield,
     anniversaryYield,
     rendezvous,
-    interruptedCommerce: interrupted && job.reason === "merchant commerce",
-    retry: retryDecision(job, {movementOwned: failed && body.failureKind === "hunt_movement_owned", movement, realm, storageYield, anniversaryYield, rendezvous}, interrupted),
+    interruptedCommerce: preserveCommerce(job, failed, interrupted),
+    retry: preserveOrder(job, body) || retryDecision(job, {movementOwned: failed && body.failureKind === "hunt_movement_owned", movement, realm, storageYield, anniversaryYield, rendezvous}, interrupted),
   };
 }
 function improvementCommunicationFailure(job: CompletionJob, body: CompletionReport): boolean {
@@ -151,6 +157,7 @@ export function createCompletionRetries(state: CompletionState, ports: Completio
   function decide(job: CompletionJob, body: CompletionReport): RetryDecision {
     resourceBlock(job, body);
     const decision = classify(job, body);
+    if (!body.success && buyUpgradeOrder(job)) job.lastError = requestText(body.error);
     if (decision.movement) job.lastMovementError = requestText(body.error);
     npcSales(job, body);
     const level =
@@ -214,5 +221,8 @@ function realmRetry(job: CompletionJob, retry: CompletionJob, now: number): void
 function retryRecoveryDelay(job: CompletionJob, retry: CompletionJob, decision: RetryDecision, now: number): void {
   if (decision.death) retry.retryAt = now + 10000;
   else if (decision.movement) movementRetry(job, retry, now);
-  else if (decision.interruptedCommerce && buyUpgradeOrder(job)) retry.retryAt = now + 1000;
+  else if (decision.interruptedCommerce && buyUpgradeOrder(job)) {
+    retry.retryAt = now + commerceRetryDelay(Number(job.retryCount || 0) + 1);
+    retry.pauseReason = requestText(job.lastError || 'Production interrupted; progress preserved');
+  }
 }

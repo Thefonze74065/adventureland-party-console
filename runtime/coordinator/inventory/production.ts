@@ -6,11 +6,13 @@ import { requestObject, requestText, type HttpRouter } from '../http/contracts.t
 interface UpgradeRule { tiers: number; quantity?: number }
 interface CompoundRule { name: string; targetTier?: number; quantity?: number }
 interface ReceiptRule { family: 'upgrade' | 'compound'; key: string; signature: string }
-export interface ProductionAttempt { name: string; level: number; kind: 'upgrade' | 'compound'; rules: ReceiptRule[]; automaticCompoundTarget?: number; completed?: boolean; success?: boolean; requestId?: string; offering?: string; resolution?: { outcome: 'unknown'; reason: string; at: number } }
+// Recovery is a client journal protocol, not a complete game item or operation.
+export interface ProductionJournal { id: string; item: {name: string; level?: number}; slots: number[]; phase: 'prepared' | 'running' | 'complete'; [key: string]: unknown }
+export interface ProductionAttempt { name: string; level: number; kind: 'upgrade' | 'compound'; rules: ReceiptRule[]; journal?: ProductionJournal; automaticCompoundTarget?: number; completed?: boolean; success?: boolean; requestId?: string; offering?: string; resolution?: { outcome: 'unknown'; reason: string; at: number } }
 export interface ProductionState { attempts: Record<string, ProductionAttempt> }
-export function pendingProduction(production: ProductionState) {
+export function pendingProduction(production: ProductionState, includeJournal = false) {
   return Object.entries(production.attempts).filter(([, attempt]) => !attempt.completed)
-    .map(([id, attempt]) => ({id, name:attempt.name, level:attempt.level, kind:attempt.kind}));
+    .map(([id, attempt]) => ({id, name:attempt.name, level:attempt.level, kind:attempt.kind, ...(includeJournal && attempt.journal ? {journal:attempt.journal} : {})}));
 }
 interface State extends ConflictState {
   upgrades?: Record<string, {requestId?: string}[] | undefined>;
@@ -62,6 +64,7 @@ export function beginProduction(state: State, body: Record<string, unknown>) {
   const previous = state.production.attempts[id];
   if (previous) {
     validateReceipt(previous, input);
+    checkpointProduction(state, body);
     return previous;
   }
   if (Object.values(state.production.attempts).some(attempt => !attempt.completed)) throw Error('Production recovery pending');
@@ -74,7 +77,28 @@ export function beginProduction(state: State, body: Record<string, unknown>) {
   if (isUpgradeOffering(body.offering)) attempt.offering = body.offering;
   attempt.automaticCompoundTarget = compoundTarget(state, body, name, kind);
   state.production.attempts[id] = attempt;
+  try { checkpointProduction(state, body); }
+  catch (error) { delete state.production.attempts[id]; throw error; }
   return attempt;
+}
+
+export function checkpointProduction(state: State, body: Record<string, unknown>): void {
+  if (body.journal === undefined) return;
+  const id = requestText(body.id), attempt = state.production.attempts[id], journal = requestObject(body.journal);
+  if (!attempt || !validJournal(journal, id, attempt))
+    throw Error('Invalid production recovery journal');
+  if (attempt.completed) return;
+  const phases = ['prepared', 'running', 'complete'];
+  if (attempt.journal && phases.indexOf(requestText(journal.phase)) < phases.indexOf(attempt.journal.phase)) return;
+  attempt.journal = structuredClone(journal) as ProductionJournal;
+}
+function validJournal(journal: Record<string, unknown>, id: string, attempt: ProductionAttempt): boolean {
+  const item = requestObject(journal.item);
+  return journal.id === id && item.name === attempt.name && Number(item.level || 0) + 1 === attempt.level &&
+    ['prepared', 'running', 'complete'].includes(requestText(journal.phase)) && validJournalSlots(journal.slots);
+}
+function validJournalSlots(slots: unknown): boolean {
+  return Array.isArray(slots) && slots.length > 0 && slots.every(slot => Number.isInteger(slot) && Number(slot) >= 0 && Number(slot) < 42);
 }
 type ProductionLog = (message: string, level: 'success', details: {name: string; level: number; attemptId: string}) => void;
 export function finishProduction(state: State, id: string, success: boolean, log?: ProductionLog): void {
@@ -83,6 +107,7 @@ export function finishProduction(state: State, id: string, success: boolean, log
   if (attempt.completed) return;
   if (success) consumeQuotas(state, attempt);
   attempt.completed = true; attempt.success = success;
+  delete attempt.journal;
   finishManualOffering(state, attempt);
   if (success && attempt.kind === 'compound' && attempt.level === attempt.automaticCompoundTarget)
     log?.('merchant completed auto compound', 'success', {name:attempt.name,level:attempt.level,attemptId:id});
@@ -92,7 +117,7 @@ export function installProductionRoutes(router: HttpRouter, state: State, persis
     const body = requestObject(req.body);
     if (body.character !== state.merchantCharacter) return res.status(400).json({error:'Only the merchant performs production'});
     try {
-      if (body.action === 'pending') return res.json({ok:true,pending:pendingProduction(state.production)});
+      if (body.action === 'pending') return res.json({ok:true,pending:pendingProduction(state.production, true)});
       if (body.action === 'inspect') return res.json({ok:true,...inspectProduction(state, body)});
       if (body.action === 'resolve-unknown') {
         resolveUnknownProduction(state, body);
@@ -101,7 +126,8 @@ export function installProductionRoutes(router: HttpRouter, state: State, persis
       }
       if (body.action === 'wait-offering') { recordOfferingWait(state, body); persist(); return res.json({ok:true}); }
       if (body.action === 'abort-manual') { abortManualProduction(state, requestText(body.id)); persist(); return res.json({ok:true}); }
-      if (body.action === 'complete') finishProduction(state,String(body.id),body.success === true,log);
+      if (body.action === 'checkpoint') checkpointProduction(state, body);
+      else if (body.action === 'complete') finishProduction(state,String(body.id),body.success === true,log);
       else beginProduction(state,body);
       persist();
       return res.json({ok:true,attempt:state.production.attempts[String(body.id)]});

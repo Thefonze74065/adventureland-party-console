@@ -26,7 +26,7 @@ function setup() {
     standBuyExplanation: 'stand', higherLevelExplanation: 'levels',
     suggestedItemValue: () => ({ suggested: 100, defaultPrice: 100 }),
   };
-  for (const name of ['Dialog', 'DialogContent', 'DialogHeader', 'DialogTitle', 'DialogDescription', 'DialogFooter', 'Input', 'Button', 'WTBPriorityInput', 'StandPriceButton', 'WTBPreference']) context[name] = name;
+  for (const name of ['Info','Popover','PopoverContent','PopoverTrigger','SuggestedPriceDetails','Dialog', 'DialogContent', 'DialogHeader', 'DialogTitle', 'DialogDescription', 'DialogFooter', 'Input', 'Button', 'WTBPriorityInput', 'StandPriceButton', 'WTBPreference']) context[name] = name;
   vm.createContext(context);
   vm.runInContext(code, context);
   return {

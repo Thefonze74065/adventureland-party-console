@@ -40,6 +40,7 @@ export const actionDomains = {
   '/bank/unlock': ['bank', 'core', 'config'],
   '/merchant/clear': core,
   '/merchant/force-stand': core,
+  '/merchant/stand-location': core,
   '/merchant/gather': core,
   '/merchant/job/cancel': commerce,
   '/merchant/job/retry': commerce,

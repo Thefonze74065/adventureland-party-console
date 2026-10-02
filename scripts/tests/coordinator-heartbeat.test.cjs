@@ -15,6 +15,22 @@ function stableResponse(response) {
  return body;
 }
 
+// A solo heartbeat must retain its singleton authorization scope, but without
+// runtime readiness it must not become ready, commit a fight, or select a target.
+// The subsequent scatter-farming heartbeat still has no grouped combat scope.
+const soloGroup = {
+ protocol:4, key:'[["P",0,false,null]]', leader:'P', targetLeader:'P',
+ members:['P'], anchor:{name:'P',map:'main',x:0,y:0,server:'USII'},
+ range:150, ready:false, readySince:null, committed:false, phase:'regrouping',
+ blockers:['P: waiting for updated combat runtime'], fighter:null, priest:null,
+ target:null, selection:null, pairRevision:null, queue:[],
+ queueRevision:JSON.stringify(['[["P",0,false,null]]',[]]),
+ claims:[], deaths:[], evidence:[], fights:[], lostTargets:[], observers:[],
+ participating:[], passingEncounters:[], pursuitExclusions:[], rareRejections:[],
+ recovering:[], recoverySince:{}, resetAt:0, searches:{},
+ seenAt:1900000000000, threats:[], transitionTrace:[],
+};
+
 for (const [implementation, start] of [['source',run],['bundle',runBundled]]) {
 test(`${implementation} heartbeat saves cumulative slot evidence and returns it without marking it verified`,async()=>{
  const host=await start(1900000000000);let response;
@@ -28,7 +44,7 @@ test(`${implementation} heartbeat saves cumulative slot evidence and returns it 
 test(`${implementation} coordinator handles first and repeated heartbeats without a current combat target`,async()=>{
  const host=await start(1900000000000);
  assert.equal(host.handlers.has('/party-api/anniversary/blacklist'),false);
- const contracts=require('./fixtures/heartbeat-contracts.json').map(value=>({...value,leader:'P',desiredPartyMembers:['P'],leaderLocation:{map:'main',x:0,y:0},monsterFocus:[],scatterEpoch:0,passingControl:{scope:'[null,[["P",0,null,"USII","main",null]]]',ready:false,admitted:[]}}));
+ const contracts=require('./fixtures/heartbeat-contracts.json').map((value,index)=>({...value,merchantStandLocation:{map:'main',x:-63,y:100},groupedCombat:index===0?soloGroup:null,leader:'P',desiredPartyMembers:['P'],leaderLocation:{map:'main',x:0,y:0},monsterFocus:[],scatterEpoch:0,passingControl:{scope:'[null,[["P",0,null,"USII","main",null]]]',ready:false,admitted:[]}}));
  const status=host.handlers.get('/party-api/status');let response;
  const res={status(code){assert.equal(code,200);return this;},json(value){response=value;}};
  const report=()=>({name:'P',ctype:'priest',map:'main',x:0,y:0,server:'USII',gold:0,items:Array(42).fill(null),hp:100,max_hp:100});

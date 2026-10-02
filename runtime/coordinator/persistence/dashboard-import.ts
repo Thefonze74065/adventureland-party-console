@@ -3,6 +3,7 @@ import {validPassivePatch, migratePassiveSettings, committedPassiveRules, type P
 import { migrateRoutinePriorities } from '../merchant/routines.ts';
 import {validHuntSettings} from "../hunt/settings.ts";
 import { stateKeys } from "./snapshots.ts";
+import { validStandLocation } from '../merchant/stand-location.ts';
 
 type ObjectValue = Record<string, unknown>;
 const object = (value: unknown): value is ObjectValue =>
@@ -52,6 +53,7 @@ export const validators: Record<string, (value: unknown) => boolean> = {
   monsterSearchRadiusByCharacter: mapOf(positive),
   bankboiPrefix: v => text(v) && (v === "" || /^[A-Za-z0-9_]{3,11}$/.test(v as string)),
   anniversaryAutoChat: boolean,
+  merchantStandLocation: validStandLocation,
   threshold: number,
   itemCollectionThreshold: positive,
   buyUpgradeBatchSize: value => number(value) && Number.isSafeInteger(value) && Number(value) >= 1 && Number(value) <= 42,

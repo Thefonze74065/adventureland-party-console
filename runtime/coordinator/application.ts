@@ -11,7 +11,8 @@ import type { WebMiddleware, WebRouter, WebMonitor } from "./infrastructure/web-
 import type { CoordinatorApplicationPlatform } from "./infrastructure/application-platform.ts";
 import { installProductionRoutes } from "./inventory/production.ts";
 import { migrateSharedRules, installSharedRuleRoutes, sharedMember } from "./inventory/shared-rules.ts";
-import { loadPlannerGeometry } from './navigation/planner-geometry.ts';
+import { loadCoordinatorGeometry } from './navigation/planner-geometry.ts';
+import { initializeStandLocation, standLocationRoute } from './merchant/stand-location.ts';
 import { createRareRouteDistance } from './navigation/rare-route-distance.ts';
 export function startCoordinatorApplication(
   platform: CoordinatorApplicationPlatform,
@@ -98,14 +99,16 @@ export function startCoordinatorApplication(
     let clientRevision = await game_files.get_revision?.(version) || String(version);
     const movementPlanner = coordinatorPolicies.createPlannerService(__dirname + '/../../.build/runtime/movement-planner.cjs');
     const movementFingerprints = new Map<number, string>();
+    let canStand: (x: number, y: number) => boolean = () => false;
     async function prepareMovement(gameVersion: number) {
       try {
         const directory = './game_files/' + gameVersion + '/';
-        const game = loadPlannerGeometry(
+        const geometry = loadCoordinatorGeometry(
           fs_regular.readFileSync(directory + 'data.js', 'utf8'),
           fs_regular.readFileSync(directory + 'old_common_functions.js', 'utf8'),
         );
-        const prepared = movementPlanner.prepare(game, gameVersion);
+        canStand = (x, y) => geometry.canStand(x, y);
+        const prepared = movementPlanner.prepare(geometry.game, gameVersion);
         await prepared.ready;
         movementFingerprints.set(gameVersion, prepared.fingerprint);
         log.info({ version: gameVersion, fingerprint: prepared.fingerprint }, 'ALClient movement geometry ready');
@@ -169,6 +172,7 @@ export function startCoordinatorApplication(
       persistHistory,
     });
     const persistence = coordinatorPolicies.createCoordinatorPersistence(party, localStorage);
+    if (initializeStandLocation(party, Object.keys(persistedSettings).length === 0, canStand)) persistence.settings();
     const storageService = coordinatorPolicies.createCoordinatorStorageService(
       party,
       persistBankState,
@@ -1646,7 +1650,6 @@ export function startCoordinatorApplication(
       const party = farmingScopes.view(name);
       const activeNames = () => Object.keys(party.statuses).filter(n => n === name && Date.now() - party.statuses[n]!.seenAt < 10000);
       const rareControl = { owns: () => false, encounter: () => null, control: (_name: string) => null };
-      const groupedCombatSnapshot = () => null;
       const huntParticipants = () => coordinatorPolicies.coordinatorHuntParticipants(party, Date.now, activeNames);
       const selectedMonsterDestination = (character: string | null) => coordinatorPolicies.selectCoordinatorMonsterDestination(party, character);
       const monsterDestination = (type: string | null | undefined) => coordinatorPolicies.coordinatorHuntDestination(party, type, (choices, focus) => farmZones.zones(choices, focus));
@@ -1670,6 +1673,23 @@ export function startCoordinatorApplication(
 
       const startPartyMonsterConvoy = partyConvoys.start;
       const cancelActiveConvoy = partyConvoys.cancel;
+
+      function groupedCombatSnapshot() {
+        // The scoped leader also uses the native group target lock. A null group
+        // only appears to work when a travel encounter finishes its quest first.
+        // Independent controllers do not own shared party disengagement or rares.
+        return coordinatorPolicies.coordinatorGroupedSnapshot(party, {
+          now: Date.now,
+          tickDisengagement: () => {},
+          disengagementActive: () => false,
+          intent: character => farmingNavigation.intent(character),
+          owned: ownedCharacter,
+          prepare: members => members,
+          evaluate: evaluateGroup,
+          finalize: group => group,
+          blocksPulls: () => false,
+        });
+      }
 
     const {
       lifecycle: huntLifecycle,
@@ -2175,6 +2195,7 @@ export function startCoordinatorApplication(
                   [...party.headlessSlots, ...party.steamMembers], !!party.steamSwitch && party.steamSwitch.phase !== 'complete')));
                 coordinatorPolicies.installMovementRoutes(router, movementPlanner, ownedCharacter);
                 installProductionRoutes(router, party, persistSettings, merchantLog);
+                router.post('/party-api/merchant/stand-location', standLocationRoute(party, (x,y) => canStand(x,y), persistSettings));
                 installSharedRuleRoutes(router, party, persistSettings);
                 router.post("/party-api/merchant/native-stand", coordinatorPolicies.createNativeStandRoute(party, { fulfill: fulfillStandBid, persist: persistSettings, dispatch: dispatchMerchant, stamp: stampMerchantJob }));
                 mapStreams.install(router);

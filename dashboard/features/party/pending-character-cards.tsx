@@ -9,19 +9,24 @@ const labels = {
   connected: 'Connected',
 };
 export function pendingCharacters(model: PartyConsoleModel) {
+  const bankbois = new Set((model.state.bankbois || []).map((bankboi) => bankboi.name));
+  if (model.state.bankboiTransaction) bankbois.add(model.state.bankboiTransaction.bankboi);
   const entries = model.state.characterConnections || [];
   const known = new Set(entries.map((entry) => entry.name));
   const waiting = (model.state.activeSlots || []).filter(
     (slot) =>
       slot.character &&
+      !bankbois.has(slot.character) &&
       !known.has(slot.character) &&
       !model.chars.some((char) => char.name === slot.character),
   );
   return [
     ...entries.filter(
       (entry) =>
-        entry.status !== 'connected' ||
-        !model.chars.some((char) => char.name === entry.name),
+        !bankbois.has(entry.name) && (
+          entry.status !== 'connected' ||
+          !model.chars.some((char) => char.name === entry.name)
+        ),
     ),
     ...waiting.map((slot) => ({
       name: slot.character!,

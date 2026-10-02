@@ -359,6 +359,7 @@ export const StandSheet = memo(function StandSheet({
   const [hideBadDeals, setHideBadDeals] = useState(false);
 
   const [hideUnaffordable, setHideUnaffordable] = useState(false);
+  const [hideUnowned, setHideUnowned] = useState(false);
 
   const [hideBlacklisted, setHideBlacklisted] = useState(true);
 
@@ -725,6 +726,7 @@ export const StandSheet = memo(function StandSheet({
   });
 
   const filteredBuyOrders = allBuyOrders
+    .filter((order) => !hideUnowned || (bankOwned.get(ownedKey(order.item)) || 0) > 0)
 
     .filter((order) =>
 
@@ -1612,7 +1614,7 @@ export const StandSheet = memo(function StandSheet({
 
                 {item?.name || order.item.name}
 
-                {Number.isFinite(Number(order.item.level))
+                {item?.meta?.upgradeable || item?.meta?.compoundable
 
                   ? ` +${Number(order.item.level) || 0}`
 
@@ -2739,6 +2741,12 @@ export const StandSheet = memo(function StandSheet({
 
                 </>
 
+              ) : null}
+              {marketTab === 'wtb' ? (
+                <label className="flex shrink-0 items-center gap-2 rounded border border-emerald-700 bg-black px-3 py-2 text-sm text-emerald-100">
+                  <Checkbox checked={hideUnowned} onCheckedChange={(checked) => setHideUnowned(checked === true)} />
+                  Hide unowned
+                </label>
               ) : null}
 
             </div>

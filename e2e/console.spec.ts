@@ -8,6 +8,56 @@ import { Access } from '../tools/hosting/access';
 import { startupRealms } from '../tools/hosting/realms';
 import { accountConfig, sessionValue } from '../tools/hosting/account';
 
+test.describe('marked withdrawal scheduling', () => {
+  test.use({ merchantDialogs: true });
+  test('marked withdrawals default on and Merchant settings survive restart', async ({page,app},info) => {
+    // Failure modes: legacy settings default off; UI does not persist the
+    // checkbox; restart loses disabled or enabled values. Native round-trip
+    // coverage verifies the resulting withdrawal scheduling and item receipts.
+    await page.goto('/');
+    await page.getByRole('button', {name:'Settings',exact:true}).click();
+    const settings = page.getByRole('dialog', {name:'Merchant settings',exact:true});
+    const toggle = settings.getByRole('checkbox', {name:'Marked withdrawals create merchant jobs',exact:true});
+    await expect(toggle).toBeChecked();
+    await toggle.uncheck();
+    await expect.poll(async () => (await app.state()).merchantAutomations.withdrawals).toBe(false);
+    await app.restartCoordinator();
+    await page.reload();
+    await page.getByRole('button', {name:'Settings',exact:true}).click();
+    await expect(toggle).not.toBeChecked();
+    expect((await app.state()).merchantAutomations.withdrawals).toBe(false);
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', {name:'Routines',exact:true}).click();
+    const routines = page.getByRole('dialog', {name:/Merchant routines/});
+    await expect(routines.getByRole('textbox', {name:'Marked withdrawals priority',exact:true})).toBeDisabled();
+    await routines.getByRole('button', {name:'Save routines',exact:true}).click();
+    expect((await app.state()).merchantAutomations.withdrawals).toBe(false);
+    await page.getByRole('button', {name:'Settings',exact:true}).click();
+    await toggle.check();
+    await expect.poll(async () => (await app.state()).merchantAutomations.withdrawals).toBe(true);
+    await info.attach('marked-withdrawals-enabled', {body:await page.screenshot(),contentType:'image/png'});
+    await toggle.uncheck();
+    await expect.poll(async () => (await app.state()).merchantAutomations.withdrawals).toBe(false);
+    await toggle.check();
+    await expect.poll(async () => (await app.state()).merchantAutomations.withdrawals).toBe(true);
+    await app.restartCoordinator();
+    await page.reload();
+    await page.getByRole('button', {name:'Settings',exact:true}).click();
+    await expect(toggle).toBeChecked();
+    expect((await app.state()).merchantAutomations.withdrawals).toBe(true);
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', {name:'Routines',exact:true}).click();
+    const priority = routines.getByRole('textbox', {name:'Marked withdrawals priority',exact:true});
+    await expect(priority).toBeEnabled();
+    await expect(priority).toHaveValue('90');
+    await priority.fill('91');
+    await routines.getByRole('button', {name:'Save routines',exact:true}).click();
+    await expect.poll(async () => (await app.state()).merchantRoutinePriorities.withdrawals).toBe(91);
+    expect((await app.state()).merchantAutomations.withdrawals).toBe(true);
+    await info.attach('marked-withdrawals-persisted', {body:JSON.stringify(await app.state()),contentType:'application/json'});
+  });
+});
+
 test('Hunt blacklist picker adds unseen monsters manually and survives restart', async ({page,app},info) => {
   // Failure modes: catalog excludes unseen monsters; search hides valid entries;
   // details cannot open; add targets the wrong character; manual reason displays
@@ -368,6 +418,27 @@ test.afterEach(async ({ page }, testInfo) => {
   expect(errors, 'The browser must not crash during the journey').toEqual([]);
 });
 
+test('active Bankboi uses its dedicated card instead of a pending character card', async ({ page }, info) => {
+  // Read-boundary fixture: a Bankboi occupies a headless slot without a normal
+  // character heartbeat. Both slot-derived and explicit connection entries must
+  // leave the dedicated activity card visible, without a misleading placeholder.
+  await page.route('**/party-api/state*', async route => {
+    const response = await route.fetch();
+    const state = await response.json();
+    await route.fulfill({ response, json: { ...state,
+      bankbois: [{ name: 'bankboi0', state: 'working', items: [] }],
+      bankboiTransaction: { bankboi: 'bankboi0', mode: 'store', phase: 'processing' },
+      activeSlots: [...(state.activeSlots || []), { index: 4, kind: 'headless', character: 'bankboi0', state: 'online' }, { index: 5, kind: 'headless', character: 'WaitingFighter', state: 'loading' }],
+      characterConnections: [...(state.characterConnections || []), { name: 'bankboi0', status: 'waiting', primary: false, delayed: false }],
+    } });
+  });
+  await page.goto('/');
+  await expect(page.getByText(/^Bankboi\s*Active$/)).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'bankboi0', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'WaitingFighter', exact: true })).toBeVisible();
+  await info.attach('bankboi-dedicated-active-card', { body: await page.screenshot(), contentType: 'image/png' });
+});
+
 test('Live WTB counts bank stock after empty slots without withdrawing it', async ({ page }, info) => {
   // Failure modes: empty slot objects crash rendering; later stock is omitted;
   // multiple bank stacks are undercounted; merchant-only stock stops matching.
@@ -377,6 +448,8 @@ test('Live WTB counts bank stock after empty slots without withdrawing it', asyn
   const orders = [
     { key: 'bank-leather', buyer: 'E2EBankBuyer', item: { name: 'leather' }, quantity: 9 },
     { key: 'inventory-sword', buyer: 'E2EInventoryBuyer', item: { name: 'sword', level: 0 }, quantity: 5 },
+    { key: 'unowned-computer', buyer: 'E2EComputerBuyer', item: { name: 'computer', level: 0 }, quantity: 1 },
+    { key: 'unowned-sword-level', buyer: 'E2EUpgradedBuyer', item: { name: 'sword', level: 1 }, quantity: 1 },
   ].map(order => ({ ...order, source: 'aldata', slot: 'trade1', map: 'main', x: 0, y: 0,
     price: 1000, serverRegion: 'US', serverIdentifier: 'II', lastSeen: new Date().toISOString(), seenAt: Date.now() }));
   await page.route('**/party-api/state*', async route => {
@@ -397,6 +470,18 @@ test('Live WTB counts bank stock after empty slots without withdrawing it', asyn
   const inventoryRow = page.getByRole('button', { name: /E2EInventoryBuyer/ }).locator('..');
   await expect(inventoryRow).toContainText('You have 1');
   await expect(inventoryRow.getByRole('button', { name: 'Sell', exact: true })).toBeEnabled();
+  await expect(inventoryRow).toContainText('Sword +0');
+  const computerRow = page.getByRole('button', { name: /E2EComputerBuyer/ });
+  await expect(computerRow).not.toContainText('+0');
+  const hideUnowned = page.getByRole('checkbox', { name: 'Hide unowned', exact: true });
+  await hideUnowned.check();
+  await expect(computerRow).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /E2EUpgradedBuyer/ })).toHaveCount(0);
+  await expect(bankRow).toBeVisible();
+  await expect(inventoryRow).toBeVisible();
+  await info.attach('live-wtb-hide-unowned', { body: await page.screenshot(), contentType: 'image/png' });
+  await hideUnowned.uncheck();
+  await expect(computerRow).toBeVisible();
   await info.attach('bank-wtb-inputs', { body: JSON.stringify({ bank, orders }), contentType: 'application/json' });
   await info.attach('bank-wtb-available-without-withdrawal', { body: await page.screenshot(), contentType: 'image/png' });
 });
@@ -452,6 +537,73 @@ test('account preference rejects invalid drafts and survives reload and coordina
   await testInfo.attach('account-setting-http-and-state', { body: Buffer.from(JSON.stringify(evidence, null, 2)), contentType: 'application/json' });
 });
 
+test.describe('player mark menu', () => {
+test.use({ playerInventory: true });
+test('player context marks keep bank and upgrade pairs before merchant delivery marks', async ({ page }, info) => {
+  await page.goto('/');
+  const card = page.locator('article').filter({ has: page.getByRole('heading', { name: 'W', exact: true }) });
+  await card.getByText('sword', { exact: true }).click({ button: 'right' });
+  const menu = page.locator('[data-slot="context-menu-content"]');
+  const names = (await menu.getByRole('menuitem').allTextContents()).map(text => text.trim());
+  const expected = ['Mark for bank', 'Auto mark for bank', 'Mark for upgrade', 'Auto mark for upgrade', 'Mark for merchant', 'Auto mark for merchant'];
+  expect(names.filter(name => expected.includes(name))).toEqual(expected);
+  await expect(menu.getByRole('menuitem', { name: 'Mark for stand', exact: true })).toHaveCount(0);
+  await info.attach('player-paired-mark-order', { body: await page.screenshot(), contentType: 'image/png' });
+});
+});
+
+test('bank context marks pair automatic actions and retain a source-specific upgrade across restart', async ({ page, app }, info) => {
+  const requests: unknown[] = [];
+  page.on('request', request => { if (request.method() === 'POST') requests.push({ path: new URL(request.url()).pathname, body: request.postDataJSON() }); });
+  const initial = await app.state();
+  const sword = initial.characters.M.items.find((entry: any) => entry?.item?.name === 'sword');
+  const ring = initial.merchantCatalog.allItems.find((entry: any) => entry.id === 'strring');
+  const bank = { gold: 100000, packs: { items0: [{ ...sword, slot: 0, item: { ...sword.item, level: 0 } }, { slot: 1, item: { name: 'strring', level: 1 }, meta: ring.meta }] } };
+  const checkpoint = await page.request.post(`${app.url}/party-api/bankboi/checkpoint`, { headers: { Origin: app.url }, data: { character: 'M', bank } });
+  expect(checkpoint.ok()).toBe(true);
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'M', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Inspect bank', exact: true }).click();
+  const pane = page.getByRole('dialog', { name: 'Bank', exact: true });
+  const item = pane.getByLabel(sword.meta.definition.name || 'sword', { exact: true });
+  await item.click({ button: 'right' });
+  const menu = page.locator('[data-slot="context-menu-content"]');
+  await expect(menu.getByRole('menuitem', { name: 'Auto mark for stand…', exact: true })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Auto sell to NPC…', exact: true })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Auto mark for upgrade', exact: true })).toBeVisible();
+  await menu.getByRole('menuitem', { name: 'Mark for upgrade', exact: true }).hover();
+  const submenu = page.locator('[data-slot="context-menu-sub-content"]');
+  await expect(submenu).toBeVisible();
+  await info.attach('bank-upgrade-tier-menu', { body: await page.screenshot(), contentType: 'image/png' });
+  const submitted = page.waitForResponse(response => new URL(response.url()).pathname.endsWith('/command') && response.request().method() === 'POST');
+  await submenu.getByRole('menuitem', { name: /^\+0 → \+1 / }).click();
+  const response = await submitted;
+  await info.attach('bank-mark-http-response', { body: JSON.stringify({ status: response.status(), body: await response.json() }), contentType: 'application/json' });
+  expect(response.ok()).toBe(true);
+  await info.attach('bank-mark-http-requests', { body: JSON.stringify(requests), contentType: 'application/json' });
+  await expect.poll(async () => (await app.state()).upgrades.M.some((mark: any) => mark.storage?.pack === 'items0' && mark.storage.slot === 0 && mark.tiers === 1)).toBe(true);
+  await app.restartCoordinator();
+  const state = await app.state();
+  expect(state.upgrades.M.some((mark: any) => mark.storage?.pack === 'items0' && mark.storage.slot === 0 && mark.tiers === 1)).toBe(true);
+  expect(state.withdrawals.M.some((request: any) => request.pack === 'items0' && request.slot === 0)).toBe(true);
+  await info.attach('bank-upgrade-source-and-withdrawal', { body: JSON.stringify({ bank, upgrades: state.upgrades, withdrawals: state.withdrawals }), contentType: 'application/json' });
+  await item.click({ button: 'right' });
+  await info.attach('bank-paired-mark-actions', { body: await page.screenshot(), contentType: 'image/png' });
+  await menu.getByRole('menuitem', { name: 'Clear all marks', exact: true }).click();
+  await expect.poll(async () => (await app.state()).upgrades.M.some((mark: any) => mark.storage?.pack === 'items0')).toBe(false);
+  await expect.poll(async () => (await app.state()).withdrawals.M.some((request: any) => request.pack === 'items0' && request.slot === 0)).toBe(false);
+  await app.restartCoordinator();
+  expect((await app.state()).withdrawals.M.some((request: any) => request.pack === 'items0' && request.slot === 0)).toBe(false);
+  await pane.getByLabel(ring.meta.definition.name, { exact: true }).click({ button: 'right' });
+  await expect(menu.getByRole('menuitem', { name: 'Mark for deconstruction', exact: true })).toBeVisible();
+  await menu.getByRole('menuitem', { name: 'Auto mark for deconstruction', exact: true }).click();
+  const confirmation = page.getByRole('dialog', { name: 'Enable auto deconstruction?', exact: true });
+  await expect(confirmation).toContainText('Possible rewards per item');
+  await confirmation.getByRole('button', { name: 'Enable auto deconstruction', exact: true }).click();
+  await expect.poll(async () => (await app.state()).deconstructionMarks.some((mark: any) => mark.auto && mark.storage?.pack === 'items0' && mark.storage.slot === 1)).toBe(true);
+  await info.attach('bank-auto-deconstruction-intents', { body: JSON.stringify((await app.state()).deconstructionMarks), contentType: 'application/json' });
+});
+
 test('inventory context menu and upgrade preview stay readable without queueing an upgrade', async ({ page, app }, testInfo) => {
   const previews: unknown[] = [];
   page.on('request', request => {
@@ -465,6 +617,16 @@ test('inventory context menu and upgrade preview stay readable without queueing 
   await sword.click({ button: 'right' });
   const rootMenu = page.locator('[data-slot="context-menu-content"]');
   await expect(rootMenu).toBeVisible();
+  const markOrder = await rootMenu.getByRole('menuitem').allTextContents();
+  const bankIndex = markOrder.findIndex(text => text.trim() === 'Mark for bank');
+  expect(markOrder[bankIndex + 1]).toMatch(/Auto mark for bank/);
+  const standIndex = markOrder.findIndex(text => text.trim() === 'Mark for stand');
+  expect(markOrder[standIndex + 1]).toMatch(/Auto mark for stand/);
+  const upgradeIndex = markOrder.findIndex(text => text.trim() === 'Mark for upgrade');
+  expect(markOrder[upgradeIndex + 1]).toMatch(/Auto mark for upgrade/);
+  expect(bankIndex).toBeLessThan(standIndex);
+  expect(standIndex).toBeLessThan(upgradeIndex);
+  expect(markOrder.findIndex(text => /Auto sell to NPC/.test(text))).toBeGreaterThan(upgradeIndex);
   await expect(rootMenu).toHaveCSS('background-color', 'rgb(255, 255, 255)');
   await expect(rootMenu).toHaveCSS('color', 'rgb(0, 0, 0)');
   const equip = rootMenu.getByRole('menuitem', { name: 'Equip', exact: true });

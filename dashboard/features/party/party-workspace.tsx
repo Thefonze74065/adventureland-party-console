@@ -30,7 +30,7 @@ export function PartyWorkspace({ model }: { model: PartyConsoleModel }) {
     <>
       <section className="px-5 py-7 md:px-10">
         <div className="mx-auto max-w-[1500px]">
-        <DungeonPanel />
+        <DungeonPanel model={model} />
         {!chars.length && !pending.length && <div className="mb-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><RosterControls
           slots={state.activeSlots || []}
           operation={state.steamSwitch}

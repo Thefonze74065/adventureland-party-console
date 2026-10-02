@@ -26,8 +26,10 @@ export function useDungeons() {
         body: { ...body, operationId: crypto.randomUUID() },
       });
       client.setQueryData(['party', 'daily-dungeons'], result);
+      return true;
     } catch (problem) {
       setError(problem instanceof Error ? problem.message : String(problem));
+      return false;
     }
   }
   return { ...query, action, busy: mutation.isPending, actionError: error };

@@ -1020,7 +1020,12 @@
     var xp = Number(match[1].replace(/,/g, "")) || 0;
     recordKillCredit(credit, xp);
   };
+  var dungeonOpenedChests = root.__partyDungeonOpenedChests = root.__partyDungeonOpenedChests || {run:null, ids:{}};
   var combatLootListener = function (data) {
+    if (data && data.cave && character.cave) {
+      if (dungeonOpenedChests.run !== character.cave.run) dungeonOpenedChests = root.__partyDungeonOpenedChests = {run:character.cave.run, ids:{}};
+      dungeonOpenedChests.ids[data.id] = true;
+    }
     if (!data || data.opener !== character.name) return;
     var before = lastInventoryTotals;
     setTimeout(function () {
@@ -2118,7 +2123,7 @@
   }
 
   function mapDollHtml(entity, direction) {
-    if (!entity || ["character", "npc"].indexOf(entity.type) < 0) return null;
+    if (!entity || (["character", "npc"].indexOf(entity.type) < 0 && !entity.cx)) return null;
     var renderSprite = typeof sprite === "function" ? sprite : parent && typeof parent.sprite === "function" ? parent.sprite : null;
     if (!renderSprite) return null;
     try {
@@ -2249,22 +2254,46 @@
     return !!target && target.type === 'monster' && target.visible !== false && !target.dead && target.hp > 0 &&
       (!target.map || target.map === character.map) && (target.in == null || target.in === character.in) &&
       !(root.partyRoleRunner && root.partyRoleRunner.isKnownDead(target.id)) &&
-      (target.cave && ['enemy', 'predator'].includes(target.cave.side) ||
+      (target.cave && (['enemy', 'predator'].includes(target.cave.side) ||
+        ['duel_left', 'duel_right'].includes(target.cave.side) &&
+          (get_entity(target.target)?.cave?.side === 'ally' || dungeonEncounterEnemy(target))) ||
        target.target === character.name || cavePartyNames().includes(target.target));
   }
   function getDungeonTarget() {
     if (!character.cave || character.cave.paused || !groupedFresh() || !groupedCombat.target) return null;
     var target = get_entity(groupedCombat.target.id);
-    return dungeonTargetAllowed(target) ? target : null;
+    return dungeonCombatThreat(target) ? target : null;
+  }
+  function dungeonCombatThreat(target) {
+    if (!dungeonTargetAllowed(target)) return false;
+    if (cavePartyNames().includes(target.target)) return true;
+    if (dungeonEncounterEnemy(target) && distance(character,target) <= 400 && can_move_to(target.x,target.y)) return true;
+    return distance(character, target) <= Math.max(80, Number(target.range || 0) + 25) && can_move_to(target.x, target.y);
+  }
+  function dungeonEncounterEnemy(target) {
+    var choice = character.cave?.choice, scene = choice?.scene || [];
+    if (!choice?.resolved) return false;
+    var actor = scene.find(function(a) { return String(a.id) === String(target.id); });
+    return !!actor && (actor.side === 'enemy' || actor.side === 'predator' ||
+      ['duel_left','duel_right'].includes(actor.side) && scene.some(function(a) { return a.side === 'ally'; }));
   }
   async function lootDungeonChests() {
     if (!runtimeCurrent() || character.rip || !character.cave || character.cave.paused) return;
     for (var id of Object.keys(parent.chests || {})) {
       if (!runtimeCurrent() || character.rip || !character.cave || character.cave.paused) return;
       var chest = parent.chests[id];
-      if (chest.map === character.map && (chest.in == null || chest.in === character.in) && distance(character, chest) <= 400)
-        await anniversaryWithTimeout(loot(id), 2500, 'Dungeon loot');
+      if (dungeonChestAvailable(id, chest))
+        // loot(id) uses parent.parent, which can be the commander frame.
+        // The radius above belongs to this character and its own native socket.
+        await anniversaryWithTimeout(parent.open_chest(id), 2500, 'Dungeon loot');
     }
+  }
+  function dungeonChestAvailable(id, chest) {
+    // The server's 400-unit pickup radius uses centres; game distance() subtracts
+    // sprite bounds. Keep a small margin for the latest server movement sample.
+    return !!chest && !chest.to_delete && !(dungeonOpenedChests.run === character.cave?.run && dungeonOpenedChests.ids[id]) &&
+      chest.map === character.map && (chest.in == null || chest.in === character.in) &&
+      Math.hypot(chest.x - character.real_x, chest.y - character.real_y) <= 380;
   }
   var caveRecoveryClient;
   function caveRecovery() {
@@ -2312,14 +2341,23 @@
     if (dungeonClient) return dungeonClient;
     if (!root.installDungeonRuntime) return { report: function () { return undefined; }, receive: function () {}, owns: function () { return false; } };
     var journalKey = 'party-dungeon-actions:' + character.name;
+    var travelTrack = null;
+    var caveRouteGate = null;
+    function preparedCaveRoute(plot) {
+      travelTrack.points = plot;
+      travelTrack.prefix = [0];
+      var previous = {x:travelTrack.x,y:travelTrack.y};
+      plot.forEach(function(point) {travelTrack.prefix.push(travelTrack.prefix[travelTrack.prefix.length-1]+Math.hypot(point.x-previous.x,point.y-previous.y));previous=point;});
+      travelTrack.prepared = true;
+    }
     dungeonClient = root.__partyDungeonRuntime = root.installDungeonRuntime({
       name: character.name, now: Date.now, current: runtimeCurrent,
       members: currentPartyList,
       leader: function () { return currentPartyList()[0]; },
       ready: function () {
         if (!character.cave) return !character.rip && !departureCombatPending() && eligibleDepartureChests().length === 0;
-        var threatened = Object.values(parent.entities || {}).some(dungeonTargetAllowed);
-        var unlooted = Object.values(parent.chests || {}).some(function (chest) { return chest.map === character.map && (chest.in == null || chest.in === character.in) && distance(character, chest) <= 400; });
+        var threatened = Object.values(parent.entities || {}).some(dungeonCombatThreat);
+        var unlooted = Object.entries(parent.chests || {}).some(function (entry) { return dungeonChestAvailable(entry[0], entry[1]); });
         return !character.rip && !character.cave.paused && !threatened && !unlooted;
       },
       alive: function () { return !character.rip; },
@@ -2343,12 +2381,67 @@
         return npc && { map: 'main', x: npc.position[0], y: npc.position[1] };
       },
       text: function (value) { return parent.phrase && parent.phrase.message ? parent.phrase.message(value) : String(value || ''); },
-      move: function (point) { return movement.move(point, undefined, { native: true, town: false,
+      travel: function () {
+        if (!travelTrack) return undefined;
+        if (!travelTrack.route && travelTrack.leader && movement.state.found) {
+          travelTrack.route = {plot:movement.state.plot.map(function(p) {return Object.assign({},p);}),identity:movement.identity};
+          preparedCaveRoute(travelTrack.route.plot);
+        }
+        if (travelTrack.points) {
+          var index = Math.max(0,travelTrack.points.length-movement.state.plot.length), next = travelTrack.points[index];
+          var from = index ? travelTrack.points[index-1] : {x:travelTrack.x,y:travelTrack.y}, along = travelTrack.prefix[index] || 0;
+          if (next) {
+            var dx=next.x-from.x,dy=next.y-from.y,length=Math.hypot(dx,dy);
+            along+=length ? Math.max(0,Math.min(length,((character.real_x-from.x)*dx+(character.real_y-from.y)*dy)/length)) : 0;
+          }
+          travelTrack.distance=Math.max(travelTrack.distance,along);
+        }
+        return {id:travelTrack.id,distance:travelTrack.distance,prepared:travelTrack.prepared,route:travelTrack.route};
+      },
+      sharedRoute: function (route, command) {
+        if (!travelTrack || travelTrack.id !== command.id || travelTrack.leader || travelTrack.prepared || !movement.state.found) return;
+        try { movement.install(route.plot,route.identity,'cave-convoy'); preparedCaveRoute(route.plot); }
+        catch(error) { movement.cancel('Cave convoy route could not be shared: '+String(error),{code:'cave-route-rejected'}); }
+      },
+      move: function (point, command) {
+        travelTrack = command.cruiseSpeed ? {id:command.id,distance:0,x:character.real_x,y:character.real_y,leader:character.name===cavePartyNames()[0],prepared:false} : null;
+        var journey = movement.move(point, undefined, { native: true, shared:!!command.cruiseSpeed, arrivalTolerance:command.action==='gather'?1:20, town: false, retainOnDirectStop: true,
         barrier: async function () {
           if (character.cave) return dungeonClient.canMove();
           await smartLoot(); return !departureCombatPending() && eligibleDepartureChests().length === 0;
-        } }); },
-      stop: function () { return movement.stop('smart'); },
+        } });
+        if (travelTrack) {
+          var preparing = travelTrack;
+          caveRouteGate = {tick:function () {
+            if (travelTrack === preparing && !movement.state.found && !character.moving && !parent.transporting && !character.cave?.paused) movement.planTick();
+            else movement.gate.original();
+          }};
+          movement.gate.owner = caveRouteGate;
+          var capturedGate = caveRouteGate;
+          journey.then(function(){if(movement.gate.owner===capturedGate)movement.gate.owner=null;},function(){if(movement.gate.owner===capturedGate)movement.gate.owner=null;});
+        }
+        return journey;
+      },
+      cruise: function (speed) { try { Promise.resolve(cruise(speed)).catch(function () {}); } catch (_) {} },
+      stop: function () {
+        if (movement.gate.owner === caveRouteGate) movement.gate.owner = null;
+        // Retire the prior owner before rejecting its movement promise. Its
+        // asynchronous failure handler must not stop the new dungeon journey.
+        if (convoyTraveling) {
+          var prior = convoyTraveling;
+          prior.cancelled = true;
+          if (prior.detachRoute) prior.detachRoute();
+          releaseConvoyCruise(prior);
+          if (prior.release) prior.release();
+          convoyTraveling = null;
+        }
+        if (farmingTravelToken) farmingTravelToken.cancelled = true;
+        if (reunion) { reunion.cancelled = true; reunion.moving = false; }
+        reunion = root.__partyReunion = null;
+        followingLeader = false;
+        partyConvoyActive = false;
+        return movement.cancel('Dungeon command changed', {code:'dungeon-command-changed'});
+      },
       read: function () { return JSON.parse(root.localStorage.getItem(journalKey) || 'null'); },
       write: function (journal) { root.localStorage.setItem(journalKey, JSON.stringify(journal)); },
     });
@@ -2422,8 +2515,8 @@
       upgradePreviewRevision: root.localStorage.getItem("party-upgrade-preview-revision:"+character.name) || "0",
       luckySlotTracking: luckySlotTracking().report(),
       merchantEventReserved: merchantEventWorkReserved(),
-      upgradeInventoryBusy: !!(root.__merchantInventoryTidy || luckyUpgradeService && luckyUpgradeService.pending() ||
-        root.localStorage.getItem("party-lucky-upgrade:" + character.name)),
+      upgradeInventoryBusy: !!(root.__merchantInventoryTidy || (luckyUpgradeService ? luckyUpgradeService.pending() :
+        root.localStorage.getItem("party-lucky-upgrade:" + character.name))),
       steamPrimary: !parent.caracAL && !parent.no_html && !parent.is_bot,
       escape: escapeLocal,
       platform: parent.caracAL ? "caracal" : (parent.game && parent.game.platform || "browser"),
@@ -3138,9 +3231,13 @@
       angle: Number(entity.angle) || 0, direction: Number(entity.direction) || 0,
       going_x: Number(entity.going_x) || 0, going_y: Number(entity.going_y) || 0,
       sprite: skin ? spriteDefinition(skin) : null,
-      dollHtml: type === "character" || type === "npc" && entity.cx ? mapDollHtml(entity, entity.direction) : null,
+      dollHtml: type === "character" || entity.cx ? mapDollHtml(entity, entity.direction) : null,
       stand: entity.stand || null,
       standSprite: entity.stand ? (spriteDefinition(typeof entity.stand === "string" ? entity.stand : "stand0") || spriteDefinition("stand0")) : null,
+      weapons: entity.cave ? ['mainhand','offhand'].map(function (hand) {
+        var item = entity.slots && entity.slots[hand], definition = item && G.items[item.name];
+        return definition ? {hand:hand,name:item.name,sprite:spriteDefinition(definition.skin_c || definition.skin)} : null;
+      }).filter(Boolean) : undefined,
     };
   }
 
@@ -3150,6 +3247,7 @@
     var now = Date.now();
     if (mapGeometrySent.map === character.map && now - mapGeometrySent.at < 5000) return undefined;
     var geometry = G.geometry[character.map], tilesets = {};
+    if (!geometry.tiles || !geometry.tiles.length || !(geometry.placements && geometry.placements.length || geometry.groups && geometry.groups.length)) return undefined;
     (geometry.tiles || []).forEach(function(tile) {
       var id = tile && tile[0], file = G.tilesets && G.tilesets[id] && G.tilesets[id].file;
       if (file) tilesets[id] = {file: /^https?:/.test(file) ? file : 'https://adventure.land' + file};
@@ -4151,7 +4249,7 @@
   function productionJournalKey() { return "party-production:" + character.name; }
   function rememberCommerceProduction(journal) {
     if (!journal.commerce) return;
-    var progress = JSON.parse(root.localStorage.getItem(journal.commerce.key) || "null");
+    var progress = JSON.parse(root.localStorage.getItem(journal.commerce.key) || "null") || journal.commerce.state;
     if (!progress || progress.sequence !== journal.commerce.sequence || !progress.pendingUpgrade) return;
     progress.pendingUpgrade.outcome = {item: journal.outcomeItem || null, destroyed: journal.destroyed === true};
     progress.sequence += 1;
@@ -4160,7 +4258,12 @@
   async function finishProductionJournal(journal) {
     if (journal.commerce) rememberCommerceProduction(journal);
     await request("/merchant/production", {method:"POST",body:{character:character.name,action:journal.request && journal.request.requestId && !journal.issued ? "abort-manual" : "complete",id:journal.id,success:journal.success}});
-    root.localStorage.removeItem(productionJournalKey());
+    var currentJournal = JSON.parse(root.localStorage.getItem(productionJournalKey()) || "null");
+    if (currentJournal && currentJournal.id === journal.id) root.localStorage.removeItem(productionJournalKey());
+  }
+  async function saveProductionJournal(journal) {
+    root.localStorage.setItem(productionJournalKey(),JSON.stringify(journal));
+    await request("/merchant/production", {method:"POST",body:{character:character.name,action:"checkpoint",id:journal.id,journal:journal}});
   }
   async function recoverProductionJournal() {
     if (root.__partyProductionWorking) throw Error("Production recovery waiting for game operation");
@@ -4176,17 +4279,35 @@
       if (!pending || !Array.isArray(pending.pending)) throw Error("Production recovery inspection unavailable");
       if (pending.pending.length) {
         var orphaned = pending.pending[0];
-        throw Error("Production recovery needs review: " + orphaned.id + " (" + orphaned.kind + " " + orphaned.name + " +" + orphaned.level + "); no local journal");
+        if (!orphaned.journal) throw Error("Production recovery needs review: " + orphaned.id + " (" + orphaned.kind + " " + orphaned.name + " +" + orphaned.level + "); no local journal");
+        journal = orphaned.journal;
+        root.localStorage.setItem(productionJournalKey(),JSON.stringify(journal));
+        if (journal.phase !== "complete" && journal.lucky && !root.localStorage.getItem("party-lucky-upgrade:" + character.name)) {
+          root.localStorage.setItem("party-lucky-upgrade:" + character.name,JSON.stringify(journal.lucky));
+          luckyUpgradeService = null;
+        }
       }
-      return;
+      else {
+        if (character.ctype === "merchant" && (luckyUpgradeService && luckyUpgradeService.pending() ||
+            root.localStorage.getItem("party-lucky-upgrade:" + character.name)))
+          merchantLuckyUpgrade().retireSettled();
+        return;
+      }
     }
     if (journal.phase === "complete") return finishProductionJournal(journal);
     if (character.q && (character.q.upgrade || character.q.compound)) throw Error("Production recovery waiting for game operation");
     var inspection = await request("/merchant/production", {method:"POST",body:Object.assign({},journal.request,{character:character.name,action:"inspect"})});
     if (!inspection || !Array.isArray(inspection.pending)) throw Error("Production recovery inspection unavailable");
+    // A local-storage replay can leave an older running journal after its
+    // coordinator receipt completed. Retire that evidence before comparing
+    // pending identities, then recover the newer coordinator journal normally.
+    // Never restore the completed attempt's old lucky layout or replay it.
+    if (inspection.attempt && inspection.attempt.completed) {
+      root.localStorage.removeItem(productionJournalKey());
+      return recoverProductionJournalWork();
+    }
     var orphan = inspection.pending.find(function (attempt) { return attempt.id !== journal.id; });
     if (orphan) throw Error("Production recovery needs review: " + orphan.id + " (" + orphan.name + " +" + orphan.level + "); local journal " + journal.id);
-    if (inspection.attempt && inspection.attempt.completed) { root.localStorage.removeItem(productionJournalKey()); return; }
     if (!inspection.attempt) {
       if (journal.phase !== "prepared") throw Error("Production recovery missing admitted attempt: " + journal.id);
       root.localStorage.removeItem(productionJournalKey());
@@ -4200,7 +4321,8 @@
       if (luckyUpgradeService && luckyUpgradeService.pending()) await luckyUpgradeService.recover();
       else if (character.ctype === "merchant" && root.localStorage.getItem("party-lucky-upgrade:" + character.name)) await merchantLuckyUpgrade().recover();
       var live = character.items[journal.slots[0]];
-      if (journal.commerce && !live) {
+      if (journal.commerce && (!live || live.name !== journal.item.name ||
+          [(journal.item.level || 0), (journal.item.level || 0) + 1].indexOf(live.level || 0) < 0)) {
         var previous = JSON.stringify(journal.item), upgraded = JSON.stringify(Object.assign({}, journal.item, {level: (journal.item.level || 0) + 1}));
         var candidates = character.items.map(function (item, slot) {
           var state = JSON.stringify(fingerprint(item));
@@ -4214,7 +4336,7 @@
       else throw Error("Production outcome needs review before another attempt: " + journal.item.name);
     }
     if (journal.commerce) journal.outcomeItem = fingerprint(character.items[journal.slots[0]]);
-    journal.phase="complete";root.localStorage.setItem(productionJournalKey(),JSON.stringify(journal));
+    journal.phase="complete";await saveProductionJournal(journal);
     await finishProductionJournal(journal);
   }
   async function verifyProductionProtection(slots) {
@@ -4243,10 +4365,11 @@
     var journal={id:id,item:item,slots:slots,phase:"prepared",request:body};
     var commerceJob = root.__merchantActiveJob;
     if (kind === "upgrade" && commerceJob && commerceJob.commerceJournalKey)
-      journal.commerce = {key: commerceJob.commerceJournalKey, sequence: commerceJob.commerceSequence};
+      journal.commerce = {key: commerceJob.commerceJournalKey, sequence: commerceJob.commerceSequence,
+        state: JSON.parse(root.localStorage.getItem(commerceJob.commerceJournalKey) || "null")};
     root.localStorage.setItem(productionJournalKey(),JSON.stringify(journal));
     try {
-      var admission = await request("/merchant/production",{method:"POST",body:body});
+      var admission = await request("/merchant/production",{method:"POST",body:Object.assign({},body,{journal:journal})});
       if (admission && admission.attempt && admission.attempt.completed) {
         root.localStorage.removeItem(productionJournalKey()); return {success:false,alreadyAttempted:true};
       }
@@ -4262,7 +4385,7 @@
       }
       throw error;
     }
-    journal.phase="running";root.localStorage.setItem(productionJournalKey(),JSON.stringify(journal));
+    journal.phase="running";await saveProductionJournal(journal);
     var result, failure;
     try { result=await operation(); } catch(error) { failure=error; }
     if (body.requestId) journal.issued=!!JSON.parse(root.localStorage.getItem(productionJournalKey()) || "{}").issued;
@@ -4274,7 +4397,7 @@
     journal.destroyed = !!(failure && failure.reason === "upgrade_destroyed" && failure.confirmedDestroyed === true);
     journal.success=!!live && live.name===item.name && (live.level || 0)===(item.level || 0)+1;
     if (journal.commerce) journal.outcomeItem = journal.destroyed ? null : fingerprint(live);
-    journal.phase="complete";root.localStorage.setItem(productionJournalKey(),JSON.stringify(journal));
+    journal.phase="complete";await saveProductionJournal(journal);
     await finishProductionJournal(journal);
     if (failure) throw failure;
     return result;
@@ -4293,6 +4416,7 @@
       return JSON.stringify(fingerprint(character.items[slot]));
     });
     var settled = false, result, failure = null;
+    await merchantMassBuff("massproduction");
     Promise.resolve(compound(first, second, third, scrollSlot)).then(function (value) {
       settled = true;
       result = value;
@@ -4353,12 +4477,24 @@
   function merchantLuckyUpgrade() {
     if (luckyUpgradeService) return luckyUpgradeService;
     var key = "party-lucky-upgrade:" + character.name;
+    // caracAL can echo an older persisted value after a newer write or clear.
+    // Load once on activation; this runtime owns subsequent journal transitions.
+    var journal = JSON.parse(root.localStorage.getItem(key) || "null");
     luckyUpgradeService = root.createPartyLuckyUpgrade({
       item: function (slot) { return fingerprint(character.items[slot]); },
       busy: function () { return !!(character.q && (character.q.upgrade || character.q.compound)) || character.items.some(function (item) { return item && item.name === "placeholder"; }); },
       swap: function (a, b) { return swap(a, b); },
-      read: function () { return JSON.parse(root.localStorage.getItem(key) || "null"); },
-      write: function (value) { if (value) root.localStorage.setItem(key, JSON.stringify(value)); else root.localStorage.removeItem(key); },
+      read: function () { return journal && JSON.parse(JSON.stringify(journal)); },
+      write: function (value) {
+        journal = value && JSON.parse(JSON.stringify(value));
+        if (value) root.localStorage.setItem(key, JSON.stringify(value)); else root.localStorage.removeItem(key);
+      },
+      checkpoint: async function (value) {
+        var journal = JSON.parse(root.localStorage.getItem(productionJournalKey()) || "null");
+        if (!journal) return;
+        journal.lucky = value;
+        await saveProductionJournal(journal);
+      },
       sleep: sleep, now: Date.now, current: runtimeCurrent,
       log: function (slot) {
         var message = "Using upgrade slot " + slot + " (" + (slot === luckyUpgradeSlot ? "verified" : "lucky-slot search") + ", inventory position " + (slot + 1) + ")";
@@ -4369,6 +4505,34 @@
       }
     });
     return luckyUpgradeService;
+  }
+
+  async function merchantMassBuff(base) {
+    if (character.ctype !== "merchant" || character.rip) return false;
+    var higher = base + "pp", tiers = [higher, base];
+    if (tiers.some(function (skill) { return character.s && character.s[skill]; })) return true;
+    var skill = tiers.find(function (name) {
+      var definition = G.skills[name];
+      return definition && character.level >= Number(definition.level || 0) &&
+        (name !== higher || character.mp - Number(definition.mp || 0) >= character.max_mp * 0.2) &&
+        !is_on_cooldown(name) && can_use(name);
+    });
+    if (!skill) return false;
+    try {
+      // Legacy merchant buff promises may stay pending after the native
+      // condition arrives. A speed optimization must not fence production.
+      await Promise.race([Promise.resolve(use_skill(skill)), sleep(750)]);
+      var applied = !!(character.s && character.s[skill]);
+      var message = (applied ? "Applied " : "Requested ") + G.skills[skill].name + " for the next operation";
+      game_log(message, "#facc15");
+      var job = root.__merchantActiveJob;
+      if (job) request("/merchant/activity", {method:"POST",body:{character:character.name,jobId:job.jobId,
+        message:message,level:"info",details:{skill:skill,mp:character.mp,maxMp:character.max_mp}}}).catch(function () {});
+      return applied;
+    } catch (error) {
+      game_log("Could not apply " + skill + "; continuing without it: " + String(error.reason || error.message || error), "#facc15");
+      return false;
+    }
   }
 
   async function upgradeAtSlotConfirmed(itemSlot, scrollSlot, expectedName, expectedLevel, offeringSlot) {
@@ -4389,6 +4553,7 @@
           root.localStorage.setItem(productionJournalKey(),JSON.stringify(pendingProduction));
         }
       }
+      await merchantMassBuff("massproduction");
       Promise.resolve(upgrade(itemSlot, scrollSlot, offeringSlot)).then(function (value) {
         settled = true; result = value;
       }).catch(function (error) { settled = true; failure = error; });
@@ -5279,27 +5444,6 @@
     await merchantOperationStage(command, "processing");
     var returns = [], used = {};
     command._upgradeReturns = [];
-    async function productionBuff() {
-      var skill = character.level >= 60 ? "massproductionpp" : character.level >= 30 ? "massproduction" : null;
-      if (!skill || !can_use(skill) || is_on_cooldown(skill)) return false;
-      // The runner's generic use_skill path delegates merchant production
-      // buffs to the legacy client promise, which can remain pending even
-      // after the server applies the condition. The buff is an optimization,
-      // never a prerequisite: cap the wait so upgrading cannot deadlock.
-      try {
-        await Promise.race([
-          Promise.resolve(use_skill(skill)),
-          new Promise(function (resolve) { setTimeout(resolve, 750); }),
-        ]);
-      } catch (error) {
-        activity.push({ level: "info", message: "Could not apply " + skill + "; continuing without it",
-          details: String(error.reason || error.message || error) });
-        return false;
-      }
-      if (character.s && character.s[skill])
-        activity.push({ level: "info", message: "Applied " + G.skills[skill].name + " to the next operation" });
-      return !!(character.s && character.s[skill]);
-    }
     for (var purchaseIndex = 0; purchaseIndex < (command.purchases || []).length; purchaseIndex += 1) {
       var purchase = command.purchases[purchaseIndex], seller = purchase && itemSeller(purchase.name);
       if (!seller || !G.items[purchase.name]) { activity.push({ level: "error", message: "No seller for " + (purchase && purchase.name) }); continue; }
@@ -5337,7 +5481,6 @@
           scrollSlot = findInventoryItemByName(scrollName);
         }
         await smart_move(find_npc("newupgrade"));
-        await productionBuff();
         try {
           var before = character.items[slot].level || 0;
           var outcome = await upgradeConfirmed(slot, scrollSlot, undefined, undefined, mark.auto ? {family:"upgrade",key:mark.item.name+"@+"+(mark.item.level||0),mark:Object.assign({},mark,{slot:slot,equipped:false})} : undefined, offeringAttempt);
@@ -5381,7 +5524,7 @@
         await ensureOwnedItemQuantity(cscroll, 1, command, activity);
         cscrollSlot = findInventoryItemByName(cscroll);
       }
-      await smart_move(find_npc("newupgrade")); await productionBuff();
+      await smart_move(find_npc("newupgrade"));
       try {
         await compoundConfirmed(slots[0], slots[1], slots[2], cscrollSlot);
         var resultSlot = sameItem(character.items[slots[0]], {
@@ -5440,7 +5583,7 @@
             scrollSlot = findInventoryItemByName(scrollName);
           }
           await merchantOperationStage(command, "processing");
-          await smart_move(find_npc("newupgrade")); await productionBuff();
+          await smart_move(find_npc("newupgrade"));
           await refreshCompoundProtection(command);
           candidates = compoundInventorySlots(command, autoMark.name, level);
           if (candidates.length < 3) continue;
@@ -7067,8 +7210,7 @@
     } catch (error) {
       if (error && (error.reason === "merchant_yield" || error.message === "merchant_yield")) return;
       if (command.commerceProgressVersion === 2 && error.partyRequest && error.partyRequest.path === '/movement-plan') error.commerceMovement = true;
-      var commerceRecovery = command.commerceProgressVersion === 2 && (error.partyRequest ||
-        /Upgrade operation timed out|upgrade_result_not_confirmed|Commerce production is still settling|Production recovery waiting/.test(String(error.reason || error.message || error)));
+      var commerceRecovery = command.commerceProgressVersion === 2;
       var recoverable = error.reason === "hunt_movement_owned" || error.commerceMovement || commerceRecovery || /^(interrupted|merchant_anniversary_reserved|bankboi_pending)$/.test(String(error.reason || error.message || error));
       activity.push({ level: recoverable ? "info" : "error", message: recoverable ? "Merchant order paused; progress preserved" : "Merchant order failed", details: String(error.reason || error.message || error) });
       try { await request("/merchant/complete", { method: "POST", body: {
@@ -7134,12 +7276,6 @@
       });
       if (result < 0) throw new Error("Could not split exchange quantity for " + item.name);
       return result;
-    }
-    async function applyMassExchange() {
-      var skill = character.level >= 70 ? "massexchangepp" : character.level >= 40 ? "massexchange" : null;
-      if (!skill || is_on_cooldown(skill) || !can_use(skill)) return;
-      await use_skill(skill);
-      await new Promise(function (resolve) { setTimeout(resolve, 100); });
     }
     function exactInventoryQuantity(itemId, level) {
       return character.items.reduce(function (sum, item) {
@@ -7214,7 +7350,7 @@
             result = await purchase;
           } else {
             slot = await splitExact(slot, required);
-            await applyMassExchange();
+            await merchantMassBuff("massexchange");
             await verifyMerchantItemMarks();
             result = await exchange(slot);
           }
@@ -9197,10 +9333,10 @@
     if (!returningToStand && character.ctype === "merchant" && root.__merchantInventoryTidy) await root.__merchantInventoryTidy;
     if (!returningToStand && character.ctype === "merchant" && luckyUpgradeService && luckyUpgradeService.pending()) {
       if (root.__merchantActiveJob) { reportMerchantCommand(command, "deferred", "lucky slot inventory operation"); return; }
-      try { await luckyUpgradeService.recover(); }
+      try { await recoverProductionJournal(); await luckyUpgradeService.recover(); }
       catch (error) { reportMerchantCommand(command, "deferred", error.message || String(error)); return; }
     }
-    if (character.ctype === "merchant" && !root.__merchantActiveJob) {
+    if (character.ctype === "merchant" && command.type !== "bankboi-service" && !root.__merchantActiveJob) {
       try { await recoverProductionJournal(); }
       catch (error) { reportMerchantCommand(command, "deferred", error.message || String(error)); return; }
     }
@@ -9878,6 +10014,7 @@
         if (!consoleMaintenanceBusy() && typeof stop === 'function') await stop('smart');
         return;
       }
+      mapTelemetryEnabled = !!state.mapTelemetry;
       dungeonRuntime().receive(state.dailyDungeon);
       if (root.installCaveRecovery) caveRecovery().receive(state.dailyDungeon && state.dailyDungeon.recovery);
       if (dungeonRuntime().owns()) {
@@ -9891,6 +10028,18 @@
       }
       await applyMerchantVisibility(state.merchantVisibility);
       if (character.ctype === "merchant") await flushNativePurchaseReceipts();
+      // Recovery cannot depend on dispatching another job: inventory-busy
+      // telemetry itself holds dispatch. Inspect receipts before stale layouts.
+      if (character.ctype === "merchant" && luckyUpgradeService && luckyUpgradeService.pending() &&
+          !root.__merchantActiveJob && !root.__partyProductionWorking && !root.__merchantInventoryTidy) {
+        try { await recoverProductionJournal(); await luckyUpgradeService.recover(); }
+        catch (error) {
+          if (Date.now() - (root.__partyInventoryRecoveryLogAt || 0) > 30000) {
+            root.__partyInventoryRecoveryLogAt = Date.now();
+            game_log("Inventory recovery retry: " + String(error.message || error), "red");
+          }
+        }
+      }
       if (character.ctype === "merchant" && character.stand && !merchantIdleActive && !root.__merchantActiveJob &&
           !root.__merchantInventoryTidy && !merchantLuckyUpgrade().pending())
         await nativeStandSync(null, false);
@@ -10031,6 +10180,9 @@
       luckyUpgradeSlot = state.luckyUpgradeSlots && state.luckyUpgradeSlots[character.name];
       luckySlotTracking().sync(state.luckySlotTracking && state.luckySlotTracking[character.name]);
       merchantForceStand = !!state.merchantForceStand;
+      if (state.merchantStandLocation && state.merchantStandLocation.map === "main" &&
+          Number.isFinite(state.merchantStandLocation.x) && Number.isFinite(state.merchantStandLocation.y))
+        merchantMarketLocation = {map:"main",x:state.merchantStandLocation.x,y:state.merchantStandLocation.y};
       merchantCashTarget = Math.max(0, Number(state.merchantGoldTarget) || 0);
       if (character.ctype === "merchant" && !root.__merchantActiveJob && !gatheringActive &&
           !(merchantWeapon && merchantWeapon.item) && character.slots && character.slots.mainhand &&
@@ -11860,6 +12012,7 @@
       !!(root.__partySharedWalking && root.__partySharedWalking.activity === "event-return");
   }
   function reunionBlocked() {
+    if (dungeonOwned()) return true;
     if (eventExitOwnsMovement()) return true;
     if (escapeOwns()) return true;
     // Pause the return, not defensive combat, when the travel party is attacked.
@@ -11895,6 +12048,7 @@
       !is_on_cooldown(skill) && can_use(skill);
   }
   function beginFarmReunion(command) {
+    if (dungeonOwned()) return;
     if (eventExitOwnsMovement()) return;
     if (character.ctype === "merchant") return;
     if (typeof lastDeathInfo !== "undefined" && lastDeathInfo) root.__partyRecoveredDeathAt = parent.__partyRecoveredDeathAt = lastDeathInfo.at;
@@ -11980,6 +12134,11 @@
   };
   var reunionMagiportHandler = root.on_magiport;
   async function farmReunionTick() {
+    if (dungeonOwned()) {
+      if (reunion) { reunion.cancelled = true; reunion.moving = false; }
+      reunion = root.__partyReunion = null;
+      return;
+    }
     if (eventExitOwnsMovement()) {
       // Retire the obsolete routine without stopping the event's newer route.
       if (reunion) { reunion.cancelled = true; reunion.moving = false; reunion.lastError = "Event exit owns movement"; }
@@ -12117,7 +12276,7 @@
     function current() { var live = activeCombatEvent(); return runtimeCurrent() && !character.rip && !escapeOwns() && !navigationIntent.cancelled &&
       Number(navigationIntent.revision) === revision && eventSelectionRevision === selection && eventSelected(event.name) &&
       live && live.name === event.name; }
-    if (!await eventTravelAllowed(event.name)) return { status: "cancelled" };
+    if (!await eventTravelAllowed(event.name)) return { status: current() ? "retryable" : "cancelled", reason: "Waiting for event travel permission" };
     if (eventTraveling) return { status: "retryable", reason: "Event travel already in progress" };
     eventTargetTypes = event.types; eventMissingSince = 0;
     eventTraveling = true; travellingEventName = event.name;
@@ -12127,7 +12286,8 @@
       if (!current()) return { status: "cancelled" };
       var destination = eventDestination(event.name, event.state);
       if (eventRequiresJoin(event.name) && !await joinCombatEvent(event, destination, current)) return { status: "cancelled" };
-      if (!current() || !await eventTravelAllowed(event.name)) return { status: "cancelled" };
+      if (!current()) return { status: "cancelled" };
+      if (!await eventTravelAllowed(event.name)) return { status: current() ? "retryable" : "cancelled", reason: "Waiting for event travel permission" };
       joinedEvent = event.name; root.__partyJoinedEvent = event.name; root.__partyEventRejoinRequired = null;
       if (!eventRequiresJoin(event.name) && !nearestEventTarget()) {
         phase = "event-travel";
@@ -12150,6 +12310,12 @@
     var mpRatio = character.max_mp > 0 ? character.mp / character.max_mp : 1;
     var skill = null;
     if (character.ctype === "merchant") {
+      // The independent pulse runs while production owns the role loop.
+      // Critical pools use potions first, then fall through to free recovery.
+      regenerationBusy = true;
+      try {
+        if (await useRecoveryPotion({hpBelow:0.2,mpBelow:0.2,priority:"hp"})) return true;
+      } finally { regenerationBusy = false; }
       // use_hp consumes the last inventory item that grants HP. Match that
       // selection so the threshold reflects the potion actually consumed.
       var healAmount = 0;
@@ -12642,7 +12808,7 @@
     if(root.partyQueueClient && root.partyQueueClient.formation)root.partyQueueClient.formation.accept(next && next.formationRecovery);
   }
   function queueCandidates() {
-    if (character.cave) return character.cave.paused ? [] : Object.values(parent.entities || {}).filter(dungeonTargetAllowed)
+    if (character.cave) return character.cave.paused ? [] : Object.values(parent.entities || {}).filter(dungeonCombatThreat)
       .map(function(e) { return Object.assign(groupedEntityReport(e), {priority: monsterPriority(e)}); });
     var diagnostic=root.__partyNomination={focus:monsterFocus.slice(),area:typeof partyLocation!=='undefined'&&partyLocation&&partyLocation.id,revision:navigationIntent.revision,rejected:{},eligible:[]};
     var encounter=root.__partyFarmingEngagement;
@@ -14598,7 +14764,7 @@
     var g=groupedCombat,t=g && g.target;
     return {key:g && g.key,target:t && JSON.stringify([t.server,t.map,t.in,t.id]),
       covered:!!(g && g.anchor && Math.hypot(character.x-g.anchor.x,character.y-g.anchor.y)<=Math.max(10,g.range-10)),
-      allowed:!!(t && t.state==='planned' && groupedFarming() && groupedFresh() && !navigationIntent.cancelled && !character.rip &&
+      allowed:!!(!dungeonOwned() && t && t.state==='planned' && groupedFarming() && groupedFresh() && !navigationIntent.cancelled && !character.rip &&
         t.map===character.map && t.in===character.in && t.server===reunionRealm() && !unfinishedFight() &&
         (!partyConvoyActive || !!root.__partyFarmingEngagement) && !convoyTraveling && !travelCombatActive() && !eventTraveling && !joinedEvent && !activeCombatEvent() &&
         !root.sharedRoutine.isOccupied() && !combatRecoveryActive() && !currentTravelAttackers().length &&

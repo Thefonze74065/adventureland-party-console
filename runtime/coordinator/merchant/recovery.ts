@@ -1,4 +1,5 @@
 import type { MerchantWork } from "./work.ts";
+import { buyUpgradeOrder } from './commerce-progress.ts';
 import type { InventoryEntry } from "../contracts/item.ts";
 
 export interface MerchantCommandReport {
@@ -76,7 +77,7 @@ export function createMerchantRecovery(state: RecoveryState, ports: RecoveryPort
   function requeue(name: string, removedFields: (keyof RecoverableWork)[], message: string): void {
     const current = state.current;
     if (!current) return;
-    if (Number(current.recoveryAttempts || 0) >= 3 && current.phase !== 'checkpointed') {
+    if (Number(current.recoveryAttempts || 0) >= 3 && current.phase !== 'checkpointed' && !buyUpgradeOrder(current)) {
       ports.clearCommand(name, current.id);
       state.current = null;
       ports.log('Stopped unresponsive merchant work after three retries', 'error', { jobId: current.id, reason: current.reason });

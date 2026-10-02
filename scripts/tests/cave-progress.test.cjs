@@ -9,7 +9,8 @@ function setup() {
   const d={phase:'active',run:'r',participants:['W','P'],commands:{},progress:{enabled:true,serial:0}};
   const party={dailyDungeons:d,statuses:{}};let fresh=true;const sent=[];
   for(const n of d.participants)party.statuses[n]={map:'zone_r_0',x:0,y:0,dungeon:{alive:true,ready:true,cave:structuredClone(cave)}};
-  const progress=createCaveProgress(party,{fresh:()=>fresh,persist(){},issue(names,action,id,extra){sent.push(action);for(const n of names)d.commands[n]={id:id+':'+n,action,...extra};}});
+  const issue=(names,action,id,extra)=>{sent.push(action);for(const n of names)d.commands[n]={id:id+':'+n,action,...extra};};
+  const progress=createCaveProgress(party,{fresh:()=>fresh,persist(){},issue,startTravel:target=>issue(d.participants,'move','travel:'+ ++d.progress.serial,{target})});
   function done(){for(const n of d.participants){const s=party.statuses[n],c=d.commands[n];s.x=c.target.x;s.y=c.target.y;s.dungeon.action={id:c.id,status:'complete'};}}
   const update=fn=>d.participants.forEach(n=>fn(party.statuses[n].dungeon.cave));
   return {party,d,progress,sent,done,update,stale:()=>fresh=false,tick:()=>progress.tick(d)};
@@ -32,7 +33,7 @@ test('stairs wait for combat, every arrival, and missing participants',()=>{
 });
 test('forced choices and fallen members pause progress; manual pause cancels travel',()=>{
  const f=setup();f.update(c=>c.paused=true);f.tick();assert.equal(f.sent.length,0);
- f.update(c=>c.paused=false);f.party.statuses.P.dungeon.alive=false;f.tick();assert.equal(f.sent.length,0);
+ f.update(c=>c.paused=false);f.progress.set(true);f.party.statuses.P.dungeon.alive=false;f.tick();assert.equal(f.sent.length,0);
  f.party.statuses.P.dungeon.alive=true;f.tick();f.progress.set(false);assert.deepEqual(f.d.commands,{});
  f.tick();assert.equal(f.sent.length,1);
 });

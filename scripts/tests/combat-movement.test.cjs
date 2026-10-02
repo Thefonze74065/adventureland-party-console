@@ -23,7 +23,7 @@ function runner(ctype = 'ranger', native = false, configure = () => {}) {
   };
   configure(routine);
   const c = vm.createContext({ character, parent: native ? {} : { caracAL: {} }, sharedRoutine: routine, get_entity: () => target,
-    G: {items:{},classes:{}},
+    G: {items:{},classes:{},skills:{}},
     can_attack: () => ready, is_in_range: () => true, game_log() {},
     attack: () => { attacks++; return new Promise(() => {}); },
     Date: class extends Date { static now() { return now; } },
@@ -520,28 +520,28 @@ for (const ctype of ['warrior', 'priest', 'mage']) test('cave uses normal ' + ct
 });
 
 test('priest recovery reserves offensive slots, yields to living healing, and releases attacks afterward',async()=>{
-  const r=runner('priest');let recovering=true,living=false,revives=0;
+  const r=runner('priest',false,routine=>{routine.regenerateHpOrMp=async()=>{};});let recovering=true,living=false,revives=0;
   r.routine.regenerateHpOrMp=async()=>{};
   r.routine.caveRecoveryReserved=()=>recovering;
   r.routine.caveRecoveryTick=async()=>{if(recovering)revives++;return recovering;};
   r.routine.healPartyBelow=async()=>living;
   r.routine.basicAttackReserved=()=>living;
   try {
-    await r.run(250);await r.run(50);assert.equal(revives,1);assert.equal(r.attacks(),0);
-    living=true;await r.run(250);await r.run(50);assert.equal(revives,1);assert.equal(r.attacks(),0);
+    await r.run(250);await r.run(50);assert.equal(revives,1,JSON.stringify(r.c.partyCombatState));assert.equal(r.attacks(),0);
+    living=true;await r.run(250);await r.run(50);assert.equal(revives,1,JSON.stringify(r.c.partyCombatState));assert.equal(r.attacks(),0);
     living=false;recovering=false;await r.run(250);await r.run(50);assert.equal(r.attacks(),1);
   } finally { r.c.partyRoleRunner.stop(); }
 });
 
 test('priest waits for an outstanding attack before starting grave recovery',async()=>{
-  const r=runner('priest');let recovering=false,attempts=0;
+  const r=runner('priest',false,routine=>{routine.regenerateHpOrMp=async()=>{};});let recovering=false,attempts=0;
   r.routine.regenerateHpOrMp=async()=>{};r.routine.healPartyBelow=async()=>false;
   r.routine.caveRecoveryReserved=()=>recovering;
   r.routine.caveRecoveryTick=async()=>{if(recovering)attempts++;return recovering;};
   try {
     await r.run(250);await r.run(50);assert.equal(r.attacks(),1);
     recovering=true;await r.run(250);assert.equal(attempts,0);
-    r.now(4000);await r.run(50);await r.run(250);assert.equal(attempts,1);assert.equal(r.attacks(),1);
+    r.now(4000);await r.run(50);await r.run(250);assert.equal(attempts,1,JSON.stringify(r.c.partyCombatState));assert.equal(r.attacks(),1);
   } finally { r.c.partyRoleRunner.stop(); }
 });
 

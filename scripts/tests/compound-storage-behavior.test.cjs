@@ -22,7 +22,7 @@ test('scheduler queues automatic storage without changing Auto bank and waits fo
  const state={merchantCharacter:'M',autoCompounds:{M:rules},autoItemMarks:{M:{'intearring@+1':'bank'}},
   merchantAutomations:{},merchantQueue:[],statuses:{},bankSnapshot:{packs:{items0:[]}},bankbois:{},withdrawals:{}};
  const queued=[],before=JSON.stringify(state.autoItemMarks);
- const scheduler=createImprovementScheduler(state,{now:()=>1,nextCommand:()=>1,stamp:x=>x,persist(){},log(){},queue:(names,reason)=>queued.push(reason)});
+ const scheduler=createImprovementScheduler(Object.assign(state,{production:state.production||{attempts:{}}}),{now:()=>1,nextCommand:()=>1,stamp:x=>x,persist(){},log(){},queue:(names,reason)=>queued.push(reason)});
  assert.equal(scheduler.compound('M',{items:[item(0),item(1)]}),true);
  assert.deepEqual(queued,['auto compound']);
  state.bankSnapshot.packs.items0=[item(0),item(1)];queued.length=0;

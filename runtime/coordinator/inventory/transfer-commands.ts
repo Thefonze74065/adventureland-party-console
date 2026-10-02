@@ -26,6 +26,7 @@ type TransferState = Parameters<typeof guardBankWithdrawal>[0] & {
   bankSnapshot?: { packs?: Record<string, (InventoryEntry | null)[] | undefined> } | null;
   bankbois: Record<string, { name: string; items?: (InventoryEntry | null)[] }>;
   commands: Record<string, MerchantCommand | undefined>;
+  upgrades: Record<string, import('./upgrade-marks.ts').UpgradeMark[] | undefined>;
 }
 interface TransferPorts {
   managed(name: unknown): boolean;
@@ -117,27 +118,54 @@ export function createTransferCommands(state: TransferState, ports: TransferPort
     for (const bankboi of Object.values(state.bankbois))
       addMatching(pending, bankboi.items, "bankboi:" + bankboi.name, identity);
   }
+  function validWithdrawal(body: Request): body is Request & { pack: string; slot: number } {
+    return typeof body.pack === 'string' && /^(?:[a-z0-9_]+|bankboi:[A-Za-z0-9_]+)$/i.test(body.pack) && Number.isSafeInteger(body.slot);
+  }
+  function bankEntry(body: Request & { pack: string; slot: number }) {
+    const entries = body.pack.startsWith('bankboi:') ? state.bankbois[body.pack.slice(8)]?.items : state.bankSnapshot?.packs?.[body.pack];
+    return entries?.find(entry => entry?.slot === body.slot);
+  }
+  function validBankUpgrade(entry: InventoryEntry | null | undefined, item: Item, tiers: number): boolean {
+    if (!entry?.item || !ports.sameItem(entry.item, item)) return false;
+    if (!validUpgradeTiers(item, tiers)) return false;
+    return !!entry.meta?.upgradeable && !item.l && !item.b;
+  }
+  function validUpgradeTiers(item: Item, tiers: number): boolean {
+    return Number.isSafeInteger(tiers) && tiers >= 1 && tiers + (Number(item.level) || 0) <= 13;
+  }
+  function validateUpgrade(body: Request & { pack: string; slot: number }, name: string, item: Item): CommandOutcome {
+    if (body.upgradeTiers === undefined) return null;
+    if (name === state.merchantCharacter && validBankUpgrade(bankEntry(body), item, Number(body.upgradeTiers))) return null;
+    return { status: 400, body: { error: 'Bank item is unavailable or cannot be upgraded' } };
+  }
+  function putBankUpgrade(body: Request & { pack: string; slot: number }, name: string, item: Item): void {
+    if (body.upgradeTiers === undefined) return;
+    const marks = state.upgrades[name] ||= [];
+    const old = marks.find(mark => mark.storage?.pack === body.pack && mark.storage?.slot === body.slot);
+    if (old) old.tiers = Number(body.upgradeTiers);
+    else marks.push({ passId: randomUUID(), slot: -1, item: { ...item }, tiers: Number(body.upgradeTiers), storage: { pack: body.pack, slot: body.slot } });
+    ports.persist();
+  }
+  function updateWithdrawal(pending: Withdrawal[], body: Request & { pack: string; slot: number }, item: Item): void {
+    const request = { pack: body.pack, slot: body.slot, item }, encoded = JSON.stringify(request);
+    const index = pending.findIndex(entry => JSON.stringify(entry) === encoded);
+    if (index < 0) pending.push(request);
+    else if (body.upgradeTiers === undefined) pending.splice(index, 1);
+  }
   function withdraw(body: Request, name: string, item: Item): CommandOutcome {
-    if (
-      typeof body.pack !== "string" ||
-      !/^(?:[a-z0-9_]+|bankboi:[A-Za-z0-9_]+)$/i.test(body.pack) ||
-      !Number.isSafeInteger(body.slot)
-    )
-      return undefined;
+    if (!validWithdrawal(body)) return undefined;
+    const invalid = validateUpgrade(body, name, item);
+    if (invalid) return invalid;
     const pending = state.withdrawals[name] || [];
-    if (!removingWithdrawal(body, pending, item)) {
+    const upgrade = body.upgradeTiers !== undefined;
+    if (upgrade || !removingWithdrawal(body, pending, item)) {
       const blocked = guardBankWithdrawal(state, name, item, body.removeAutoBankMark === true, () => ports.persist());
       if (blocked) return blocked;
     }
     state.withdrawals[name] = pending;
     if (body.markAll === true) all(pending, item);
-    else {
-      const request = { pack: body.pack, slot: body.slot as number, item },
-        encoded = JSON.stringify(request);
-      const index = pending.findIndex((entry) => JSON.stringify(entry) === encoded);
-      if (index >= 0) pending.splice(index, 1);
-      else pending.push(request);
-    }
+    else updateWithdrawal(pending, body, item);
+    putBankUpgrade(body, name, item);
     ports.persistBank();
     if (pending.some((request) => requestText(request.pack || "").startsWith("bankboi:")))
       void ports

@@ -9,6 +9,92 @@ Activate with the supported coordinator/dashboard-only restart.
 
 # Character coordinator
 
+Merchant settings stores one Main-map stand location for parking, Town-return
+checks and marketplace fallbacks. A fresh settings store chooses integer X/Y
+coordinates independently within -100..100, rejects native collision geometry
+against the human footprint, and persists the accepted point once. Existing
+installations retain the legacy location until edited. The setting is included
+in dashboard export/import and heartbeats; edits reject blocked points.
+Validate the native merchant-stand-location economy journey and publish character,
+coordinator and dashboard assets through the ordinary full restart.
+
+Lucky preparation refreshes the destination after its persisted checkpoint and
+captures the actual displaced contents after the native swap. Party deliveries
+into an originally empty lucky slot do not fence the untouched source or the
+confirmed swap. Recovery reconciles matching stack quantities in preparation,
+running and restoration phases. A changed nonempty item identity still holds
+work and reports the phase, source/destination and expected/actual contents.
+Validate the native lucky-party-delivery economy journey with real transfers
+during preparation and persisted restoration, an interrupted return swap,
+coordinator restart, conserved cargo and no replay. Publish through the ordinary
+full restart and retry the preserved order through `/merchant/job/retry`.
+The lucky service loads persistence once per activation and keeps subsequent
+writes and clears authoritative in memory. Delayed caracAL storage echoes must
+not resurrect completed layouts and move the next order item. Explicit missing-
+journal reconstruction resets the service before loading coordinator evidence.
+Validate the native delayed-lucky-journal-storage economy journey too.
+When authoritative receipt inspection finds no pending production, recovery may
+retire a leftover lucky journal whose displaced destination is already restored.
+It leaves later source-cell cargo and relocated finished gear untouched. A busy
+operation or an unrestored destination still requires actual reconciliation.
+The idle status pulse performs receipt and lucky-layout recovery before waiting
+for another job; inventory-busy telemetry can hold the dispatcher, so dispatch
+must never be the only recovery trigger. Commands inspect receipts first too.
+The native echo journey reconnects with an old running journal after moving the
+completed +3 gear and verifies a subsequent order finishes without replay/loss.
+
+Merchant Mass Production is applied at the native upgrade/compound boundary,
+including buy-and-upgrade orders; Mass Exchange is applied before timed native
+exchanges. Both prefer ++ only when its MP cost leaves at least 20% of maximum
+MP, then fall back to an unlocked, ready and affordable lower tier. An existing
+condition is reused. Buff requests have a bounded wait and activity telemetry.
+The independent 500ms recovery pulse runs during merchant work, prioritizing
+HP/MP potions below 20% (HP first) and falling back to free regeneration when
+potions are unavailable. The recovery guard covers potion requests too.
+Validate the native merchant mass-skills/recovery economy journey and retained
+passive-healing and item-operation checks. Publish character assets using the
+supported full restart; a coordinator-only restart does not activate this change.
+
+Inventory context menus pair each manual mark with its automatic action: bank,
+merchant stand, upgrade/compound, then player merchant collection. Deconstruction
+and NPC sale sit below the divider. Bank and Bankboi menus expose upgrade and
+automatic deconstruction/stand/NPC-sale rules. Manual bank upgrade marks retain a
+storage reference and remain ineligible until native withdrawal acknowledges that
+source and inventory reconciliation assigns the pass. Clearing bank marks removes
+the selected source intents and matching automatic rules. Validate the player,
+merchant and bank context-menu E2Es, including restart and cleared withdrawal
+persistence. Activate using the coordinator/dashboard-only restart.
+
+BankBoi storage commands bypass the designated merchant's production receipt
+gate. BankBois cannot use the production endpoint; applying that gate to their
+merchant class leaves storage marked processing without starting native banking.
+Native stack filling still runs during unload, preserving stack caps and reserved
+stock. Validate `live-bankboi.spec.ts` and activate through the full restart.
+
+Cave travel assembles participants at the leader before departure, shares the
+leader's validated native route, applies the slowest party speed through native
+cruise, and holds members that get ahead in walking progress. Interrupted routes
+regroup and prepare together, with a bounded three-repair limit. Manual stair
+destinations issue native transport after arrival
+and retain that destination through an intervening farewell vote. Other encounter
+votes stop the selected route. Revealed objectives on other floors return a
+friendly floor error rather than entering ordinary cross-instance pathfinding.
+Resolved duel scenes identify the hostile participant when the party helps one
+side. Cave map telemetry includes both equipped weapon sprites. The full-floor
+map shows party/event pins and one replaceable waypoint. Validate the native cave
+E2E with duel death, shared cruise, route arrival, farewell voting and both members
+on the next floor; retain the report/screenshots. Activate using the full restart
+and recreate an existing disposable debug instance.
+
+Combat event ownership is checked before Hunt quest preparation and automatic
+Daisy returns, including initial Hunt activation and resume. Existing protected
+turn-ins retain priority. Respawn reentry retries temporary travel permission
+holds and unavailable permission replies until admission or actual cancellation.
+Validate `live-franky-party.spec.ts`: native boss combat, completed initial quests,
+Hunt activation, native lethal damage, lost admission responses, respawn reentry,
+and voluntary event evacuation. These coordinator and character changes require
+the supported ordinary full restart; building alone does not activate both.
+
 Personal Tracktrix items use the native item ID `tracker`, not `tracktrix`.
 Merchant collection and emergency cleanout retain trackers and supercomputers.
 Character inventory maintenance pins one to the final inventory slot when no
@@ -17,6 +103,19 @@ Explicit Give remains available. Validate the native full-bag Tracktrix cleanout
 journey in `e2e/live-economy.spec.ts`, with conserved cargo and restart evidence.
 Publish character and coordinator assets through the supported full restart;
 CoordinatorOnly does not activate the inventory change.
+
+Marked withdrawals create merchant jobs by default at priority 90. The checkbox
+in Merchant settings controls the separate Marked withdrawals routine. Merchant
+heartbeats queue one bank visit for pending plain withdrawal marks, including
+marks restored after restart or retained while the setting was disabled. Turning
+it off removes queued withdrawal-only jobs without clearing the marks; other
+bank visits still retrieve them. Active work finishes normally. Specialized
+production, stand and BankBoi retrieval keep their existing scheduling.
+This addresses issue #28's bank-trip trigger only, not automatic bank NPC-sale
+selection. Validate the marked-withdrawals console journey and native marked-bank
+round trip with `npm test -- -- --grep "marked withdrawals|marked bank deposit"`,
+then verify retained E2E artifacts. Activate using the coordinator/dashboard-only
+restart below; character execution reuses the existing self-bank command.
 
 Exchange reward tiles edit the merchant's existing automatic item rules, including
 rules for stock that has not arrived yet. Inventory and reward previews share
@@ -48,6 +147,15 @@ upstream game/database with a god loadout and native development admission.
 See docs/debug-instances.md for Docker access, lifecycle, and E2E validation.
 Hosting/dashboard changes use the coordinator-only restart below; production
 character assets and credentials are never copied into the debug stack.
+
+Independent farming controllers now evaluate their own singleton combat group.
+Their scoped leader uses the native group target lock even while Follow is off;
+returning a null group stranded a solo priest after reaching its Hunt spawn.
+A native kill during travel could hide the missing authorization. The solo-priest
+Hunt E2E now walks to the spawn before starting its quest, requires the priest-only
+group, and observes a real kill and Daisy reward without enabling the warrior's
+Hunt. Activate this coordinator change with the supported coordinator-only restart.
+
 
 Failed delivery equips wait for a full merchant inventory received after the failure. Missing stock retires the mark; retained stock retries delivery under a fresh identity so late receipts cannot consume the new attempt. Combat heartbeats do not refresh inventory age. Pending reconciliation persists across restart without issuing more equip commands. Validate the two failed delivery equip native E2Es and activate with the supported coordinator-only restart below.
 
@@ -257,6 +365,22 @@ tests. Publish character assets along with coordinator and dashboard using the f
 restart workflow below.
 
 ## Durable buy-with-upgrade orders
+
+Unfinished buy-with-upgrade orders stay queued after all execution errors and
+repeated worker timeouts; disabled routines hold rather than discard them.
+Resource and budget limits retain their original progress, with bounded retry
+backoff and the latest error visible. Explicit cancellation still removes intent.
+Admission stores the prepared production journal; running and complete phases
+are acknowledged before the game call and receipt retirement respectively.
+Lucky preparation/restoration checkpoints mirror their inventory layout too.
+Recovery can reconstruct missing client production, lucky and commerce journals
+from coordinator receipts. An active normal operation does not emit a recovery
+alarm. Legacy orphan receipts without mirrored evidence still require reviewed
+`resolve-unknown`; this does not count success or consume quotas.
+Validate the native `buy with upgrade target survives` economy journey with an
+actual upgrade, failed restoration swap, loss of client journals, coordinator
+restart, exact requested output and no restart replay. Publish both character and
+coordinator assets using the supported ordinary full restart.
 
 Commerce follows the owned item after checkpoints and between upgrade attempts.
 A missing old inventory slot is never destruction evidence: only a matching
@@ -833,7 +957,13 @@ Production recovery inspects admission by journal identity before taking action.
 A prepared journal that was never admitted is discarded without admitting new work;
 a different unfinished coordinator attempt remains held for explicit review.
 Production and journal recovery serialize locally to prevent overwriting an active
-journal. The existing `/party-api/merchant/production` endpoint accepts `action:
+journal. A stale local running journal with a completed coordinator receipt is
+discarded before checking other pending identities; recovery then loads the newer
+mirrored receipt without restoring the old lucky layout or replaying production.
+Recovery commands remain deliverable across heartbeat responses while reconciliation
+is deferred. Validate the native buy-with-upgrade recovery journey, including an
+older completed receipt replayed locally, and activate with the full restart.
+The existing `/party-api/merchant/production` endpoint accepts `action:
 "inspect"` with the original character/id/kind/item and returns its attempt plus
 pending identities. After reviewing an orphan, an operator can submit those same
 identity fields with `action: "resolve-unknown"` and a nonempty `reason`. This
@@ -1127,10 +1257,11 @@ A disconnected member keeps ownership. Return missing participants requires a
 server-confirmed resumable visit on the same server. Failed preparation can be
 retried explicitly; uncertain irreversible requests require observed reconciliation.
 
+Cave travel starts stopped. Users choose a room or explicitly start automatic exploration.
 Automatic cave progress visits unfinished required rooms, then gathers everyone at
 unlocked stairs down and transports them together. It pauses for visible hostile
 monsters, loot, forced choices, death, and stale reports. The panel can pause or
-continue this route; a manual destination pauses automatic progress. Final-floor
+stop this route; a manual destination replaces automatic exploration. Forced encounters stop travel and require another destination selection after answering. Nearby reachable enemies or active attackers pause navigation; distant visible enemies do not. Server chest-open receipts bypass the native animation cache. Loot readiness uses centre coordinates with a margin inside the server pickup radius, rather than sprite-edge distance. Final-floor
 completion never chooses the Mainland exit. Stairs receipts reconcile from an
 observed destination floor rather than replaying an uncertain transport.
 
@@ -1399,3 +1530,5 @@ Matching offers can be adopted from a moved slot before their first acknowledgem
 Confirmed offers that disappear still require purchase/removal evidence rather than
 silently counting a fill. Validate the declared historical unconfirmed-reservation
 native E2E and the market editor layout journey. Coordinator-only restart suffices.
+
+Cave encounter votes open an automatic dashboard dialog; resolved encounters remain reviewable. Dungeon ownership suppresses mainland farm reunion, and manual destinations clear stale travel errors. Generated map definitions are shared across participant streams so follower maps and reconnects retain geometry. These character and coordinator changes require the full restart workflow above; building does not update an existing debug session.

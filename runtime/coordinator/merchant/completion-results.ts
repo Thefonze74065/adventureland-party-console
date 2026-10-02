@@ -1,6 +1,7 @@
 import { acknowledgeDelivery } from './delivery-recovery.ts';
 import { requestObject, requestText } from "../http/contracts.ts";
 import { receiveBankDeconstruction } from "./bank-deconstruction.ts";
+import { receiveBankUpgrades } from '../inventory/bank-upgrade-receipts.ts';
 import type { Item } from "../contracts/item.ts";
 import type {
   CompletionState,
@@ -139,6 +140,8 @@ export function createCompletionResults(state: CompletionState, ports: Completio
   function deconstructionReceipts(name: string | null, body: CompletionReport) {
     receiveBankDeconstruction(state, state.merchantCharacter, body.merchantWithdrawalsDelivered, ports.now());
     receiveBankDeconstruction(state, name, body.confirmedWithdrawals, ports.now());
+    receiveBankUpgrades(state, state.merchantCharacter, body.merchantWithdrawalsDelivered);
+    receiveBankUpgrades(state, name, body.confirmedWithdrawals);
   }
   function realmFailure(body: CompletionReport): boolean {
     return !body.success && requestText(body.error || "").startsWith("merchant job failed: wrong realm");

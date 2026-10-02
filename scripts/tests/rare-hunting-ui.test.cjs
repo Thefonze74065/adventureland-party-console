@@ -18,7 +18,7 @@ function harness(file,name,extra={}) {
       return[state[i],v=>state[i]=typeof v==='function'?v(state[i]):v];},useId:()=> 'follow-description',useMemo:fn=>fn(),useEffect(){},useRef:v=>({current:v}),
     farmingAreas,defaultPhoenixOrder,...extra });
   for(const n of ['Button','Checkbox','Input','Dialog','DialogContent','DialogDescription','DialogFooter','DialogHeader','DialogTitle',
-    'HuntSpawnSettings','HuntSettingsControl','FarmingAreaPreview','Maximize2','ItemSprite','Popover','PopoverContent','PopoverTrigger','SpriteCrop','X','ChevronDown','ChevronRight','Settings'])c[n]=n;
+    'HuntBlacklistPicker','HuntSpawnSettings','HuntSettingsControl','FarmingAreaPreview','Maximize2','ItemSprite','Popover','PopoverContent','PopoverTrigger','SpriteCrop','X','ChevronDown','ChevronRight','Settings'])c[n]=n;
   vm.runInContext(code,c);
   return {render:props=>{cursor=0;return c[name](props);}};
 }

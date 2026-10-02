@@ -8,8 +8,8 @@ const source=fs.readFileSync('characters/shared.js','utf8');
 
 test('legacy selections migrate; independent edits preserve selections and keep moving defaults off',()=>{
  let s=settings.migratePassiveSettings(null,{tinyp:true,phoenix:false});
- assert.deepEqual(s.rules.tinyp,{enabled:true,keepMoving:false,priority:101});assert.equal(s.useFieldGenerators,true);
- s=settings.applyPassivePatch(s,{rules:{bee:{enabled:true}}});assert.deepEqual(s.rules.bee,{enabled:true,keepMoving:false,priority:100});
+ assert.deepEqual(s.rules.tinyp,{enabled:true,keepMoving:false,priority:101,maxLevel:-1});assert.equal(s.useFieldGenerators,true);
+ s=settings.applyPassivePatch(s,{rules:{bee:{enabled:true}}});assert.deepEqual(s.rules.bee,{enabled:true,keepMoving:false,priority:100,maxLevel:-1});
  s=settings.applyPassivePatch(s,{rules:{bee:{keepMoving:true,priority:99}},useFieldGenerators:false});
  assert.equal(s.rules.tinyp.enabled,true);assert.equal(s.rules.bee.enabled,true);assert.equal(s.useFieldGenerators,false);
  assert.equal(settings.committedPassiveRules(s).bee,false);assert.equal(settings.committedPassiveRules(s).tinyp,true);
@@ -27,7 +27,7 @@ function fixture(){
   escapeOwns:()=>false,combatRecoveryActive:()=>false,activeCombatEvent:()=>false,rareActive:()=>false,unfinishedFight:()=>false,
   reunionRealm:()=> 'USII',get_entity:id=>Object.values(c.parent.entities).find(e=>e.id===id),is_in_range:e=>Math.hypot(e.x,e.y)<=100,
   isExternallyClaimedMonster:e=>!!e.claimed,currentPartyList:()=>['W'],sameEventTeamMember:()=>true,equip:()=>{throw Error('unexpected deployment');},rareFields:()=>[]});
- const names=['passiveStopRequired','passiveTravelInterruptible','travelStopCandidates','outboundHuntTravel','huntTravelDefense','huntTravelControl','huntTravelExtraAggro','returnDepartureDefense','committedHuntEncounter','passingKey','passingEncounterReport','isPassingEncounter','convoyDiagnosticClock','convoySignalExpired','passingTravelAllowed','walkingPassiveTarget','passingTarget','beginPassingAttack','groupedEntityReport','monsterPriority','passiveRareCandidate','isPartyThreat','isAttackingPartyMember','rareAttackAllowed'];
+ const names=['passiveLevelAllowed','passiveStopRequired','passiveTravelInterruptible','travelStopCandidates','outboundHuntTravel','huntTravelDefense','huntTravelControl','huntTravelExtraAggro','returnDepartureDefense','committedHuntEncounter','passingKey','passingEncounterReport','isPassingEncounter','convoyDiagnosticClock','convoySignalExpired','passingTravelAllowed','walkingPassiveTarget','passingTarget','beginPassingAttack','groupedEntityReport','monsterPriority','passiveRareCandidate','isPartyThreat','isAttackingPartyMember','rareAttackAllowed'];
  vm.runInContext(names.map(n=>namedFunction(source,n)).join('\n'),c);
  return {c,bee};
 }
@@ -222,7 +222,7 @@ test('outbound Hunt attacks its in-range target without passive settings and nev
 
 test('outbound Phoenix stop setting excludes passing attacks and reports eligible neutral sightings',()=>{
  const {c,bee}=fixture();bee.mtype='phoenix';c.root.partyPassiveStopRequired=require('../../runtime/combat/passive-travel.ts').passiveStopRequired;
- c.passiveHunting.rules={phoenix:{enabled:true,keepMoving:false,priority:100}};
+ c.passiveHunting.rules={phoenix:{enabled:true,keepMoving:false,priority:100,maxLevel:-1}};
  c.convoyRuntimeId='runtime';c.navigationIntent.revision=3;
  c.convoyTraveling={id:'hunt',epoch:2,commandId:4,navigationRevision:3,purpose:'monster-hunt',huntTarget:'phoenix',phase:'travelling'};
  c.convoySignal={id:'hunt',epoch:2,commandId:4,runtimeId:'runtime',phase:'travel',validUntil:Date.now()+10000};

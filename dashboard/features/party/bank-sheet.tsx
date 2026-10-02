@@ -8,6 +8,9 @@ import { standIsFull } from "./stand-capacity";
 import type { StandBid } from "./stand-bid";
 import { itemMenuClass } from "./item-menu-style";
 
+import { BankUpgradeActions } from './bank-upgrade-actions';
+import { ClearItemMarks } from './clear-item-marks';
+import { AutoActionIcon } from './auto-action-icon';
 import { BankDeconstructionActions } from './bank-deconstruction-actions';
 
 import type { DeconstructionCatalog } from './deconstruction';
@@ -107,6 +110,7 @@ export const BankSheet = memo(function BankSheet({
   merchant,
 
   merchantState,
+  catalog,
 
   vaults,
 
@@ -142,6 +146,10 @@ export const BankSheet = memo(function BankSheet({
   onNpcSale,
 
   onDeconstruction,
+  onUpgrade,
+  onClearMarks,
+  onAutoStand,
+  onAutoNpcSale,
 
   deconstructionCatalog,
 
@@ -214,7 +222,11 @@ export const BankSheet = memo(function BankSheet({
 
   onNpcSale: (pack: string, entry: InventoryEntry, all?: boolean) => void;
 
-  onDeconstruction: (pack: string, entry: InventoryEntry, all: boolean) => void;
+  onDeconstruction: (pack: string, entry: InventoryEntry, all: boolean, auto?: boolean) => void;
+  onUpgrade: (pack: string, entry: InventoryEntry, tiers: number, auto: boolean) => void;
+  onClearMarks: (pack: string, entry: InventoryEntry) => void;
+  onAutoStand: (entry: InventoryEntry) => void;
+  onAutoNpcSale: (entry: InventoryEntry) => void;
 
   deconstructionCatalog: DeconstructionCatalog;
 
@@ -611,16 +623,18 @@ export const BankSheet = memo(function BankSheet({
 
                             </ContextMenuItem>
 
-                            <ContextMenuItem className="text-amber-300" disabled={standFull && !standMarked(pack, entry)}
+                            <ContextMenuItem disabled={!merchant || !!entry.item.l}
 
-                              onClick={() => onStand(pack, entry, true)}>
+                              onClick={() => onAutoStand(entry)}>
 
-                              <Store className="mr-2 h-4 w-4" />Mark all for stand
+                              <AutoActionIcon><Store /></AutoActionIcon>Auto mark for stand…
 
                             </ContextMenuItem>
 
 
 
+                            <BankUpgradeActions entry={entry} pack={pack} catalog={catalog} merchant={merchant} onUpgrade={onUpgrade} />
+                            <ContextMenuSeparator className="my-1 h-px bg-slate-300" />
                             <BankDeconstructionActions entry={entry} pack={pack} merchant={merchant} catalog={deconstructionCatalog} onMark={onDeconstruction} />
 
                             <ContextMenuItem
@@ -637,12 +651,13 @@ export const BankSheet = memo(function BankSheet({
 
                             <ContextMenuItem className="text-rose-300" disabled={!merchant || !!entry.item.l}
 
-                              onClick={() => onNpcSale(pack, entry, true)}>
+                              onClick={() => onAutoNpcSale(entry)}>
 
-                              <DollarSign className="mr-2 h-4 w-4" />Sell all to NPC…
+                              <AutoActionIcon><DollarSign /></AutoActionIcon>Auto sell to NPC…
 
                             </ContextMenuItem>
 
+                            <ClearItemMarks onClear={() => onClearMarks(pack, entry)} />
                           </ContextMenuContent>
 
                         </ContextMenu>
@@ -1093,17 +1108,19 @@ export const BankSheet = memo(function BankSheet({
 
                                   </ContextMenuItem>
 
-                            <ContextMenuItem className="text-amber-300" disabled={standFull && !standMarked(`bankboi:${bankboi.name}`, entry)}
+                            <ContextMenuItem disabled={!merchant || !!entry.item.l}
 
-                              onClick={() => onStand(`bankboi:${bankboi.name}`, entry, true)}>
+                              onClick={() => onAutoStand(entry)}>
 
-                              <Store className="mr-2 h-4 w-4" />Mark all for stand
+                              <AutoActionIcon><Store /></AutoActionIcon>Auto mark for stand…
 
                             </ContextMenuItem>
 
 
 
-                                  <BankDeconstructionActions entry={entry} pack={`bankboi:${bankboi.name}`} merchant={merchant} catalog={deconstructionCatalog} onMark={onDeconstruction} />
+                                  <BankUpgradeActions entry={entry} pack={`bankboi:${bankboi.name}`} catalog={catalog} merchant={merchant} onUpgrade={onUpgrade} />
+                                  <ContextMenuSeparator className="my-1 h-px bg-slate-300" />
+                            <BankDeconstructionActions entry={entry} pack={`bankboi:${bankboi.name}`} merchant={merchant} catalog={deconstructionCatalog} onMark={onDeconstruction} />
 
                                   <ContextMenuItem
 
@@ -1119,12 +1136,13 @@ export const BankSheet = memo(function BankSheet({
 
                             <ContextMenuItem className="text-rose-300" disabled={!merchant || !!entry.item.l}
 
-                              onClick={() => onNpcSale(`bankboi:${bankboi.name}`, entry, true)}>
+                              onClick={() => onAutoNpcSale(entry)}>
 
-                              <DollarSign className="mr-2 h-4 w-4" />Sell all to NPC…
+                              <AutoActionIcon><DollarSign /></AutoActionIcon>Auto sell to NPC…
 
                             </ContextMenuItem>
 
+                                  <ClearItemMarks onClear={() => onClearMarks(`bankboi:${bankboi.name}`, entry)} />
                                 </ContextMenuContent>
 
                               </ContextMenu>

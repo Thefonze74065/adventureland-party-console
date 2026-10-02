@@ -239,6 +239,7 @@ test('fast report interrupts convoy and actual client nomination produces a sele
  const c=vm.createContext({parent:{entities:{p:target}},character:{name:'M',map:'main',in:'main'},leader:'W',root:{},partyConvoyActive:false,
   navigationIntent:{},groupedFarming:()=>true,selectFarmCandidates:t=>t,isPassingEncounter:()=>false,passiveHunting:{rules:{}},passiveRareHunts:{},monsterFocus:['phoenix'],
   groupedEntityReport:e=>({...e,priority:100}),monsterPriority:()=>100,isExternallyClaimedMonster:()=>false,farmApproach:{failed:{}},reunionRealm:()=> 'USII',get_entity:()=>target});
+ vm.runInContext(require('./helpers/named-function.cjs').namedFunction(source, 'passiveLevelAllowed'), c);
  vm.runInContext(source.slice(source.indexOf('  function queueCandidates('),source.indexOf('  function queueReport(')),c);
  const candidates=c.queueCandidates();assert.equal(candidates[0].id,target.id);
  const members=Object.values(r.party.statuses).map(s=>({name:s.name,ctype:s.ctype,revision:1,status:{...s,range:200,groupedCombat:{protocol:4,anchorVisible:true,candidates:s.name==='M'?candidates:[]}}}));

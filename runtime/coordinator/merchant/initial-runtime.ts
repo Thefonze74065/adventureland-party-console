@@ -4,12 +4,14 @@ import type { recoverMerchantQueue } from "./restart-queue.ts";
 import type { createMerchantItemCommands } from "../inventory/merchant-item-commands.ts";
 
 import { initialBankSort, type BankSortState } from "./bank-sort.ts";
+import { validStandLocation, type MerchantStandLocation } from './stand-location.ts';
 
 interface SavedMerchant extends Partial<BankSortState> {
   luckyUpgradeSlots?: Record<string, number | null>;
   luckySlotTracking?: LuckySlotHistory;
   merchantCharacter?: string | null;
   merchantForceStand?: unknown;
+  merchantStandLocation?: MerchantStandLocation;
   merchantWeapon?: Parameters<typeof createMerchantItemCommands>[0]["merchantWeapon"];
   merchantQueue?: MerchantWork[] | null;
   merchantCurrent?: MerchantWork | null;
@@ -33,6 +35,7 @@ export function initialMerchantRuntime<DefaultMerchant extends string | null = s
     luckyUpgradeSlots,
     luckySlotTracking: saved.luckySlotTracking || {},
     merchantForceStand: saved.merchantForceStand === true,
+    merchantStandLocation: validStandLocation(saved.merchantStandLocation) ? {...saved.merchantStandLocation} : null,
     merchantWeapon: saved.merchantWeapon || null,
     merchantQueue: Array.isArray(saved.merchantQueue) ? saved.merchantQueue : [],
     merchantCurrent: saved.merchantCurrent || null,

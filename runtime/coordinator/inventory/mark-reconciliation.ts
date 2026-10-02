@@ -37,12 +37,11 @@ export function reconcileCoordinatorCollectionMarks(
     inventory(status),
   );
   if (state.merchantRules) {
-    // A genuine conflict (e.g. processing plus an NPC/stand sale rule) pauses both destinations until resolved.
-    const conflicted = (mark: ItemMark) => !!mark.auto && !!mark.item && itemRuleConflicts(state, mark.item).length > 0;
-    // Banking would move the item away from where processing needs it; the merchant destination already satisfies processing, so it only waits out real conflicts.
-    const bankAllowed = (mark: ItemMark) => !conflicted(mark) && (!mark.auto || !mark.item || !processingPending(state, mark.item));
-    const merchantAllowed = (mark: ItemMark) => !conflicted(mark);
-    const bank = result.bank.filter(bankAllowed), merchant = result.merchant.filter(merchantAllowed);
+    const allowed = (mark: ItemMark) => !mark.auto || !mark.item || !itemRuleConflicts(state, mark.item).length;
+    // Processing needs stock at the merchant, including copies not yet claimed
+    // by a finite rule. Only banking competes with that destination.
+    const bank = result.bank.filter(mark => allowed(mark) && (!mark.auto || !mark.item || !processingPending(state, mark.item)));
+    const merchant = result.merchant.filter(allowed);
     result.changed ||= bank.length !== result.bank.length || merchant.length !== result.merchant.length;
     result.bank = bank; result.merchant = merchant;
   }

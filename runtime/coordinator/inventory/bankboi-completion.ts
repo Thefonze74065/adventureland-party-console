@@ -1,5 +1,6 @@
 import type { MaterialOrder, StorageAllocation } from "../merchant/order-types.ts";
 import type { InventoryEntry, Item } from "../contracts/item.ts";
+import { requestObject } from '../http/contracts.ts';
 
 export interface StorageReference extends InventoryEntry {
   pack?: string;
@@ -37,6 +38,7 @@ export interface StorageCompletionState {
   merchantQueue: MailStorageJob[];
   withdrawals: Record<string, StorageReference[] | undefined>;
   merchantCharacter: string | null;
+  upgrades?: Record<string, unknown[] | undefined>;
 }
 
 /** Retarget durable item references as storage moves between bank panes and BankBoi. */
@@ -115,6 +117,12 @@ export function createStorageReferenceUpdates(
       moveReference(reference, deposit, "bankPack", "bankSlot"),
     );
     state.npcSaleMarks.forEach((reference) => moveReference(reference, deposit, "pack", "slot"));
+    for (const raw of state.upgrades?.[String(state.merchantCharacter)] || []) {
+      const mark = requestObject(raw), storage = requestObject(mark.storage);
+      if (mark.storage && storage.pack === deposit.request.pack && storage.slot === deposit.request.slot && identity(requestObject(mark.item)) === identity(deposit.item)) {
+        storage.pack = deposit.pack; storage.slot = deposit.slot;
+      }
+    }
   }
   function deposited(deposits: StorageDeposit[]): void {
     const withdrawals = state.withdrawals[String(state.merchantCharacter)] || [];

@@ -6,7 +6,7 @@ import { PartyActionError } from "./query-actions";
 import type { InventoryEntry } from "./inventory-entry";
 import type { PartyConsoleModel } from "./use-party-console";
 
-type Request = { character: string; type: "withdraw"; pack: string; slot: number; item: InventoryEntry["item"]; markAll: boolean };
+type Request = { character: string; type: "withdraw"; pack: string; slot: number; item: InventoryEntry["item"]; markAll: boolean; upgradeTiers?: number };
 
 export function useBankWithdrawal(post: PartyConsoleModel["post"], onError: (message: string) => void) {
   const [pending, setPending] = useState<Request | null>(null);
@@ -30,10 +30,10 @@ export function useBankWithdrawal(post: PartyConsoleModel["post"], onError: (mes
       setBusy(false);
     }
   }, [post, onError]);
-  const withdraw = useCallback((character: string | null | undefined, pack: string, entry: InventoryEntry, markAll = false) => {
+  const withdraw = useCallback((character: string | null | undefined, pack: string, entry: InventoryEntry, markAll = false, upgradeTiers?: number) => {
     if (!character) return onError("No merchant is configured");
     if (pending) return;
-    void submit({ character, type: "withdraw", pack, slot: entry.slot, item: { ...entry.item }, markAll });
+    void submit({ character, type: "withdraw", pack, slot: entry.slot, item: { ...entry.item }, markAll, ...(upgradeTiers ? { upgradeTiers } : {}) });
   }, [pending, onError, submit]);
   function close() { setPending(null); setConfirmationError(null); }
   const confirmation = <Dialog open={!!pending} onOpenChange={open => { if (!open && !busy) close(); }}>

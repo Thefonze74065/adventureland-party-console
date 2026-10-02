@@ -50,7 +50,7 @@ function createGameFixture(directory) {
       gameParty: ['W', 'P'], threats: [], conditions: [], slots: {},
       monsterHunt: name === 'W' ? { id: 'goo', count: 10, remainingMs: 600000, server: 'USII' } : null,
       navigationState: 'idle', standOpen: name === 'M',
-      items: Array.from({ length: 42 }, (_, slot) => name === 'M' && slot === 0
+      items: Array.from({ length: 42 }, (_, slot) => (name === 'M' || name === 'W' && process.env.E2E_PLAYER_INVENTORY === 'true') && slot === 0
         ? { slot, item: { name: 'sword', level: 0 }, meta: itemMeta('sword') } : name === 'M' && slot === 1
         ? { slot, item: { name: 'gem0', q: 1 }, meta: itemMeta('gem0') } : name === 'M' && slot === 2
         ? { slot, item: { name: 'coat', level: 0 }, meta: itemMeta('coat') } : null),

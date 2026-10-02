@@ -12,7 +12,7 @@ function fixture() {
     anniversary: () => ({}), routinePriority: () => 0, priority: () => 1, capacityBlocked: () => false, collectionReady: () => true,
     pick: () => state.merchantQueue.shift(), stamp: job => job, planPonty: () => null,
     restock: () => restock, idle: () => calls.push('idle'), persist: () => calls.push('persist'), log() {} };
-  return { state, calls, ports, restock, service: createCoordinatorMerchantDispatcher(state, ports) };
+  return { state, calls, ports, restock, service: createCoordinatorMerchantDispatcher(Object.assign(state,{production:state.production||{attempts:{}}}), ports) };
 }
 
 test('party collection carries the recipient delivery and equip instruction across dispatch', () => {

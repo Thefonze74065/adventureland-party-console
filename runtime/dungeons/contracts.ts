@@ -1,4 +1,6 @@
 import type { CharacterEntity } from "typed-adventureland";
+import type {Step} from '../navigation/contracts.ts';
+export interface CaveRoute {plot:Step[];identity:{version:number;fingerprint:string}}
 
 export interface PriestRecoveryAssignment {
   id: string;
@@ -19,6 +21,8 @@ export interface PriestRecoveryObservation {
  * contracts. Verified against official generated_zones.js / runner_functions.js
  * version 17175; review when upgrading the upstream package. */
 export interface CavePoint {
+  room?: string;
+  kind?: string;
   id: string;
   label: string;
   map: string;
@@ -32,6 +36,8 @@ export interface CavePoint {
   required?: boolean;
 }
 export interface CaveChoice {
+  resultLabel?: string;
+  summary?: string[];
   id: string;
   title: string;
   text: string;
@@ -47,6 +53,7 @@ export interface CaveObservation {
   supported: boolean;
   alive: boolean;
   ready: boolean;
+  travel?: {id:string;distance:number;prepared:boolean;route?:CaveRoute};
   members: string[];
   leader?: string;
   visitError?: string;
@@ -77,6 +84,7 @@ export interface CaveObservation {
   };
 }
 export interface CaveCommand {
+  cruiseSpeed?: number;
   id: string;
   action: "gather" | "enter" | "move" | "vote" | "buy" | "exit" | "revival" | "stairs";
   run?: string;
@@ -89,6 +97,8 @@ export interface CaveCommand {
   amber?: number;
 }
 export interface DungeonState {
+  travel?: { target: CavePoint; origin: CavePoint; stage: 'assembling' | 'travelling'; serial: number; repairs?:number };
+  stairContinuation?: CavePoint;
   progress?: { enabled: boolean; target?: string; floor?: number; serial: number; message?: string };
   protectFromEvents: boolean;
   participants: string[];
@@ -121,6 +131,7 @@ export interface DungeonParty {
         y?: number;
         server?: string;
         rip?: boolean;
+        speed?: CharacterEntity['speed'];
         dungeon?: CaveObservation;
       }
     | undefined

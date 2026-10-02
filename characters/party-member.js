@@ -892,9 +892,11 @@
         return;
       }
       if (host.character.moving || host.is_transporting(host.character)) {
-        if (ports.now() - j.started > 5e3) finish(false, "Character did not settle before route planning");
+        j.settlingAt ??= ports.now();
+        if (ports.now() - j.settlingAt > 5e3) finish(false, "Character did not settle before route planning");
         return;
       }
+      j.settlingAt = void 0;
       try {
         planningStep(j);
       } catch (error) {
@@ -947,6 +949,7 @@
         return;
       }
       if (ports.context().paused) {
+        j.settlingAt = void 0;
         executor.pause();
         return;
       }
@@ -995,8 +998,15 @@
       fingerprint = nextFingerprint;
       report = movementDiagnostics(ports, host.character.name, version, fingerprint);
     }
+    function retainDirectStop(action, success) {
+      return action === "move" && !success && journey?.options.retainOnDirectStop;
+    }
     function stop(action, success) {
-      if (!action || action === "move" || action === "smart") finish(!!success, success ? void 0 : "Unattributed movement stop", { code: "unattributed-stop", action: action || "all" });
+      if (retainDirectStop(action, success)) {
+        executor.pause();
+        return Promise.resolve(host.move(host.character.real_x, host.character.real_y));
+      }
+      if (!action || action === "move" || action === "smart") finish(!!success, success ? void 0 : "Unattributed movement stop", { code: "unattributed-stop", action: action || "all", stopStack: new Error("Movement stop caller").stack });
       return native.stop(action, success);
     }
     function scheduler() {

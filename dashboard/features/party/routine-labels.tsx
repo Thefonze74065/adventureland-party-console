@@ -5,6 +5,7 @@ export const routineLabels: Record<string, string> = {
   "inventory cleanout": "Emergency inventory cleanout",
   "manual visit": "Manual player visit",
   deliveries: "Marked deliveries",
+  withdrawals: "Marked withdrawals",
   "party collection": "Automatic item collection",
   restock: "Party restock",
   "gold threshold": "Automatic gold collection",

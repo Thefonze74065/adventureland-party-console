@@ -11,6 +11,8 @@ export interface UpgradeMark {
   requestId?: string;
   waitingOffering?: { offering: string; level: number; signature: string };
   equipped?: boolean;
+  storage?: { pack: string; slot: number };
+  storageReceived?: boolean;
 }
 
 type UpgradeRule = number | string | { tiers: number; quantity?: number };
@@ -104,9 +106,19 @@ export function reconcileUpgradeMarks(
   items: Inventory,
   equipped: Equipment = {},
 ): Reconciliation {
+  const before = JSON.stringify(marks);
+  const claimed = new Set(marks.filter(mark => !mark.storage).map(mark => mark.slot));
+  marks = marks.map(mark => {
+    if (!mark.storage || !mark.storageReceived) return mark;
+    const entry = items.find(entry => entry?.item && !claimed.has(entry.slot) && sameMarkedItem(entry.item, mark.item) && sameMarkedItem(mark.item, entry.item));
+    if (!entry) return mark;
+    claimed.add(entry.slot);
+    const { storage: _storage, storageReceived: _received, ...ready } = mark;
+    return { ...ready, slot: entry.slot };
+  });
   const relocated = relocateUpgradeMarks(marks, items, rules, equipped);
   const retained = relocated.filter((mark) => validUpgrade(mark, items, rules, equipped));
-  const state = { marks: retained, changed: JSON.stringify(retained) !== JSON.stringify(marks) };
+  const state = { marks: retained, changed: JSON.stringify(retained) !== before };
   for (const entry of items) considerUpgrade(entry, rules, items, state);
   return state;
 }

@@ -9,7 +9,7 @@ function runtime(bank) {
   const calls = [];
   const character = { bank, items: Array(42).fill(null), level: 1 };
   const r = vm.createContext({ character, G: { items: { leather: { e: 40, name: 'Leather' } } },
-    itemQuantity: item => item && (item.q || 1),
+    merchantMassBuff:async()=>{},itemQuantity: item => item && (item.q || 1),
     merchantVisitBank: async () => calls.push('bank'),
     bank_retrieve: async (pack, slot) => {
       calls.push(['retrieve', pack, slot]);

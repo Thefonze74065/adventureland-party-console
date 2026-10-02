@@ -45,7 +45,7 @@ test('stand-return commands bypass pre-dispatch recovery; other commands still r
  const guard=source.slice(start,end);
  for(const type of ['merchant-idle','equip']) {
    const reports=[];
-   const c=vm.createContext({command:{type},character:{ctype:'merchant'},root:{},luckyUpgradeService:{pending:()=>true,recover:async()=>{throw Error('blocked');}},reportMerchantCommand:(_command,state,reason)=>reports.push({state,reason})});
+   const c=vm.createContext({command:{type},request:async()=>({pending:[]}),merchantLuckyUpgrade:()=>({retireSettled(){}}),character:{ctype:'merchant'},root:{},luckyUpgradeService:{pending:()=>true,recover:async()=>{throw Error('blocked');}},reportMerchantCommand:(_command,state,reason)=>reports.push({state,reason})});
    require('./helpers/client-dependencies.cjs').merchantGuards(c,{journal:true});
    const work=vm.runInContext('(async()=>{'+guard+'})()',c);
    await work;
@@ -67,7 +67,7 @@ test('background native stand synchronization waits for lucky-slot recovery',asy
  const end=source.indexOf('      statusPhase = "apply status";',start);
  const code='(async()=>{'+source.slice(start,end)+'})()';
  let synced=0;
- const c=vm.createContext({character:{ctype:'merchant',stand:true},root:{},merchantIdleActive:false,merchantLuckyUpgrade:()=>({pending:()=>true}),nativeStandSync:async()=>{synced++;}});
+ const c=vm.createContext({request:async()=>({pending:[]}),merchantLuckyUpgrade:()=>({retireSettled(){}}),character:{ctype:'merchant',stand:true},root:{},merchantIdleActive:false,merchantLuckyUpgrade:()=>({pending:()=>true}),nativeStandSync:async()=>{synced++;}});
  await vm.runInContext(code,c);assert.equal(synced,0);
  c.merchantLuckyUpgrade=()=>({pending:()=>false});await vm.runInContext(code,c);assert.equal(synced,1);
 });

@@ -1,6 +1,6 @@
 import { ruleOwner, itemRuleConflicts, sharedMember, type ConflictState } from "../inventory/shared-rules.ts";
 import type { Item, InventoryEntry, ItemMark } from "../contracts/item.ts";
-import { markBankDeconstruction, type BankDeconstructionState } from "./bank-deconstruction.ts";
+import { markBankDeconstruction, enqueueAutomaticBankDeconstruction, type BankDeconstructionState } from "./bank-deconstruction.ts";
 import { automaticCommerceRuleKey, sameMarkedItem } from "../inventory/item-identity.ts";
 import { replaceAutomaticAction, type AutomaticActionState } from '../inventory/automatic-action.ts';
 import {
@@ -142,8 +142,12 @@ export function createDeconstruction(state: DeconstructionState, ports: Ports) {
   function automaticRule(name: string, item: Item) {
     return !itemRuleConflicts(state,item).length && !!state.autoDeconstruction[ruleOwner(state,name)]?.[automaticCommerceRuleKey(item)];
   }
+  function automaticBank(name: string): void {
+    if (name === state.merchantCharacter) enqueueAutomaticBankDeconstruction(state, ports, item => automaticRule(name, item));
+  }
   function automatic(name: string, items: (InventoryEntry | null)[]) {
     if (!sharedMember(state,name)) return;
+    automaticBank(name);
     for (const entry of items) {
       if (!entry?.item || !Number.isInteger(entry.slot)) continue;
       if (!automaticRule(name,entry.item)) continue;

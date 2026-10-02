@@ -1,4 +1,5 @@
 import { routineFor } from './routines.ts';
+import { hasMarkedWithdrawals } from './marked-withdrawals.ts';
 import { merchantJobPriority } from "./priority.ts";
 import type { PrioritizedJob } from "./priority.ts";
 
@@ -19,10 +20,11 @@ function completesStorageHandoff<Bid extends { priorityOverride?: number }>(
   state: PriorityState<Bid>,
   job: PrioritizedJob,
 ): boolean {
-  if (job.target !== state.merchantCharacter || !["manual bank exchange", "upgrades and compounds", "manual upgrades", "auto upgrade", "manual compounds", "auto compound"].includes(job.reason)) return false;
+  if (job.target !== state.merchantCharacter || !["withdrawals", "manual bank exchange", "upgrades and compounds", "manual upgrades", "auto upgrade", "manual compounds", "auto compound"].includes(job.reason)) return false;
   return (state.withdrawals?.[String(state.merchantCharacter)] || []).some(
     (request) =>
-      routineFor(job) === routineFor({reason: request.improvement || "manual bank exchange"}) &&
+      (routineFor(job) === routineFor({reason: request.improvement || "manual bank exchange"}) ||
+        job.reason === 'withdrawals' && hasMarkedWithdrawals([request])) &&
       request.pack === "items1" &&
       Number(request.slot) >= 35 &&
       state.bankSnapshot?.packs?.items1?.[Number(request.slot)],

@@ -10,7 +10,7 @@ import { movementDiagnostics } from './movement-diagnostics.ts';
 import { repairDoorApproaches } from '../navigation/door-approach.ts';
 import { planReturnCandidates } from './return-planner.ts';
 interface SegmentRepair { plot: Step[]; index: number; target: Point; started: boolean }
-interface Journey { repair?: SegmentRepair; repaired?: boolean; firstIssue?: Issue; failureContext?: Record<string, unknown>; id: string; context: MovementContext; options: MovementOptions; native: boolean; pending: boolean; searches: number; retries: number; started: number; planningAt: number; fallback: boolean; plannerMs?: number; requestMs?: number; distance?: number; transitions?: number; importedEngine?: string }
+interface Journey { settlingAt?: number; repair?: SegmentRepair; repaired?: boolean; firstIssue?: Issue; failureContext?: Record<string, unknown>; id: string; context: MovementContext; options: MovementOptions; native: boolean; pending: boolean; searches: number; retries: number; started: number; planningAt: number; fallback: boolean; plannerMs?: number; requestMs?: number; distance?: number; transitions?: number; importedEngine?: string }
 const failurePhases = new Map([
   ['superseded', 'Movement cancelled'],
   ['convoy-communication-hold', 'Movement paused: coordinator communication unavailable'],
@@ -186,9 +186,11 @@ export function installPartyMovement(host: MovementHost, ports: MovementPorts) {
     if (!j || state.found) return;
     if (!current(j)) { finish(false, 'Navigation revision or runtime superseded this journey', {code:'superseded'}); return; }
     if (host.character.moving || host.is_transporting(host.character)) {
-      if (ports.now() - j.started > 5000) finish(false, 'Character did not settle before route planning');
+      j.settlingAt ??= ports.now();
+      if (ports.now() - j.settlingAt > 5000) finish(false, 'Character did not settle before route planning');
       return;
     }
+    j.settlingAt = undefined;
     try { planningStep(j); }
     catch (error) { finish(false, error); }
   }
@@ -215,7 +217,7 @@ export function installPartyMovement(host: MovementHost, ports: MovementPorts) {
     const j = journey;
     if (!j || !state.moving) return;
     if (!current(j)) { finish(false, 'Navigation revision or runtime superseded this journey', {code:'superseded'}); return; }
-    if (ports.context().paused) { executor.pause(); return; }
+    if (ports.context().paused) { j.settlingAt = undefined; executor.pause(); return; }
     if (!state.found) { planTick(); return; }
     try { if (executor.tick(j.options)) finish(true); }
     catch (error) { recover(j, error); }
@@ -241,8 +243,15 @@ export function installPartyMovement(host: MovementHost, ports: MovementPorts) {
     version = nextVersion; fingerprint = nextFingerprint;
     report = movementDiagnostics(ports, host.character.name, version, fingerprint);
   }
+  function retainDirectStop(action?: string, success?: boolean) {
+    return action === 'move' && !success && journey?.options.retainOnDirectStop;
+  }
   function stop(action?: string, success?: boolean) {
-    if (!action || action === 'move' || action === 'smart') finish(!!success, success ? undefined : 'Unattributed movement stop', {code:'unattributed-stop',action:action || 'all'});
+    if (retainDirectStop(action, success)) {
+      executor.pause();
+      return Promise.resolve(host.move(host.character.real_x, host.character.real_y));
+    }
+    if (!action || action === 'move' || action === 'smart') finish(!!success, success ? undefined : 'Unattributed movement stop', {code:'unattributed-stop',action:action || 'all', stopStack: new Error('Movement stop caller').stack});
     return native.stop(action, success);
   }
   function scheduler() { if (!disposed) { if (gate.owner) gate.owner.tick(); else tick(); } }

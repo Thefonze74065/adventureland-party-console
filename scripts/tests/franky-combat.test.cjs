@@ -14,7 +14,7 @@ function fixture(range = 100) {
   const c = vm.createContext({
     character: {name:'Hero',map:'level2w',in:'room',x:0,y:0,range,speed:40},
     G:{maps:{level2w:{event:'franky'}}}, parent:{entities:{}},
-    eventSelected:()=>true, joinedEvent:'franky', navigationIntent:{cancelled:false},
+    passiveHunting:{rules:{}}, passiveLevelAllowed:()=>true, eventSelected:()=>true, joinedEvent:'franky', navigationIntent:{cancelled:false},
     escapeOwns:()=>false, eventExitOwnsMovement:()=>false,
     convoyTraveling:null,townTraveling:false,partyTownActive:false,forceTraveling:false,
     banking:false,stocking:false,upgrading:false,anniversaryBusy:false,anniversaryStaging:false,eventTraveling:false,

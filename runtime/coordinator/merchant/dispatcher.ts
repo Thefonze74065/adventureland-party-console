@@ -1,4 +1,5 @@
 import { buyUpgradeOrder } from './commerce-progress.ts';
+import { hasMarkedWithdrawals } from './marked-withdrawals.ts';
 import { merchantJobReady } from './priority.ts';
 import { splitLegacyWork } from './routines.ts';
 import { mergePickupJobs } from './pickup-jobs.ts';
@@ -111,6 +112,7 @@ export function createMerchantDispatcher(state: DispatchState, ports: DispatchPo
   }
 
   function ready(job: MerchantWork): boolean {
+    if (ports.enabled?.(job) === false) return false;
     return merchantJobReady(job, {now: ports.now(), priority: candidate => ports.priority(candidate as MerchantWork),
       capacityBlocked: candidate => ports.capacityBlocked(candidate as MerchantWork), collectionReady: candidate => ports.collectionReady(candidate as MerchantWork)});
   }
@@ -217,6 +219,7 @@ export function createMerchantDispatcher(state: DispatchState, ports: DispatchPo
   }
 
   function hasQueuedWork(job: MerchantWork): boolean {
+    if (job.reason === 'withdrawals') return hasMarkedWithdrawals(ports.inputs().work(job.target).withdrawals);
     if (job.reason === "deliveries") return ports.inputs().work(job.target).deliveries.length > 0;
     if (job.reason !== "manual compounds") return true;
     if (ports.inputs().work(job.target).compounds.length) return true;
@@ -229,7 +232,7 @@ export function createMerchantDispatcher(state: DispatchState, ports: DispatchPo
     if (!merchantAlive()) return false;
     state.queue = mergePickupJobs(state.queue, ports.merchant()).map(job => ports.stamp(job));
     if (ports.returningHome() && !ports.ensureHome("resuming merchant work")) return false;
-    state.queue = state.queue.flatMap(job => splitLegacyWork(job)).filter(hasQueuedWork).filter((job) => !ports.bankboi(job.target) && ports.enabled?.(job) !== false && !(job.reason === "join giveaway" && Number(job.expiresAt) < ports.now()));
+    state.queue = state.queue.flatMap(job => splitLegacyWork(job)).filter(hasQueuedWork).filter((job) => !ports.bankboi(job.target) && (buyUpgradeOrder(job) || ports.enabled?.(job) !== false) && !(job.reason === "join giveaway" && Number(job.expiresAt) < ports.now()));
     return !state.current && !!ports.merchant() && !ports.manualEquipmentPending() && !reserved();
   }
 
@@ -240,6 +243,7 @@ export function createMerchantDispatcher(state: DispatchState, ports: DispatchPo
   function productionHeld(): boolean {
     const pending = ports.productionPending?.() || [];
     if (pending.length) {
+      if (state.current) return true; // An admitted in-flight operation is ordinary work, not a recovery alarm.
       const identity = JSON.stringify(pending);
       if (productionHold !== identity) {
         productionHold = identity;

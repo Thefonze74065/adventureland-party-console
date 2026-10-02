@@ -1,5 +1,6 @@
 import { admitMerchantInterruption, attachMerchantInterruption } from '../navigation/merchant-interruption.ts';
 import { upgradeOfferingReady } from '../inventory/offering-waits.ts';
+import { hasMarkedWithdrawals } from '../merchant/marked-withdrawals.ts';
 import { deliveryReady, reconcileDeliveries, type DeliveryRequest } from '../merchant/delivery-recovery.ts';
 import type { MerchantCommandReport } from "../merchant/recovery.ts";
 import type { InventoryEntry, Item, ItemMark } from "../contracts/item.ts";
@@ -22,6 +23,7 @@ interface SchedulingState {
   nextCommandId?: number;
   commands?: Record<string, {id?: number; type: string; items?: unknown[]; deliveryIds?: (string | undefined)[]} | undefined>;
   merchantDeliveries?: Record<string, DeliveryRequest[] | undefined>;
+  withdrawals?: Record<string, unknown[] | undefined>;
   merchantCharacter: string | null;
   merchantCurrent: unknown;
   merchantQueue: unknown[];
@@ -128,7 +130,7 @@ export function createMerchantScheduling(state: SchedulingState, ports: Scheduli
     const blocked = freeSlots(report.items) <= 3;
     if (blocked && !state.merchantCapacityBlocked) state.transferSignatures = {};
     state.merchantCapacityBlocked = blocked;
-
+    if (hasMarkedWithdrawals(state.withdrawals?.[report.name])) ports.queue([report.name], 'withdrawals');
   }
 
   function upgradeWork(report: SchedulingReport) {

@@ -1,12 +1,12 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
-const {beginProduction,finishProduction,inspectProduction,resolveUnknownProduction}=require('../../runtime/coordinator/inventory/production.ts');
+const {beginProduction,finishProduction,inspectProduction,resolveUnknownProduction,pendingProduction,checkpointProduction}=require('../../runtime/coordinator/inventory/production.ts');
 const source=fs.readFileSync('characters/shared.js','utf8');
 function fixture(){
  const state={merchantCharacter:'M',production:{attempts:{}},autoUpgradeMarks:{M:{'cap@+0':{tiers:1,quantity:2}}},autoCompounds:{}};
  const storage=new Map();let lost=false;
  const c=vm.createContext({yieldMerchantForEvent:async()=>{},character:{name:'M',ctype:'merchant',items:[{name:'cap',level:0}]},luckyUpgradeService:null,
   root:{localStorage:{getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)}},fingerprint:item=>item&&({...item}),
-  request:async(_path,{body})=>{if(body.action==='inspect')return inspectProduction(state,body);if(body.action==='complete'){finishProduction(state,body.id,body.success);if(lost){lost=false;throw Error('response lost')}}else beginProduction(state,body);},
+  request:async(_path,{body})=>{if(body.action==='pending')return {pending:pendingProduction(state.production,true)};if(body.action==='checkpoint')return checkpointProduction(state,body);if(body.action==='inspect')return inspectProduction(state,body);if(body.action==='complete'){finishProduction(state,body.id,body.success);if(lost){lost=false;throw Error('response lost')}}else beginProduction(state,body);},
  });
  vm.runInContext(source.slice(source.indexOf('  function productionJournalKey()'),source.indexOf('  async function observedCompoundConfirmed(')),c);
  return {c,state,storage,loseReply:()=>lost=true};
@@ -78,7 +78,8 @@ test('overlapping production and recovery cannot overwrite the active journal',a
 
 test('rejected admission clears only the unstarted journal and leaves the blocking attempt intact',async()=>{
  const f=fixture();beginProduction(f.state,{id:'orphan',item:{name:'cap',level:0},kind:'upgrade'});
- f.c.request=async(_path,{body})=>{if(body.action==='inspect')return inspectProduction(f.state,body);try{return {attempt:beginProduction(f.state,body)}}catch(error){error.partyRequest={status:409};throw error}};
+ // Simulate the orphan appearing after the read-only preflight, at admission.
+ f.c.request=async(_path,{body})=>{if(body.action==='pending')return {pending:[]};if(body.action==='inspect')return inspectProduction(f.state,body);try{return {attempt:beginProduction(f.state,body)}}catch(error){error.partyRequest={status:409};throw error}};
  await assert.rejects(f.c.trackedProduction('upgrade',[0],null,async()=>{throw Error('must not execute')}),/Production recovery pending/);
  assert.equal(f.storage.size,0);assert.equal(f.state.production.attempts.orphan.completed,undefined);
 });
@@ -98,7 +99,7 @@ test('error after coordinator admission retains the prepared journal until recon
 
 test('failed admission inspection preserves the journal for a later recovery',async()=>{
  const f=fixture();
- f.c.request=async(_path,{body})=>{const error=Error(body.action==='inspect'?'inspection unavailable':'admission rejected');error.partyRequest={status:409};throw error};
+ f.c.request=async(_path,{body})=>{if(body.action==='pending')return {pending:[]};const error=Error(body.action==='inspect'?'inspection unavailable':'admission rejected');error.partyRequest={status:409};throw error};
  await assert.rejects(f.c.trackedProduction('upgrade',[0],null,async()=>{}),/admission rejected/);
  assert.equal(f.storage.size,1);
 });

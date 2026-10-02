@@ -1,4 +1,5 @@
 import { test, expect } from './live-fixtures';
+import { killNativeCharacter } from './hunt-interruption-helpers';
 
 const W = 'E2EWarrior', P = 'E2EPriest', members = [W, P];
 
@@ -43,6 +44,36 @@ test('disabling inherited Franky interrupts native boss combat and evacuates bot
     const state=await live.state();
     return members.some(name=>state.characters[name]?.target?.mtype==='franky'&&state.characters[name]?.activeCombatTarget);
   },{timeout:15_000,message:'At least one native fighter must still own active boss combat'}).toBeTruthy();
+  // Initial completed native quests reproduce enabling/resuming Hunt during a
+  // living event. Quest preparation must not seize protected Daisy travel.
+  await live.admin(`output=${JSON.stringify(members)}.map(name=>{const p=get_player(name);p.s.monsterhunt={sn:region+' '+server_name,id:'goo',c:0,ms:1800000};resend(p,'u+cid+reopen');return p.s.monsterhunt})`);
+  await expect.poll(async () => (await live.state()).characters[W]?.monsterHunt?.count).toBe(0);
+  await expect.poll(async () => (await live.state(true)).monsterChoices?.some((choice: any) => choice.id === 'goo')).toBe(true);
+  const goo = (await live.state(true)).monsterChoices.find((choice: any) => choice.id === 'goo');
+  await live.post('/farming-mode', { character: W, mode: 'hunt', backup: { monsterFocus: ['goo'], location: goo.locations.find((location: any) => location.map === 'main') } });
+  await expect.poll(async () => (await live.state()).monsterHunt?.stage, { timeout: 15_000 }).toBe('paused-event');
+  // One lost permission response after native death must retain the recovery
+  // intent. Normal polling also uses this route, so fault only after death.
+  let denied = false, holdPermission = true;
+  const context = live.clients[W].page.context();
+  const permission = '**/hunt-event-permission';
+  await context.route(permission, async route => {
+    if (holdPermission) { denied = true; await route.abort('failed'); }
+    else await route.continue();
+  });
+  const death = await killNativeCharacter(live, W);
+  await expect.poll(async () => (await live.state()).characters[W]?.combat?.runner?.recovery?.lastError,
+    { timeout: 90_000, message: 'A lost permission reply must publish retryable event recovery' }).toBe('Waiting for event travel permission');
+  holdPermission = false;
+  await expect.poll(async () => {
+    const server = await world(), state = await live.state();
+    return denied && !server.players[W].rip && server.players[W].map === 'level2w' &&
+      state.characters[W]?.joinedEvent === 'franky' && state.monsterHunt?.stage === 'paused-event' &&
+      !state.monsterHunt?.turnIn;
+  }, { timeout: 120_000, message: 'Native respawn must rejoin the living boss without a Daisy return or manual retry' }).toBe(true);
+  await context.unroute(permission);
+  await info.attach('hunt-event-native-death-reentry', { body: JSON.stringify({ death, denied, server: await world(), coordinator: await live.state() }), contentType: 'application/json' });
+  await live.post('/farming-mode', { character: W, mode: 'default' });
   const before = { server: await world(), coordinator: await live.state() };
   expect(before.server.bossHp).toBeGreaterThan(0);
   await info.attach('franky-party-before-disable', { body: JSON.stringify(before), contentType: 'application/json' });

@@ -87,6 +87,9 @@ export function createHuntTick(state: HuntTickState, ports: HuntTickPorts) {
     travel.reconcileArrival(hunt);
     if (rarePaused(hunt)) return;
     if (observeHuntExpiry(state, hunt, ports.now())) ports.persist();
+    // An admitted event must pause quest preparation and expiry-driven returns
+    // before either can acquire protected Daisy travel. Existing turn-ins retain ownership.
+    if (travel.combatEvent(hunt)) return;
     advance(hunt);
   }
   function rarePaused(hunt:HuntCycle):boolean {

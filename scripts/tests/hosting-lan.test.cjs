@@ -37,7 +37,7 @@ test('LAN gateway toggles without lockout, forwards API/builds, and guards both 
  const post=(route,data,extra={})=>fetch(base+route,{method:'POST',headers:{...headers,...extra},body:JSON.stringify(data)});
  try {
   assert.equal((await fetch(base)).status,200);
-  assert.deepEqual(await (await fetch(base+'/setup/state')).json(),{configured:true,requirePairing:false,canConfigureAccount:false,serverAddress:lan});
+  assert.deepEqual(await (await fetch(base+'/setup/state')).json(),{configured:true,requirePairing:false,canConfigureAccount:false,serverAddress:lan,realms:[]});
   assert.equal((await (await post('/setup/steam',{origin:lan})).json()).code,'$.getScript("'+lan+'/CODE/adventure_land/universal-loader.js");');
   assert.equal((await post('/setup/pairing',{requirePairing:'yes'})).status,400);
   assert.equal((await post('/setup/pairing',{requirePairing:true},{Origin:'https://evil.example'})).status,403);
@@ -107,7 +107,7 @@ test('game session starts masked, toggles visibly without changing it, and clear
  const calls=[];let configured=false;
  const dom=new JSDOM(setupPage,{url:'http://lan:3010/setup',runScripts:'dangerously',beforeParse(w){w.fetch=async(url,options)=>{
   if(url==='/setup/session'){calls.push(JSON.parse(options.body));configured=true;}
-  return {ok:true,json:async()=>({configured,requirePairing:false,canConfigureAccount:true})};
+  return {ok:true,json:async()=>({configured,requirePairing:false,canConfigureAccount:true,realms:['SR_USII']})};
  };}});
  try {
   await new Promise(resolve=>setImmediate(resolve));
@@ -133,7 +133,7 @@ test('only a connected client starts the green countdown; failed authentication 
    w.setInterval=(fn,delay)=>{assert.equal(delay,1000);tick=fn;return 42;};
    w.clearInterval=id=>{if(id===42)cleared=true;};
    w.setTimeout=fn=>{poll=fn;return 43;};w.clearTimeout=()=>{};
-   w.fetch=async url=>({ok:url!=='/setup/session'||accepted,json:async()=>({connected,code:'loader',configured:accepted,canConfigureAccount:true,requirePairing:false,error:'Invalid game session'})});
+   w.fetch=async url=>({ok:url!=='/setup/session'||accepted,json:async()=>({connected,code:'loader',configured:accepted,canConfigureAccount:true,requirePairing:false,realms:['SR_USII'],error:'Invalid game session'})});
   }});
   try {
    await new Promise(r=>setImmediate(r));

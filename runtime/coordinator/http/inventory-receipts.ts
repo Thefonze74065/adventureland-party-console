@@ -2,6 +2,7 @@ import { finishMerchantInterruption } from '../navigation/merchant-interruption.
 import type { DeliveryRequest } from '../merchant/delivery-recovery.ts';
 import { requestObject, requestText, type HttpRequest, type HttpResponse } from "./contracts.ts";
 import { receiveBankDeconstruction } from "../merchant/bank-deconstruction.ts";
+import { receiveBankUpgrades } from '../inventory/bank-upgrade-receipts.ts';
 
 interface ReceiptState {
   merchantDeliveries?: Record<string, DeliveryRequest[] | undefined>;
@@ -114,6 +115,7 @@ export function createInventoryReceiptRoutes(state: ReceiptState, ports: Receipt
     const name = state.bankCurrent.name,
       withdrawn = list(body.withdrawn);
     receiveBankDeconstruction({ ...state, merchantCharacter: state.merchantCharacter || null }, name, withdrawn, Date.now());
+    receiveBankUpgrades(state, name, withdrawn);
     if (state.deconstructionMarks?.length) ports.persist();
     consume(state.withdrawals[name], withdrawn);
     if (withdrawn.length) ports.persistBank();

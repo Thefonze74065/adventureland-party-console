@@ -8,6 +8,7 @@ export function offeringSignature(value: unknown): string {
 }
 export function upgradeOfferingReady(state: unknown, raw: unknown): boolean {
   const mark = requestObject(raw), waiting = requestObject(mark.waitingOffering);
+  if (mark.storage) return false;
   return !waiting.signature || waiting.signature !== offeringSignature(state);
 }
 interface State {

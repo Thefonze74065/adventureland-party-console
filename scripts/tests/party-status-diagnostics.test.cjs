@@ -67,7 +67,7 @@ test('diagnostic strings redact credentials and URL queries',()=>{
 function statusFixture() {
  const f=fixture(),r=f.r;
  Object.assign(r,{
-  dungeonRuntime:()=>({receive(){},owns:()=>false}),
+  keepTracktrixLast:async()=>{},dungeonRuntime:()=>({receive(){},owns:()=>false}),
   busy:false,snapshot:()=>({}),runtimeCurrent:()=>true,dashboardSampler:null,reloadConvoyGeometry(){},
   prepareCatalog:async()=>{},applyMerchantVisibility:async()=>{},
   luckySlotTracking:()=>({sync:()=>{}}),
@@ -92,12 +92,12 @@ test('status request failure releases busy and the next successful update dispat
  assert.equal(f.r.root.__partyStatusDiagnostics[0].delivered,true);
 });
 
-test('blocked bank recovery still reports a heartbeat without dispatching new work',async()=>{
+test('bank recovery cannot block ordinary status and command delivery',async()=>{
  const f=statusFixture();f.r.recoverBankSortBeforeWork=async()=>{throw new Error('Bank stack buffer changed');};
- await f.r.tick();assert.equal(f.r.busy,false);assert.equal(f.r.handled,undefined);
+ await f.r.tick();assert.equal(f.r.busy,false);assert.equal(f.r.handled,1);
  assert.ok(f.requests.some(r=>r.url.endsWith('/status')));
- assert.equal(f.r.root.__partyStatusDiagnostics[0].details.phase,'bank sort recovery');
- f.r.recoverBankSortBeforeWork=async()=>{};await f.r.tick();assert.equal(f.r.handled,1);
+ assert.equal(f.r.root.__partyStatusDiagnostics,undefined);
+ f.r.recoverBankSortBeforeWork=async()=>{};await f.r.tick();assert.equal(f.r.handled,2);
 });
 test('snapshot and post-response navigation exceptions identify their actual stage',async()=>{
  const f=statusFixture();f.r.snapshot=()=>{throw new Error('snapshot broke');};

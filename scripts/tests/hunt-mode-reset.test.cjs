@@ -19,7 +19,7 @@ function fixture(completed=false,event=false){
 for(const completed of [false,true])for(const event of [false,true])test(`off/on resets runtime while retaining live quests: completed=${completed}, event=${event}`,()=>{
  const f=fixture(completed,event);f.mode.select('auto',null,undefined,false);
  assert.equal(f.state.monsterHunt,null);assert.equal(f.state.activeConvoy,null);assert.equal(f.state.commands.L,undefined);
- assert.equal(f.state.commands.M.purpose,'merchant');assert.deepEqual(f.state.huntBlacklist,{});assert.deepEqual(f.state.huntFailures,{});
+ assert.equal(f.state.commands.M.purpose,'merchant');assert.deepEqual(f.state.huntBlacklist,{booboo:{deaths:3}});assert.deepEqual(f.state.huntFailures,{booboo:{deaths:3}});
  assert.equal(f.state.farmAreaState.pending,null);assert.equal(f.state.combatRecovery,null);
  assert.equal(f.state.statuses.L.monsterHunt,f.quest);assert.equal(f.state.huntSettings,f.settings);
  f.mode.select('hunt',null,undefined,false);assert.equal(f.state.monsterHunt.cycleId,'new1');assert.equal(f.state.monsterHunt.routeRecovery,undefined);

@@ -98,6 +98,10 @@ async function reset() {
   // Wait for upstream disconnection persistence before restoring initial records.
   await new Promise(resolve => setTimeout(resolve, 1000));
   await admin(`output=(async()=>{
+    // Disconnected Cave runs retain a resumable visit. Retire only this
+    // disposable account's runs through native teardown before restoring it.
+    for (var run of Object.values(generated_runs))
+      if (run.members.every(member=>member.owner===data.owner)) destroy_generated_run(run.key,'e2e-reset');
     events.goobrawl=false; events.anniversary=false; delete timers.goobrawl; delete E.goobrawl;
     anniversary_tick(); anniversary_controller=null; broadcast_e();
     // Recover isolated encounter setup even if a scenario timed out before finally.

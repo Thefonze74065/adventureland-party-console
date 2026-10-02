@@ -9,7 +9,7 @@ import { useUpgradeOfferings, type OfferingSource } from './upgrade-offering-con
 import { upgradeOfferings, type UpgradeOffering } from '../../../runtime/upgrade-offerings';
 import { useState } from "react";
 import { UpgradePreviewPanel } from "./upgrade-preview-panel";
-import { Swords } from "lucide-react";
+import { ArrowUp } from "lucide-react";
 import { AutoActionIcon } from './auto-action-icon';
 import { Item } from "./item";
 import { itemMaximumLevel } from "./item-maximum-level";
@@ -52,7 +52,7 @@ export function UpgradeActions({
       {!automaticOnly && meta?.upgradeable && max > 0 ? (
         <ContextMenuSub open={previewOpen} onOpenChange={setPreviewOpen}>
           <ContextMenuSubTrigger className="!bg-white !text-black focus:!bg-slate-100 data-open:!bg-slate-100">
-            <Swords className="mr-2 h-4 w-4" />
+            <ArrowUp className="mr-2 h-4 w-4" />
             Mark for upgrade
             {mark ? ` · ${mark.tiers || 1} tier${(mark.tiers || 1) === 1 ? "" : "s"}` : ""}
           </ContextMenuSubTrigger>
@@ -75,7 +75,7 @@ export function UpgradeActions({
               ))}
             </div>
             </div>
-            {previewOpen && <UpgradePreviewPanel key={JSON.stringify([item,offeringSource,offerings?.executor])} item={item} source={offeringSource} />}
+            {previewOpen && offeringSource && <UpgradePreviewPanel key={JSON.stringify([item,offeringSource,offerings?.executor])} item={item} source={offeringSource} />}
             </div>
           </ContextMenuSubContent>
         </ContextMenuSub>
@@ -83,7 +83,7 @@ export function UpgradeActions({
       {showAutomatic && meta?.upgradeable && max > 0 ? (
         <ContextMenuSub>
           <ContextMenuSubTrigger className="!bg-white !text-black focus:!bg-slate-100 data-open:!bg-slate-100">
-            <AutoActionIcon><Swords /></AutoActionIcon>
+            <AutoActionIcon><ArrowUp /></AutoActionIcon>
             Auto mark for upgrade
             {autoTiers ? ` · ${autoTiers} tier${autoTiers === 1 ? "" : "s"}` : ""}
           </ContextMenuSubTrigger>

@@ -31,10 +31,12 @@ test('full fill requires receipts; missing slot, closed stand, inventory or gold
  f.observation.receipts[offer.token]=9;f.native.observe(f.observation);assert.equal(f.state.standBids.berry,undefined);assert.deepEqual(f.state.nativeStand.offers,{});
  f.native.observe(f.observation);assert.equal(f.effects.filter(x=>x==='publish').length,1);
 });
-test('replacement by a sale or another offer cannot acknowledge a purchase',()=>{
+test('replacement does not imply a purchase but confirmed receipts still account for prior fills',()=>{
  for(const replacement of [{name:'berry',price:100,q:1},{b:true,name:'berry',price:100,q:1,rid:'other'}]){
   const f=fixture(),offer=placed(f);f.observation.slots[offer.slot]=replacement;f.observation.receipts[offer.token]=8;f.native.observe(f.observation);
-  assert.equal(f.state.standBids.berry.quantity,9);assert.equal(offer.phase,'blocked');
+  assert.equal(f.state.standBids.berry.quantity,1);
+  assert.equal(f.state.nativeStand.offers[offer.token],replacement.b?offer:undefined);
+  if(replacement.b)assert.equal(offer.phase,'live');
  }
 });
 test('removal race accounts for fills before removal acknowledgement and restores only remaining quantity',()=>{

@@ -18,10 +18,12 @@ export function createHuntTravel(state: HuntTickState, ports: HuntTickPorts) {
       return status && (status.activeEvent || status.joinedEvent);
     });
     if (!active || ports.ownsTravel(hunt)) return false;
-    if (hunt.stage !== "paused-event") hunt.resumeStage = hunt.stage;
+    const changed = hunt.stage !== "paused-event";
+    if (changed) hunt.resumeStage = hunt.stage;
     hunt.stage = "paused-event";
     hunt.message = "Paused for combat event";
     ports.cancelHuntConvoy();
+    if (changed) ports.persist();
     return true;
   }
 
@@ -257,8 +259,8 @@ export function createHuntTravel(state: HuntTickState, ports: HuntTickPorts) {
 
   function step(hunt: HuntCycle): void {
     if (temporaryStop(hunt)) return;
-    if (returnFromMission(hunt)) return;
     if (combatEvent(hunt) || state.eventReturn) return;
+    if (returnFromMission(hunt)) return;
     if (hunt.stage === "paused-event") { resumeEvent(hunt); return; }
     if (reconcileDestination(hunt)) return;
     if (daisy(hunt) || mission(hunt)) return;
@@ -296,5 +298,5 @@ export function createHuntTravel(state: HuntTickState, ports: HuntTickPorts) {
     hunt.message='Monster Hunt: '+hunt.target;
     ports.persist();
   }
-  return { step, reconcileArrival };
+  return { step, reconcileArrival, combatEvent };
 }

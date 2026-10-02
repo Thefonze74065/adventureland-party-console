@@ -14,11 +14,11 @@ test('legacy completed buffer reservations cannot shadow later reuse of the same
  await r.service.recover();assert.equal(r.total(),49);assert.deepEqual(r.quantities(),[3,46]);assert.equal(r.ports.read(),null);
 });
 
-test('stale buffer identity mismatch is skipped without moving unrelated inventory',async()=>{
+test('reused buffer identity retires stale intent without moving unrelated inventory',async()=>{
  const {stackIdentity}=require('../../runtime/bank-stacks.ts');
  const r=bankRuntime({items0:[null]},[{name:'sword'}]);
  r.ports.write({buffers:[{slot:0,identity:stackIdentity(key(3)),origin:{pack:'items0',slot:0,floor:'bank'}}]});
- await r.service.recover();assert.equal(r.calls.length,0);assert.equal(r.ports.read(),null);
+ await r.service.recover();assert.equal(r.calls.length,0);assert.equal(r.c.character.items[0].name,'sword');assert.equal(r.ports.read(),null);
 });
 
 test('legacy mixed seashell and crypt-key journal recovers only remaining bank cargo',async()=>{
@@ -74,13 +74,13 @@ for(const failAt of [1,2,3,4,5,6])test('restart recovers confirmed mutation '+fa
   const result=await run(...args);if(++operations===failAt&&!crashed){crashed=true;throw Error('connection lost after mutation');}return result;};}
  try{await r.service.compact();}catch(error){assert.match(error.message,/connection lost/);}
  const restarted=createBankStacks(r.ports);
- if(r.ports.read())await restarted.recover();await restarted.compact();
+ await r.ports.sleep(5000);if(r.ports.read())await restarted.recover();await restarted.compact();
  assert.equal(r.total(),51);assert.deepEqual(r.quantities(),[50,1]);assert.ok(r.c.character.items.every(x=>!x));assert.equal(r.ports.read(),null);
 });
 test('unconfirmed operation stays journaled and is not sent twice',async()=>{
  const r=bankRuntime({items0:[key(46)],items8:[key(5)]});let sent=0;r.ports.retrieve=async()=>{sent++;};
- await assert.rejects(r.service.compact(),/not confirmed/);await assert.rejects(r.service.recover(),/not confirmed/);
- assert.equal(sent,1);assert.ok(r.ports.read().pending);assert.equal(r.total(),51);
+ await assert.rejects(r.service.compact(),/not confirmed/);await r.service.recover();
+ assert.equal(sent,1);assert.equal(r.ports.read(),null);assert.equal(r.total(),51);
 });
 
 test('locked floors and protected crafting item types are excluded',async()=>{

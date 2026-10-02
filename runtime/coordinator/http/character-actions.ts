@@ -109,7 +109,7 @@ export function createCoordinatorCharacterCommands(
     farmingLocation: ports.farmingLocation,
     handlers: [
       createOfferingCommands(state, ports.persist),
-      createClearItemMarks(state, { persist: ports.persist, changed: () => ports.marksCleared?.() }),
+      createClearItemMarks(state, { persist: ports.persist, persistBank: ports.persistBank, changed: () => ports.marksCleared?.() }),
       ports.navigation,
       upgrades.handle,
       stats.handle,
@@ -123,5 +123,8 @@ export function createCoordinatorCharacterCommands(
 
 function merchantRuleSelection(state: CommandState, name: unknown, body?: Record<string, unknown>): boolean {
   if (!state.merchantCharacter || name !== state.merchantCharacter) return false;
+  // Bank intents and shared rules can be recorded while the configured merchant
+  // is offline; their handlers validate the selected source before mutation.
+  if (typeof body?.pack === 'string' && ['withdraw', 'clear-item-marks'].includes(String(body.type))) return true;
   return typeof body?.type === 'string' && ['auto-item-mark', 'auto-exchange', 'auto-upgrade-mark', 'auto-compound-mark'].includes(body.type);
 }

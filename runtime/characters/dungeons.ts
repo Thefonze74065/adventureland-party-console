@@ -4,10 +4,12 @@ import {
   type DungeonJournal,
   type DungeonReceipt,
 } from "./dungeon-journal.ts";
-import type { CaveObservation, CaveCommand, CavePoint } from "../dungeons/contracts.ts";
+import type { CaveObservation, CaveCommand, CavePoint, CaveRoute } from "../dungeons/contracts.ts";
 
 // Partial official wire payloads, not complete game objects. See contracts.ts.
 interface RawPoint {
+  id?: string;
+  kind?: string;
   map?: string;
   floor: number;
   x: number;
@@ -39,6 +41,9 @@ interface RawCave {
     text_message?: unknown;
     deadline: number;
     resolved: boolean;
+    result_label?: string;
+    result_message?: unknown;
+    summary?: string[];
     votes: Record<string, string>;
     options: {
       id: string;
@@ -74,8 +79,11 @@ interface Ports {
   request(action: string, fields?: Record<string, unknown>): Promise<unknown>;
   keeper(): { map: string; x: number; y: number } | undefined;
   text(value: unknown): string;
-  move(point: CavePoint): Promise<unknown>;
+  move(point: CavePoint, command: CaveCommand): Promise<unknown>;
+  travel?(): CaveObservation['travel'];
   stop(): Promise<unknown>;
+  cruise?(speed: number): void;
+  sharedRoute?(route:CaveRoute,command:CaveCommand):void;
   read(): DungeonJournal | DungeonReceipt | null;
   write(journal: DungeonJournal): void;
 }
@@ -93,6 +101,7 @@ export function installDungeonRuntime(ports: Ports) {
   const journal = createDungeonJournal(ports.read, ports.write);
   let movementReady = false,
     controlAt = 0;
+  let cruiseSpeed = 500;
   let stopping: Promise<unknown> = Promise.resolve();
   let serverTime = 0,
     serverOffset = 0;
@@ -114,6 +123,8 @@ export function installDungeonRuntime(ports: Ports) {
     const points = (items: RawPoint[], kind: string): CavePoint[] =>
       items.map((p, i) => ({
         id: c.run + ":" + c.floor + ":" + kind + ":" + i,
+        room: kind === "room" ? p.id : undefined,
+        kind: p.kind,
         label:
           kind === "door"
             ? p.to === "main"
@@ -147,6 +158,8 @@ export function installDungeonRuntime(ports: Ports) {
         deadline: c.choice.deadline - offset,
         title: caveText(c.choice.title_message, c.choice.title),
         text: caveText(c.choice.text_message, c.choice.text),
+        resultLabel: caveText(c.choice.result_message, c.choice.result_label),
+        summary: c.choice.summary,
         options: c.choice.options.map((o) => ({
           id: String(o.id),
           label: caveText(o.label_message, o.label),
@@ -222,6 +235,7 @@ export function installDungeonRuntime(ports: Ports) {
       supported: ports.supported(),
       alive: ports.alive(),
       ready: ports.ready(),
+      travel: ports.travel?.(),
       members: ports.members(),
       leader: ports.leader(),
       visit,
@@ -286,7 +300,7 @@ export function installDungeonRuntime(ports: Ports) {
         throw Error("Previous dungeon action needs reconciliation");
       if (c.action === "move" || c.action === "gather") {
         if (!c.target || !ports.alive()) throw Error("Alive participant and destination required");
-        await ports.move(c.target);
+        await ports.move(c.target,c);
         validate(c);
         journal.save(c, "complete");
         return;
@@ -307,7 +321,7 @@ export function installDungeonRuntime(ports: Ports) {
       if (activeId === c.id) activeId = undefined;
     }
   }
-  function receive(control?: { owned: boolean; command?: CaveCommand; movementReady?: boolean }) {
+  function receive(control?: { owned: boolean; command?: CaveCommand; movementReady?: boolean; route?:CaveRoute }) {
     const nextOwned = !!control?.owned || !!ports.cave();
     if ((nextOwned && !owned) || (command?.id !== control?.command?.id && activeId))
       stopping = ports.stop();
@@ -315,6 +329,9 @@ export function installDungeonRuntime(ports: Ports) {
     controlAt = ports.now();
     owned = nextOwned;
     command = control?.command;
+    if (control?.route && command) ports.sharedRoute?.(control.route,command);
+    const nextCruise = command?.cruiseSpeed || 500;
+    if (nextCruise !== cruiseSpeed) { cruiseSpeed = nextCruise; ports.cruise?.(nextCruise); }
     journal.reconcile(normalized(), ports.name, visit?.resume);
     if (journal.get(activeId)?.status === "complete") activeId = undefined;
     if (command)

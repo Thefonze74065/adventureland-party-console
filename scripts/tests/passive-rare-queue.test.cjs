@@ -7,6 +7,7 @@ test('client reports enabled out-of-area rares from followers but excludes disab
  const c=vm.createContext({parent:{entities},character:{name:'M'},leader:'W',root:{},partyConvoyActive:false,navigationIntent:{},groupedFarming:()=>true,selectFarmCandidates:targets=>targets,
   isPassingEncounter:()=>false,passiveHunting:{rules:{}},passiveRareHunts:{phoenix:true,tinyp:true,goldenbat:false,cutebee:true,hen:true,rooster:true},monsterFocus:['boar'],monsterPriorities:{},rareActive:()=>false,
   groupedEntityReport:e=>({...e,map:'main',in:'main'}),inFarmArea:()=>false,isExternallyClaimedMonster:e=>e.claimed,farmApproach:{failed:{}}});
+ vm.runInContext(require('./helpers/named-function.cjs').namedFunction(source, 'passiveLevelAllowed'), c);
  vm.runInContext(fn('queueCandidates','queueReport')+fn('monsterPriority','calculateFarmingMode'),c);
  assert.deepEqual(Array.from(c.queueCandidates(),t=>[t.id,t.priority]),[['phoenix',100],['tinyp',101],['cutebee',100],['hen',100],['rooster',100]]);
  entities.phoenix.claimed=true;entities.cutebee.dead=true;entities.hen.dead=true;entities.rooster.claimed=true;assert.deepEqual(Array.from(c.queueCandidates(),t=>t.id),['tinyp']);

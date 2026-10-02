@@ -1,4 +1,5 @@
 import { createCaveProgress } from "./progress.ts";
+import { createCaveTravel } from './travel.ts';
 import { createPriestRecovery } from "./priest-recovery.ts";
 import type {
   CaveCommand,
@@ -28,7 +29,8 @@ export function createDungeons(party: DungeonParty, ports: Ports) {
   const fresh = (name: string) =>
     !!party.statuses[name] && ports.now() - party.statuses[name]!.seenAt < 3000;
   const observation = (name: string) => party.statuses[name]?.dungeon;
-  const progress = createCaveProgress(party, {fresh, issue, persist: () => ports.persist()});
+  const travel = createCaveTravel(party, {fresh,issue,persist:()=>ports.persist()});
+  const progress = createCaveProgress(party, {fresh, issue, startTravel:travel.start, persist: () => ports.persist()});
   function snapshot(): DungeonView {
     reconcile();
     const d = state(),
@@ -79,7 +81,9 @@ export function createDungeons(party: DungeonParty, ports: Ports) {
       priestRecovery: undefined,
       recoveryDeaths: undefined,
       manualRecovery: false,
-      progress: {enabled:true, serial:0},
+      travel: undefined,
+      stairContinuation: undefined,
+      progress: {enabled:false, serial:0, message:'Choose a destination to begin travelling'},
       resuming: names.every((n) => !!observation(n)?.visit?.resume),
     });
     ports.cancel(names);
@@ -121,6 +125,7 @@ export function createDungeons(party: DungeonParty, ports: Ports) {
     reconcileCaves(d);
     priestRecovery.reconcile(d);
     progress.tick(d);
+    travel.tick();
   }
   function adopt() {
     const d = state();
@@ -301,6 +306,7 @@ export function createDungeons(party: DungeonParty, ports: Ports) {
       return fresh(name) && receipt?.id === command.id && receipt.status === "failed";
     });
     if (!failed.length) throw Error("No confirmed pre-dispatch failure to retry");
+    if (d.travel) { travel.start(d.travel.target); return; }
     for (const [name, command] of failed)
       issue([name], command.action, id, { ...command, id: undefined });
     d.error = undefined;
@@ -351,7 +357,15 @@ export function createDungeons(party: DungeonParty, ports: Ports) {
     ensureSettled(d);
     if (body.action === "revival") return revival(id);
     if (body.action === "move") return move(body, id, cave);
+    if (body.action === 'waypoint') return waypoint(body,id,cave.paused);
     return choose(body, id, cave);
+  }
+  function waypoint(body: Record<string, unknown>, id: string, paused: boolean) {
+    if (paused) throw Error('Answer the current encounter before setting a waypoint.');
+    if (typeof body.map !== 'string' || body.map !== party.statuses[state().participants[0]]?.map) throw Error('Waypoint is on a different floor.');
+    if (typeof body.x !== 'number' || typeof body.y !== 'number' || !Number.isFinite(body.x) || !Number.isFinite(body.y)) throw Error('Choose a point on the map.');
+    progress.set(false);
+    travel.start({id:'waypoint:'+id,label:'Waypoint',map:body.map,x:body.x,y:body.y});
   }
   function revival(id: string) {
     const d = state(),
@@ -365,10 +379,17 @@ export function createDungeons(party: DungeonParty, ports: Ports) {
   function ensureSettled(d: DungeonState) {
     for (const [name, command] of Object.entries(d.commands)) {
       if (["move", "gather"].includes(command.action)) continue;
+      // Native resolution proves the vote is over even while its request
+      // receipt is catching up. Reversible travel may begin after that vote.
+      if (voteResolved(name, command)) continue;
       const receipt = observation(name)?.action;
       if (receipt?.id !== command.id || receipt.status !== "complete")
         throw Error("Previous dungeon action needs reconciliation; exit remains available");
     }
+  }
+  function voteResolved(name: string, command: CaveCommand) {
+    const choice = observation(name)?.cave?.choice;
+    return command.action === 'vote' && !!choice && choice.id === command.choice && choice.resolved;
   }
   function move(
     body: Record<string, unknown>,
@@ -380,8 +401,15 @@ export function createDungeons(party: DungeonParty, ports: Ports) {
     if (!target || target.locked || target.done || cave.paused)
       throw Error("Destination unavailable");
     if (target.exit) return exit(id);
+    if (target.map !== party.statuses[d.participants[0]]?.map)
+      throw Error('Waypoint is on a different floor. Use the stairs to reach that floor first.');
     progress.set(false);
-    issue(d.participants, "move", id, { run: d.run, target });
+    d.progress!.target = target.id;
+    d.progress!.message = "Travelling to " + target.label;
+    d.error = undefined;
+    if (target.down) d.stairContinuation = target;
+    else delete d.stairContinuation;
+    travel.start(target);
   }
   function choose(
     body: Record<string, unknown>,
@@ -462,9 +490,26 @@ export function createDungeons(party: DungeonParty, ports: Ports) {
     return {
       owned: dungeonOwns(party, name),
       command,
+      route: caveRoute(d),
       ...(priestRecovery.control(d, name) ? { recovery: priestRecovery.control(d, name) } : {}),
-      movementReady: d.participants.every(readyToMove),
+      movementReady: d.participants.every(readyToMove) && formationReady(d,name),
     };
+  }
+  function caveRoute(d: DungeonState) {
+    const leader = d.participants[0], sample = observation(leader)?.travel;
+    return d.travel?.stage === 'travelling' && sample?.id === d.commands[leader]?.id ? sample.route : undefined;
+  }
+  function formationReady(d: DungeonState, name: string) {
+    if (!d.travel || d.travel.stage === 'assembling') return true;
+    const leader = party.statuses[d.participants[0]], actor = party.statuses[name];
+    if (!leader || !actor) return false;
+    const samples = d.participants.filter(n => observation(n)?.action?.id !== d.commands[n]?.id || observation(n)?.action?.status !== 'complete')
+      .map(n => observation(n)?.travel?.id === d.commands[n]?.id && observation(n)?.travel?.prepared ? observation(n)!.travel!.distance : undefined);
+    if (samples.some(s => s === undefined)) return false;
+    const own = observation(name)?.travel?.distance || 0;
+    // Distance along the walking route is monotonic, including bends. Euclidean
+    // distance to the goal can reverse in corridors and deadlock the party.
+    return !samples.length || own <= Math.min(...samples.map(s => s ?? 0))+100;
   }
   function readyToMove(name: string) {
     const o = observation(name);

@@ -10,6 +10,7 @@ interface IdleState extends MerchantEventState {
   statuses: Record<string, ReturnType<IdlePorts["status"]>>;
   merchantCurrent: unknown;
   merchantForceStand: unknown;
+  merchantStandLocation: import('./stand-location.ts').MerchantStandLocation | null;
   merchantQueue: MerchantWork[];
   gatheringModes: string[];
   gatheringCooldowns?: Record<string, number | undefined>;
@@ -37,6 +38,7 @@ export function createCoordinatorMerchantIdle(state: IdleState, ports: Compositi
     currentJob: () => !!state.merchantCurrent,
     ensureHome: (reason) => ports.ensureHome(reason),
     forcedStand: () => !!state.merchantForceStand,
+    standLocation: () => state.merchantStandLocation,
     readyQueuedWork: () =>
       state.merchantQueue.some(
         (job) =>

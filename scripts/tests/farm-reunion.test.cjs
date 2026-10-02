@@ -6,7 +6,7 @@ const source = fs.readFileSync('characters/shared.js', 'utf8');
 function runtime() {
   let now = 100000;
   const calls = [];
-  const r = vm.createContext({ root: {}, escapeOwns: () => false, reunion: null, reunionWorking: false, reunionMageOffer: null,
+  const r = vm.createContext({ root: {}, dungeonOwned: () => false, escapeOwns: () => false, reunion: null, reunionWorking: false, reunionMageOffer: null,
     previousReunionCm: null, previousMagiport: null, Date: { now: () => now }, coordinatorClockOffset: 0,
     character: { name: 'R', ctype: 'warrior', map: 'main', x: 0, y: 0, mp: 2000, max_mp: 3000, c: {} },
     parent: { server_region: 'US', server_identifier: 'II' },

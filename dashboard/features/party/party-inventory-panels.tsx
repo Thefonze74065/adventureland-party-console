@@ -1,5 +1,6 @@
 "use client";
 import { HostingSettings } from "./hosting-settings";
+import { automaticCommerceRuleKey } from './automatic-commerce-rule-key';
 import { ConsoleUpdateSettings } from './console-updates';
 import { AccountSettings } from "./account-settings";
 import { lazy, useCallback, useState } from "react";
@@ -48,7 +49,7 @@ import type { StandListing } from "./stand-listing";
 // These are plain functions rebuilt on every usePartyConsole() render (not
 // useState setters), so BankSheet/StandSheet would never see stable props
 // without forwarding them through stable wrappers.
-const forwardedActions = ['setStandItem', 'setNpcSaleItem', 'removeStandListing',
+const forwardedActions = ['setStandItem', 'setNpcSaleItem', 'setAutoNpcSaleItem', 'removeStandListing',
   'saveStandBid', 'buyALDataListing', 'buyPontyListing', 'sellALDataOrder'] as const;
 
 export function PartyInventoryPanels({ model }: { model: PartyConsoleModel }) {
@@ -57,7 +58,7 @@ export function PartyInventoryPanels({ model }: { model: PartyConsoleModel }) {
 function PartyInventoryPanelsConnected({ base }: { base: PartyConsoleModel }) {
   const [deconstructionSelection, setDeconstructionSelection] = useState<DeconstructionSelection | null>(null);
   const model = usePanelModel(base, { inventory: true, vitals: true, bank: base.bankOpen, market: base.marketOpen || base.standOpen });
-  const { setStandItem, setNpcSaleItem, removeStandListing, saveStandBid, buyALDataListing,
+  const { setStandItem, setNpcSaleItem, setAutoNpcSaleItem, removeStandListing, saveStandBid, buyALDataListing,
     buyPontyListing, sellALDataOrder } = useForwardingActions(base, forwardedActions);
   const {
     bankOpen,
@@ -161,8 +162,24 @@ function PartyInventoryPanelsConnected({ base }: { base: PartyConsoleModel }) {
       acknowledged: false,
     });
   }, [state.bank, state.bankbois, setActionError, setNpcSaleItem]);
-  const onBankDeconstruction = useCallback((pack: string, entry: InventoryEntry, all: boolean) =>
-    setDeconstructionSelection({ pack, entry, all, auto: false }), []);
+  const onBankDeconstruction = useCallback((pack: string, entry: InventoryEntry, all: boolean, auto = false) =>
+    setDeconstructionSelection({ pack, entry, all, auto }), []);
+  const onBankUpgrade = useCallback((pack: string, entry: InventoryEntry, tiers: number, auto: boolean) => {
+    if (!auto) return withdraw(state.merchantCharacter, pack, entry, false, tiers);
+    void post('/command', { character: state.merchantCharacter, type: 'auto-upgrade-mark', slot: -1, item: entry.item, tiers })
+      .catch((error: unknown) => setActionError(error instanceof Error ? error.message : 'Could not mark bank upgrade'));
+  }, [post, withdraw, state.merchantCharacter, setActionError]);
+  const onBankAutoStand = useCallback((entry: InventoryEntry) => {
+    const valued = { ...entry, meta: detailMeta(entry.item, entry.meta) };
+    const rule = autoStandMarks[automaticCommerceRuleKey(entry.item)];
+    const price = Number(rule?.price) || Math.max(1, Number(valued.meta?.definition.g) || 1);
+    setStandItem({ entry: valued, price: String(price), defaultPrice: price, quantity: String(entry.item.q || 1), markAll: false, auto: true });
+  }, [detailMeta, autoStandMarks, setStandItem]);
+  const onBankAutoNpcSale = useCallback((entry: InventoryEntry) => setAutoNpcSaleItem({ ...entry, character: state.merchantCharacter || undefined }), [setAutoNpcSaleItem, state.merchantCharacter]);
+  const onBankClearMarks = useCallback((pack: string, entry: InventoryEntry) => {
+    void post('/command', { character: state.merchantCharacter, type: 'clear-item-marks', pack, slot: entry.slot, item: entry.item })
+      .catch((error: unknown) => setActionError(error instanceof Error ? error.message : 'Could not clear bank marks'));
+  }, [post, state.merchantCharacter, setActionError]);
   const onUnlock = useCallback(async (vault: BankVault, kind: "key" | "gold") => {
     try {
       await post('/bank/unlock', { pack: vault.pack, kind });
@@ -244,13 +261,18 @@ function PartyInventoryPanelsConnected({ base }: { base: PartyConsoleModel }) {
           npcSaleMarks={state.npcSaleMarks || emptyArray()}
           deconstructionCatalog={deconstructionCatalog}
           onDeconstruction={onBankDeconstruction}
+          onUpgrade={onBankUpgrade}
+          onClearMarks={onBankClearMarks}
+          onAutoStand={onBankAutoStand}
+          onAutoNpcSale={onBankAutoNpcSale}
           onUnlock={onUnlock}
         />
       </DeferredPanel>
       <DeconstructionConfirmation selection={deconstructionSelection} catalog={deconstructionCatalog}
         items={catalogAllItems} onClose={() => setDeconstructionSelection(null)}
-        onConfirm={async ({ pack, entry, all }) => {
-          await model.post('/deconstruction/mark', { pack, slot: entry.slot, item: entry.item, all });
+        onConfirm={async ({ pack, entry, all, auto }) => {
+          if (auto) await model.post('/deconstruction/auto', { character: state.merchantCharacter, item: entry.item });
+          else await model.post('/deconstruction/mark', { pack, slot: entry.slot, item: entry.item, all });
         }} />
       <DeferredPanel active={standOpen || marketOpen}>
         <StandSheet

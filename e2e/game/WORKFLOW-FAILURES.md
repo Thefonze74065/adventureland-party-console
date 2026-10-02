@@ -81,3 +81,15 @@ Readiness requires real character connections and real status ingestion. Assert
 server-side outcomes independently of coordinator labels. Keep unique isolated
 fault-injection coverage until these journeys exercise its failure, and remove
 duplicated wiring/composition checks independently of the migration schedule.
+
+## Issue 43 and October 1 CI recovery
+
+Before implementation: auto merchant collection must retain every eligible copy when a finite upgrade/compound rule claims only part of the stock, cross the pickup threshold, transfer native items, conserve cargo, and survive coordinator restart. Auto bank must still yield to processing; destructive rule conflicts must suppress both automatic destinations; manual intent must survive.
+
+Retained isolated CI fixtures must supply required production state, passive level predicates, dungeon ownership, native movement/loot inputs, journal helpers, and current dashboard callbacks. Missing dependencies can throw before the asserted race or recovery boundary. Historical bank recovery checks must exercise the bounded cooldown and retirement contract without expecting unrelated reused slots to move. HTTP diagnostics must match the actual transport error metadata. These retained exceptions cover lost replies, storage reconciliation and callback boundaries impractical to enumerate through native gameplay; preserve their existing behavior checks while correcting their setup.
+
+Native CI failure inventory: catalog-free reads cannot serve Franky setup or the blacklist picker; a waypoint changes the origin for subsequent Cave movement checks; natural MP regeneration can race declared low-MP setup; order and exchange recovery can time out or retain an unresolved receipt. Inspect native logs and retain evidence rather than fabricate receipts or weaken conservation assertions.
+
+Cave stop/resume failure inventory: loot(id) can route through the commander frame rather than the follower whose range was checked. Rejected loot leaves readiness false and freezes assembly. Open native cave chests through the current character frame, preserve instance/range/vote checks, and verify follower movement and shared purse receipts in the retained native Cave journey.
+
+Artifact reporting must classify Cave and BankBoi as native scenarios and retain the upstream server log for a Cave-only run; omitting their filenames mislabels repeatable native evidence as simulation.

@@ -23,6 +23,7 @@ const retainedCommands = new Set([
   "merchant-self-bank",
   "merchant-self-restock",
   "merchant-self-improve",
+  "merchant-production-recover",
   "merchant-donate",
   "merchant-commerce",
   "merchant-exchange",

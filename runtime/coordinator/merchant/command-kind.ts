@@ -3,6 +3,7 @@ import type { MerchantWork } from "./work.ts";
 const commandTypes: Readonly<Record<string, string>> = {
   "bank unlock": "merchant-bank-unlock",
   "manual bank exchange": "merchant-self-bank",
+  withdrawals: "merchant-self-bank",
   "native stand funding": "merchant-self-bank",
   restock: "merchant-self-restock",
   "merchant commerce": "merchant-commerce",
@@ -34,6 +35,7 @@ const descriptions: Readonly<Record<string, string>> = {
   "manual upgrades": "Merchant dispatched for manual upgrades",
   "bank unlock": "Merchant dispatched to unlock bank storage",
   "manual bank exchange": "Merchant dispatched for its own bank exchange",
+  withdrawals: "Merchant dispatched to retrieve marked bank withdrawals",
   restock: "Merchant dispatched to restock its potions",
   "merchant commerce": "Merchant dispatched for shopping and crafting",
   exchange: "Merchant dispatched for item exchanges",

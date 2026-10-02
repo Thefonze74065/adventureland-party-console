@@ -302,7 +302,7 @@ export const MerchantCardControls = memo(function MerchantCardControls({
           <X className="mr-1.5 h-3.5 w-3.5" />
           Clear job queue
         </Button>
-        <MerchantCollectionSettings buyUpgradeBatchSize={state.buyUpgradeBatchSize} {...collectionSettings} bankSortState={state} deliveryTripsEnabled={state.merchantAutomations?.deliveries !== false} />
+        <MerchantCollectionSettings buyUpgradeBatchSize={state.buyUpgradeBatchSize} {...collectionSettings} merchantStandLocation={state.merchantStandLocation} bankSortState={state} deliveryTripsEnabled={state.merchantAutomations?.deliveries !== false} withdrawalTripsEnabled={state.merchantAutomations?.withdrawals !== false} />
       </div>
 
     </section>

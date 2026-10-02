@@ -18,7 +18,8 @@ function setup() {
     monsterPriorities: {}, passiveRareHunts: {}, get_nearest_monster: () => null,
     partyPositions: [{ name: 'Ally' }, { name: 'Stranger' }], sameEventTeamMember: () => true,
   });
-  vm.runInContext(source.slice(source.indexOf('  function dungeonOwned()'), source.indexOf('  function cavePartyNames()')), context);
+  vm.runInContext(require('./helpers/named-function.cjs').namedFunction(source, 'passiveLevelAllowed'), context);
+ vm.runInContext(source.slice(source.indexOf('  function dungeonOwned()'), source.indexOf('  function cavePartyNames()')), context);
   vm.runInContext(source.slice(source.indexOf('  function isExternallyClaimedMonster('), source.indexOf('  function sameEventTeamMember(')), context);
   vm.runInContext(source.slice(source.indexOf('  function engagedMonster('), source.indexOf('  async function afterCombat(')), context);
   vm.runInContext(source.slice(source.indexOf('  function isAttackingPartyMember('), source.indexOf('  function getNearestPartyAttacker(')), context);

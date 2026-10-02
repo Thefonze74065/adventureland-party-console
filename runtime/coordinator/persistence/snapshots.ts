@@ -103,6 +103,7 @@ export const settingsFields = [
   "restockPolicies",
   "merchantCharacter",
   "merchantForceStand",
+  "merchantStandLocation",
   "merchantWeapon",
   "luckyUpgradeSlots",
   "luckySlotTracking",

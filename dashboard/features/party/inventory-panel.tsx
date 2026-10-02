@@ -578,9 +578,6 @@ export const InventoryPanel = memo(function InventoryPanel({
       {inventoryOpen ? (
         <>
           <LuckySlotMenu selection={luckySlotMenu} onClose={() => setLuckySlotMenu(null)} onData={() => onLuckySlot?.()} onItem={onSelect} />
-          <p className="mb-3 text-right text-xs text-emerald-100/40">
-            Left-click: details · Right-click: actions
-          </p>
           <div className="grid grid-cols-5 gap-2">
             {(character.name === merchant ? physicalInventory(character.items) : compactInventory(character.items)).map((entry, i) => {
               const lucky = character.name === merchant && i === nextUpgradeSlot;
@@ -921,6 +918,13 @@ export const InventoryPanel = memo(function InventoryPanel({
                         </ContextMenuSubContent>
                       </ContextMenuSub>
                     ) : null}
+                    {!!merchant && <AutomaticItemActions section="exchange"
+                      entry={entry} bank={autoMarkMode === 'bank'} merchant={character.name === merchant}
+                      stand={!!autoStandMarked} npc={autoNpcSaleMarked} exchange={autoExchangeMarked}
+                      exchangeable={exchangeable} upgradeTiers={upgradeRuleTiers(autoUpgradeMarks[autoRuleKey])}
+                      compoundTier={autoCompoundMark?.targetTier} buyable={buyable}
+                      onCommand={(type, extra) => onCommand(character.name, type, entry.item, extra)}
+                      onStand={() => onAutoStand(entry)} onNpc={() => onAutoNpcSale(entry)} />}
                     <ContextMenuItem
                       disabled={bankMarked}
                       onClick={() =>
@@ -932,7 +936,7 @@ export const InventoryPanel = memo(function InventoryPanel({
                       <Landmark className="mr-2 h-4 w-4" />
                       Mark for bank
                     </ContextMenuItem>
-                    {!!merchant && <AutomaticItemActions
+                    {!!merchant && <AutomaticItemActions section="bank"
                       entry={entry} bank={autoMarkMode === 'bank'} merchant={character.name === merchant}
                       stand={!!autoStandMarked} npc={autoNpcSaleMarked} exchange={autoExchangeMarked}
                       exchangeable={exchangeable} upgradeTiers={upgradeRuleTiers(autoUpgradeMarks[autoRuleKey])}
@@ -954,35 +958,16 @@ export const InventoryPanel = memo(function InventoryPanel({
                     ) : null}
 
 
-                    {character.name !== merchant ? (
-                      <>
-                        <ContextMenuItem
-                          disabled={!!merchantMarkedItem}
-                          onClick={() =>
-                            onCommand(character.name, "merchant-mark", entry.item, {
-                              slot: entry.slot,
-                            })
-                          }
-                        >
-                          <PackageOpen className="mr-2 h-4 w-4" />
-                          Mark for merchant
-                        </ContextMenuItem>
-                        <ContextMenuItem
-                          disabled={autoMarkMode === "merchant"}
-                          onClick={() =>
-                            onCommand(character.name, "auto-item-mark", entry.item, {
-                              mode: "merchant",
-                            })
-                          }
-                        >
-                          <AutoActionIcon><PackageOpen /></AutoActionIcon>
-                          Auto mark for merchant
-                        </ContextMenuItem>
-                      </>
-                    ) : null}
+                    {!!merchant && <AutomaticItemActions section="stand"
+                      entry={entry} bank={autoMarkMode === 'bank'} merchant={character.name === merchant}
+                      stand={!!autoStandMarked} npc={autoNpcSaleMarked} exchange={autoExchangeMarked}
+                      exchangeable={exchangeable} upgradeTiers={upgradeRuleTiers(autoUpgradeMarks[autoRuleKey])}
+                      compoundTier={autoCompoundMark?.targetTier} buyable={buyable}
+                      onCommand={(type, extra) => onCommand(character.name, type, entry.item, extra)}
+                      onStand={() => onAutoStand(entry)} onNpc={() => onAutoNpcSale(entry)} />}
                     {merchant ? (
                       <UpgradeActions
-                        showAutomatic={false}
+                        showAutomatic={true}
                         offeringSource={{slot:entry.slot}}
                         item={entry.item}
                         meta={entry.meta}
@@ -1018,6 +1003,39 @@ export const InventoryPanel = memo(function InventoryPanel({
                         Mark for compounding
                       </ContextMenuItem>
                     ) : null}
+                    {!!merchant && <AutomaticItemActions section="compound"
+                      entry={entry} bank={autoMarkMode === 'bank'} merchant={character.name === merchant}
+                      stand={!!autoStandMarked} npc={autoNpcSaleMarked} exchange={autoExchangeMarked}
+                      exchangeable={exchangeable} upgradeTiers={upgradeRuleTiers(autoUpgradeMarks[autoRuleKey])}
+                      compoundTier={autoCompoundMark?.targetTier} buyable={buyable}
+                      onCommand={(type, extra) => onCommand(character.name, type, entry.item, extra)}
+                      onStand={() => onAutoStand(entry)} onNpc={() => onAutoNpcSale(entry)} />}
+                    {character.name !== merchant ? (
+                      <>
+                        <ContextMenuItem
+                          disabled={!!merchantMarkedItem}
+                          onClick={() =>
+                            onCommand(character.name, "merchant-mark", entry.item, {
+                              slot: entry.slot,
+                            })
+                          }
+                        >
+                          <PackageOpen className="mr-2 h-4 w-4" />
+                          Mark for merchant
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                          disabled={autoMarkMode === "merchant"}
+                          onClick={() =>
+                            onCommand(character.name, "auto-item-mark", entry.item, {
+                              mode: "merchant",
+                            })
+                          }
+                        >
+                          <AutoActionIcon><PackageOpen /></AutoActionIcon>
+                          Auto mark for merchant
+                        </ContextMenuItem>
+                      </>
+                    ) : null}
                     {merchant || deconstructable && onDeconstruction ? <ContextMenuSeparator className="my-1 h-px bg-slate-600" /> : null}
                     {deconstructable && onDeconstruction ? <>
                       <ContextMenuItem className="text-orange-300" disabled={!!deconstruction} onClick={() => onDeconstruction(entry, false, false)}>
@@ -1038,6 +1056,13 @@ export const InventoryPanel = memo(function InventoryPanel({
 
                       </>
                     ) : null}
+                    {!!merchant && <AutomaticItemActions section="npc"
+                      entry={entry} bank={autoMarkMode === 'bank'} merchant={character.name === merchant}
+                      stand={!!autoStandMarked} npc={autoNpcSaleMarked} exchange={autoExchangeMarked}
+                      exchangeable={exchangeable} upgradeTiers={upgradeRuleTiers(autoUpgradeMarks[autoRuleKey])}
+                      compoundTier={autoCompoundMark?.targetTier} buyable={buyable}
+                      onCommand={(type, extra) => onCommand(character.name, type, entry.item, extra)}
+                      onStand={() => onAutoStand(entry)} onNpc={() => onAutoNpcSale(entry)} />}
                     {Boolean(bankMarked || merchantMarkedItem || autoMarkMode || upgradeMark || autoUpgradeMarks[autoRuleKey] || inventoryStatScrollMark || compoundGroup || autoCompoundMark || autoExchangeMarked || merchantWeaponMarked || npcSale || autoNpcSaleMarked || standMarked || autoStandMarked || deconstruction || autoDeconstruct) && (
                       <ClearItemMarks onClear={() => onCommand(character.name, "clear-item-marks", entry.item, { slot: entry.slot })} />
                     )}

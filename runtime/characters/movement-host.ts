@@ -41,6 +41,8 @@ export interface MovementContext {
   runtime: string; revision: number; current: boolean; paused: boolean;
 }
 export interface MovementOptions {
+  // Cave combat may stop direct movement without retiring the dungeon journey.
+  retainOnDirectStop?: boolean;
   relocation?: 'town' | 'door';
   owner?: {convoyId?: string; epoch?: number; commandId?: number; navigationRevision?: number; recoveryStage?: string};
   transitionComplete?: (destination: Point) => void;

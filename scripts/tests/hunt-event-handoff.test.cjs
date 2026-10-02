@@ -137,5 +137,5 @@ test('blacklist labels distinguish expirations, legacy reasons, and mixed causes
   assert.equal(huntBlacklistLabel({deaths:0,reason:'Hunt quest expired before completion'}),'1 hunt expired');
   assert.equal(huntBlacklistLabel({deaths:2,expirations:3}),'2 hunt deaths · 3 hunts expired');
   assert.equal(huntBlacklistLabel({deaths:1}),'1 hunt death');
-  assert.equal(huntBlacklistLabel({deaths:0,reason:'Manually blacklisted'}),'');
+  assert.equal(huntBlacklistLabel({deaths:0,reason:'Manually blacklisted'}),'manually added');
 });

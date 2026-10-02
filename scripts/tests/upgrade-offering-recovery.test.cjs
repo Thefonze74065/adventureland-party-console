@@ -1,20 +1,22 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 const {namedFunction}=require('./helpers/named-function.cjs');
-const {beginProduction,finishProduction,abortManualProduction,inspectProduction}=require('../../runtime/coordinator/inventory/production.ts');
+const {beginProduction,finishProduction,abortManualProduction,inspectProduction,pendingProduction,checkpointProduction}=require('../../runtime/coordinator/inventory/production.ts');
 const source=fs.readFileSync('characters/shared.js','utf8');
 function fixture(){
  const storage=new Map(),item={name:'sword',level:8},mark={slot:0,item,tiers:1,offering:'offeringp',requestId:'one'};
  const state={merchantCharacter:'M',upgrades:{M:[mark]},production:{attempts:{}},autoUpgradeMarks:{M:{}},autoCompounds:{}};
- let lost=false;const c=vm.createContext({yieldMerchantForEvent:async()=>{},character:{name:'M',ctype:'merchant',items:[{...item},{name:'offeringp',q:2}]},fingerprint:i=>i&&({...i}),luckyUpgradeService:null,
+ let lost=false;const c=vm.createContext({yieldMerchantForEvent:async()=>{},Date,inventoryKey:(i)=>JSON.stringify(i),upgradeProductionSequence:0,character:{name:'M',ctype:'merchant',items:[{...item},{name:'offeringp',q:2}]},fingerprint:i=>i&&({...i}),luckyUpgradeService:null,
  root:{localStorage:{getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)}},
  request:async(path,{body})=>{
+  if(body.action==='pending')return {pending:pendingProduction(state.production,true)};
+  if(body.action==='checkpoint')return checkpointProduction(state,body);
   if(body.action==='inspect')return inspectProduction(state,body);
   if(body.action==='complete'){finishProduction(state,body.id,body.success);if(lost){lost=false;throw Error('response lost');}}
   else if(body.action==='abort-manual')abortManualProduction(state,body.id);
   else return {attempt:beginProduction(state,body)};
  },
  });
- vm.runInContext(['productionJournalKey','finishProductionJournal','recoverProductionJournal','recoverProductionJournalWork','trackedProduction','trackedProductionWork'].map(n=>namedFunction(source,n)).join('\n'),c);
+ vm.runInContext(['productionJournalKey','saveProductionJournal','verifyProductionProtection','finishProductionJournal','recoverProductionJournal','recoverProductionJournalWork','trackedProduction','trackedProductionWork'].map(n=>namedFunction(source,n)).join('\n'),c);
  return {c,state,storage,mark,lose:()=>lost=true};
 }
 test('surviving failed manual attempt with a lost completion response consumes exactly one offering',async()=>{

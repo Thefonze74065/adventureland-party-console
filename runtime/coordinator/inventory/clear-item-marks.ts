@@ -4,13 +4,16 @@ import type { CommandOutcome } from "../navigation/manual-commands.ts";
 import { requestObject, requestText } from "../http/contracts.ts";
 import { autoItemRuleKey, automaticCommerceRuleKey, sameMarkedItem } from "./item-identity.ts";
 
-interface Mark { slot?: number | string; item?: Item; equipped?: boolean; auto?: boolean; tiers?: number }
+interface Mark { slot?: number | string; item?: Item; equipped?: boolean; auto?: boolean; tiers?: number; storage?: { pack: string; slot: number } }
 interface Sale extends Mark {
   id?: string; source?: string; character?: string; owner?: string;
-  state?: string; autoRuleKey?: string; bankPack?: string;
+  state?: string; autoRuleKey?: string; bankPack?: string; bankSlot?: number; pack?: string;
 }
 interface State extends SharedScope {
   merchantCharacter: string | null;
+  bankSnapshot?: { packs?: Record<string, (InventoryEntry | null)[] | undefined> } | null;
+  bankbois?: Record<string, { items?: (InventoryEntry | null)[] } | undefined>;
+  withdrawals?: Record<string, { pack: string; slot?: number; item?: Item | null; deconstructionId?: string; standListingId?: string }[] | undefined>;
   statuses: Record<string, { items?: (InventoryEntry | null)[]; slots?: Record<string, { item: Item } | null | undefined> } | undefined>;
   marked: Record<string, Mark[] | undefined>;
   merchantMarked: Record<string, Mark[] | undefined>;
@@ -31,12 +34,35 @@ interface State extends SharedScope {
   merchantCurrent?: { reason: string; itemMarksCleared?: boolean } | null;
   merchantQueue?: { reason: string; autoExchangeKeys?: string[]; exchanges?: { id: string; level?: number }[] }[];
 }
-interface Ports { persist(): void; changed(): void }
+interface Ports { persist(): void; persistBank?(): void; changed(): void }
 interface Selection { name: string; slot: string | number; item: Item; equipped: boolean }
 const matches = (mark: Mark, selected: Selection) =>
   mark.slot === selected.slot && !!mark.equipped === selected.equipped && sameMarkedItem(selected.item, mark.item);
 
+function selectedBankEntry(state: State, body: Record<string, unknown>, pack: string) {
+  if (body.character !== state.merchantCharacter) return null;
+  const entries = pack.startsWith('bankboi:') ? state.bankbois?.[pack.slice(8)]?.items : state.bankSnapshot?.packs?.[pack];
+  return entries?.find(entry => entry?.slot === body.slot);
+}
+function bankSourceMatches(mark: Omit<Sale, 'item'> & { item?: Item | null }, body: Record<string, unknown>, item: Item): boolean {
+  if (!sameMarkedItem(item, mark.item)) return false;
+  return mark.storage?.pack === body.pack && mark.storage?.slot === body.slot ||
+    mark.bankPack === body.pack && mark.bankSlot === body.slot ||
+    mark.pack === body.pack && mark.slot === body.slot;
+}
+function clearBankSources(state: State, body: Record<string, unknown>, name: string, item: Item): void {
+  if (typeof body.pack !== 'string') return;
+  state.upgrades[name] = (state.upgrades[name] || []).filter(mark => !bankSourceMatches(mark, body, item));
+  for (const field of ['npcSaleMarks', 'standListings', 'deconstructionMarks'] as const)
+    state[field] = state[field]?.filter(mark => !bankSourceMatches(mark, body, item));
+  if (state.withdrawals) state.withdrawals[name] = state.withdrawals[name]?.filter(request => !bankSourceMatches(request, body, item));
+}
+function persistStorage(body: Record<string, unknown>, ports: Ports): void {
+  if (typeof body.pack === 'string') ports.persistBank?.();
+}
+
 function selectedEntry(state: State, body: Record<string, unknown>) {
+  if (typeof body.pack === 'string') return selectedBankEntry(state, body, body.pack);
   const status = state.statuses[requestText(body.character)];
   if (body.equipped === true) return status?.slots?.[String(body.slot)];
   return status?.items?.find(candidate => candidate?.slot === body.slot);
@@ -161,13 +187,15 @@ export function createClearItemMarks(state: State, ports: Ports) {
     const entry = selectedEntry(state, body);
     if (!entry?.item || JSON.stringify(entry.item) !== JSON.stringify(item))
       return { status: 409, body: { error: "Item changed; refresh and try again" } };
-    const selected = { name, item, slot: body.slot as string | number, equipped };
+    const selected = { name, item, slot: typeof body.pack === 'string' ? '__bank__' : body.slot as string | number, equipped };
     const before = markSnapshot(state);
+    clearBankSources(state, body, name, item);
     clearLocal(state, selected);
     clearSales(state, selected, clearRules(state, selected));
     // The active worker finishes its current server operation, then refreshes work.
     if (before !== markSnapshot(state)) invalidateImprovements(state);
     ports.persist();
+    persistStorage(body, ports);
     ports.changed();
     return null;
   };

@@ -15,7 +15,7 @@ test('entry countdown requires fresh server eligibility and never guesses availa
   view.members[0].fresh = true;
   assert.equal(dungeonEntryLabel(view, now + 46000), 'Availability unknown');
 });
-test('dungeon panel exposes actual objectives, paid costs and explicit revival choices', () => {
+test('dungeon panel exposes actual objectives and explicit priest recovery controls', () => {
   const React = require('../../dashboard/node_modules/react');
   const { renderToStaticMarkup } = require('../../dashboard/node_modules/react-dom/server');
   const dashboardRequire = require('node:module').createRequire(require('node:path').resolve('dashboard/package.json'));
@@ -23,23 +23,23 @@ test('dungeon panel exposes actual objectives, paid costs and explicit revival c
   const { createDashboardClient } = load('query-cache.tsx');
   const { DungeonPanel } = load('dungeon-panel.tsx');
   const client = createDashboardClient(), now = Date.now();
-  client.setQueryData(['party', 'daily-dungeons'], { state: { phase: 'active', participants: ['W'] }, members: [{ name: 'W', fresh: true,
+  client.setQueryData(['party', 'daily-dungeons'], { state: { phase: 'active', participants: ['W'],commands:{} }, members: [{ name: 'W', fresh: true,
     observation: { alive: false, cave: { run: 'r', floor: 1, expires: now + 50000, remainingMs: 50000, paused: true, gold: 20, amber: 3,
       points: [{ id: 'stairs', label: 'Stairs down', locked: true }],
       choice: { id: 'nera', title: 'Nera', text: 'Choose where to revive', deadline: now + 30000, resolved: false, votes: {},
         options: [{ id: 'here', label: 'Revive here', amber: 1 }, { id: 'door', label: 'Revive at doorway', amber: 0 }] } } } }] });
   try {
-    const html = renderToStaticMarkup(React.createElement(QueryClientProvider, { client }, React.createElement(DungeonPanel)));
+    const html = renderToStaticMarkup(React.createElement(QueryClientProvider, { client }, React.createElement(DungeonPanel,{model:{state:{merchantCatalog:null}}})));
     assert.match(html, /Stairs down.*locked/);
-    assert.match(html, /Revive here.*1 Amber/);
-    assert.match(html, /Revive at doorway/);
+    // Encounter choices now open in a client portal, exercised by live-cave.spec.ts.
+    assert.match(html, /paused for Nera/);
     assert.match(html, /Call Nera/);
     assert.match(html, /grid-cols-2/);
     const view = client.getQueryData(['party', 'daily-dungeons']);
     view.state.priestRecovery = {id:'r:revive:W:1',run:'r',priest:'P',target:'W',authorized:true};
     view.members.push({name:'P',fresh:true,observation:{alive:true,recovery:{actor:{c:{}},id:'r:revive:W:1',phase:'uncertain',reason:'Revive outcome unknown'}}});
     view.members[0].observation.cave.choice.resolved=true;
-    const render=()=>renderToStaticMarkup(React.createElement(QueryClientProvider,{client},React.createElement(DungeonPanel)));
+    const render=()=>renderToStaticMarkup(React.createElement(QueryClientProvider,{client},React.createElement(DungeonPanel,{model:{state:{merchantCatalog:null}}})));
     const waiting=render();assert.match(waiting,/Revive outcome unknown/);assert.match(waiting,/disabled=""[^>]*>Call Nera/);
     view.members[1].observation.recovery.phase='failed';
     assert.doesNotMatch(render(),/disabled=""[^>]*>Call Nera/);

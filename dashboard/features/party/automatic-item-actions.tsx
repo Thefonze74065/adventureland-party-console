@@ -8,6 +8,7 @@ import { compoundPassCost } from '@/lib/compound-cost';
 import type { InventoryEntry } from './inventory-entry';
 
 export interface AutomaticItemActionsProps {
+  section?: 'bank' | 'stand' | 'exchange' | 'upgrade' | 'compound' | 'npc';
   entry: InventoryEntry;
   bank: boolean;
   stand?: boolean;
@@ -24,22 +25,23 @@ export interface AutomaticItemActionsProps {
 }
 
 /** Shared automatic actions for physical inventory and prospective exchange rewards. */
-export function AutomaticItemActions({ entry, bank, stand, npc, exchange, exchangeable, merchant, upgradeTiers, compoundTier, buyable, onCommand, onStand, onNpc }: AutomaticItemActionsProps) {
+export function AutomaticItemActions({ section, entry, bank, stand, npc, exchange, exchangeable, merchant, upgradeTiers, compoundTier, buyable, onCommand, onStand, onNpc }: AutomaticItemActionsProps) {
+  const show = (action: AutomaticItemActionsProps['section']) => !section || section === action;
   const level = Number(entry.item.level) || 0;
   const max = Math.min(7, itemMaximumLevel(entry.meta));
   return <>
-    <ContextMenuItem disabled={bank} onClick={() => onCommand('auto-item-mark', { mode: 'bank' })}>
+    {show('bank') && <ContextMenuItem disabled={bank} onClick={() => onCommand('auto-item-mark', { mode: 'bank' })}>
       <AutoActionIcon><Landmark /></AutoActionIcon>Auto mark for bank
-    </ContextMenuItem>
-    {merchant && <ContextMenuItem onClick={onStand}>
+    </ContextMenuItem>}
+    {show('stand') && merchant && <ContextMenuItem onClick={onStand}>
       <AutoActionIcon><Store /></AutoActionIcon>{stand ? 'Update auto mark for stand…' : 'Auto mark for stand…'}
     </ContextMenuItem>}
-    {exchangeable && <ContextMenuItem disabled={exchange} onClick={() => onCommand('auto-exchange', { slot: entry.slot })}>
+    {show('exchange') && exchangeable && <ContextMenuItem disabled={exchange} onClick={() => onCommand('auto-exchange', { slot: entry.slot })}>
       <AutoActionIcon><ArrowRightLeft /></AutoActionIcon>Auto exchange
     </ContextMenuItem>}
-    <UpgradeActions item={entry.item} meta={entry.meta} autoTiers={upgradeTiers} automaticOnly
-      onMark={() => {}} onBuy={() => {}} onAutoMark={tiers => onCommand('auto-upgrade-mark', { slot: entry.slot, tiers })} />
-    {entry.meta?.compoundable && level < max && <ContextMenuSub>
+    {show('upgrade') && <UpgradeActions item={entry.item} meta={entry.meta} autoTiers={upgradeTiers} automaticOnly
+      onMark={() => {}} onBuy={() => {}} onAutoMark={tiers => onCommand('auto-upgrade-mark', { slot: entry.slot, tiers })} />}
+    {show('compound') && entry.meta?.compoundable && level < max && <ContextMenuSub>
       <ContextMenuSubTrigger><AutoActionIcon><Blender /></AutoActionIcon>{compoundTier ? `Auto compound to +${compoundTier}` : 'Auto compound'}</ContextMenuSubTrigger>
       <ContextMenuSubContent>
         {Array.from({ length: max - level }, (_, index) => level + index + 1).map(tier => {
@@ -50,6 +52,6 @@ export function AutomaticItemActions({ entry, bank, stand, npc, exchange, exchan
         })}
       </ContextMenuSubContent>
     </ContextMenuSub>}
-    <ContextMenuItem onClick={onNpc}><AutoActionIcon><DollarSign /></AutoActionIcon>{npc ? 'Update auto sell to NPC…' : 'Auto sell to NPC…'}</ContextMenuItem>
+    {show('npc') && <ContextMenuItem onClick={onNpc}><AutoActionIcon><DollarSign /></AutoActionIcon>{npc ? 'Update auto sell to NPC…' : 'Auto sell to NPC…'}</ContextMenuItem>}
   </>;
 }

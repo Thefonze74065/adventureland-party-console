@@ -26,10 +26,34 @@ function frame(value: unknown): MapFrame | null {
   return candidate as MapFrame;
 }
 
+function hasMapTiles(supplied: Record<string, unknown>): boolean {
+  return Array.isArray(supplied.tiles) && !!supplied.tiles.length && Array.isArray(supplied.placements) && Array.isArray(supplied.groups) &&
+    !!(supplied.placements.length || supplied.groups.length);
+}
+
+function generatedDefinition(value: unknown, map: unknown): MapDefinition | null {
+  const supplied = requestObject(value);
+  if (typeof map !== 'string' || supplied.name !== map || !/^zone_[a-f0-9]+_\d+$/.test(map) ||
+    !hasMapTiles(supplied) || !Array.isArray(supplied.tiles) || !Array.isArray(supplied.placements) || !Array.isArray(supplied.groups)) return null;
+  const tilesets: MapDefinition['tilesets'] = {};
+  for (const [id, value] of Object.entries(requestObject(supplied.tilesets))) {
+    const entry = requestObject(value);
+    if (typeof entry.file === 'string') tilesets[id] = { file: entry.file };
+  }
+  const bound = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+  const defaultTile = (value: unknown) => typeof value === 'number' && Number.isInteger(value) ? value : null;
+  return { name: map, min_x: bound(supplied.min_x), min_y: bound(supplied.min_y),
+    max_x: bound(supplied.max_x), max_y: bound(supplied.max_y),
+    default: defaultTile(supplied.default),
+    tiles: supplied.tiles.map(tile => Array.isArray(tile) && tile.every(value => typeof value === 'number' || typeof value === 'string') ? tile : null),
+    placements: supplied.placements, groups: supplied.groups, tilesets };
+}
+
 /** Owns live map subscriptions and their heartbeats independently of party status. */
 export function createMapStreams<Timer>(ports: MapStreamPorts<Timer>) {
   const subscribers = new Map<string, Set<HttpResponse>>();
   const latest = new Map<string, MapFrame>();
+  const generated = new Map<string, MapDefinition>();
 
   function subscribe(name: string, request: HttpRequest, response: HttpResponse): void {
     let clients = subscribers.get(name);
@@ -61,6 +85,14 @@ export function createMapStreams<Timer>(ports: MapStreamPorts<Timer>) {
     const current = frame(request.body);
     if (!current || !ports.owned(current.name))
       return response.status(400).json({ error: "invalid map frame" });
+    const supplied = generatedDefinition(current.definition, current.map);
+    if (supplied) {
+      generated.set(supplied.name, supplied);
+      const active = new Set([...latest.values()].map(value => String(value.map)));
+      active.add(String(current.map));
+      for (const name of generated.keys()) if (!active.has(name)) generated.delete(name);
+    }
+    current.definition = generated.get(String(current.map)) || supplied || undefined;
     latest.set(current.name, current);
     const clients = subscribers.get(current.name);
     if (clients) {
@@ -71,9 +103,9 @@ export function createMapStreams<Timer>(ports: MapStreamPorts<Timer>) {
   }
 
   function definition(request: HttpRequest, response: HttpResponse): unknown {
-    const value = ports.definition(request.params.map);
+    const value = generated.get(request.params.map) || ports.definition(request.params.map);
     if (!value) return response.status(404).json({ error: "unknown map" });
-    response.set("Cache-Control", "public, max-age=3600");
+    response.set("Cache-Control", generated.has(request.params.map) ? "no-store" : "public, max-age=3600");
     return response.json(value);
   }
 

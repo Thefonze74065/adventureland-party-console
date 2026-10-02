@@ -5,6 +5,7 @@ const labels: Record<string, string> = {
   'party collection': 'Item collection',
   'manual visit': 'Manual visit',
   deliveries: 'Marked deliveries',
+  withdrawals: 'Marked withdrawals',
   'inventory cleanout': 'Emergency cleanout',
   'gold threshold': 'Auto gold collection',
   'npc sales': 'NPC sales',

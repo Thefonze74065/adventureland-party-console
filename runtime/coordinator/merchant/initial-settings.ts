@@ -33,6 +33,7 @@ export function defaultMerchantRoutinePriorities(): Record<string, number> {
     "inventory cleanout": 95,
     "manual visit": 90,
     deliveries: 90,
+    withdrawals: 90,
     "ALData authentication": 90,
     "party collection": 90,
     restock: 90,
@@ -75,6 +76,7 @@ export function defaultMerchantRoutinePriorities(): Record<string, number> {
 export function defaultMerchantAutomations(): Record<string, boolean> {
   return {
     deliveries: true,
+    withdrawals: true,
     "merchant luck": true,
     "party collection": true,
     "auto npc sales": true,

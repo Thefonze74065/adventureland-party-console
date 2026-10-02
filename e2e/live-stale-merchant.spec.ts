@@ -29,7 +29,7 @@ test('Hunt blacklist full catalog scrolls and sprites select their own monster',
   const picker=page.getByRole('dialog',{name:'Add to Hunt blacklist',exact:true});
   const list=picker.getByRole('region',{name:'Hunt blacklist monsters'});
   const rows=list.getByRole('button',{name:/^Inspect /});
-  expect(await rows.count()).toBeGreaterThan(30);
+  await expect.poll(() => rows.count()).toBeGreaterThan(30);
   const firstName=(await rows.first().getAttribute('aria-label'))!.replace('Inspect ','');
   await rows.first().click({position:{x:70,y:20}});
   await expect(page.getByRole('heading',{name:firstName,exact:true})).toBeVisible();

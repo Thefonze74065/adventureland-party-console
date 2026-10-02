@@ -22,7 +22,7 @@ test('staged improvement stock prioritizes its consuming job ahead of an unrelat
 });
 test('shared bank stock schedules upgrades and compounds while preserving permanent bank preferences',()=>{
  const s=state(),before=JSON.stringify(s.autoItemMarks),queued=[];
- const scheduler=createImprovementScheduler(s,{now:()=>1,nextCommand:()=>1,stamp:x=>x,persist(){},log(){},queue:(names,reason)=>queued.push({names,reason})});
+ const scheduler=createImprovementScheduler(Object.assign(s,{production:s.production||{attempts:{}}}),{now:()=>1,nextCommand:()=>1,stamp:x=>x,persist(){},log(){},queue:(names,reason)=>queued.push({names,reason})});
  scheduler.compound('M',s.statuses.M);
  assert.ok(queued.some(x=>x.reason==='auto upgrade'));assert.ok(queued.some(x=>x.reason==='auto compound'));
  assert.equal(JSON.stringify(s.autoItemMarks),before);
@@ -32,7 +32,7 @@ test('shared bank stock schedules upgrades and compounds while preserving perman
 
 test('disabling auto upgrade suppresses bank upgrade jobs without deleting rules',()=>{
  const s=state(),queued=[];s.merchantAutomations['auto upgrade']=false;
- const scheduler=createImprovementScheduler(s,{now:()=>1,nextCommand:()=>1,stamp:x=>x,persist(){},log(){},queue:(_names,reason)=>queued.push(reason)});
+ const scheduler=createImprovementScheduler(Object.assign(s,{production:s.production||{attempts:{}}}),{now:()=>1,nextCommand:()=>1,stamp:x=>x,persist(){},log(){},queue:(_names,reason)=>queued.push(reason)});
  scheduler.compound('M',s.statuses.M);
  assert.equal(queued.includes('auto upgrade'),false);assert.ok(s.autoUpgradeMarks.F['sword@+0']);
 });

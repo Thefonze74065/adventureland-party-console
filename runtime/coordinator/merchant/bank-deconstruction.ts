@@ -45,7 +45,16 @@ function matchingTargets(state: BankDeconstructionState, item: Item, pack: strin
     return all || source === pack && position === slot ? [{ pack: source, slot: position, item: entry.item }] : [];
   }));
 }
-function enqueue(state: BankDeconstructionState, ports: Ports, targets: { pack: string; slot: number; item: Item }[]) {
+export function enqueueAutomaticBankDeconstruction(state: BankDeconstructionState, ports: Ports, matchesRule: (item: Item) => boolean): void {
+  const targets = sources(state).flatMap(([pack, entries]) => (entries || []).flatMap((entry, index) => {
+    if (!entry?.item || !matchesRule(entry.item) || !deconstructable(entry.item, state.deconstructionCatalog)) return [];
+    const slot = entry.slot ?? index;
+    if (state.deconstructionMarks.some(mark => mark.storage?.pack === pack && mark.storage.slot === slot && ports.now() - mark.updatedAt < 60000)) return [];
+    return [{ pack, slot, item: entry.item }];
+  }));
+  if (enqueue(state, ports, targets, true)) { ports.persistBank?.(); schedule(state, ports); }
+}
+function enqueue(state: BankDeconstructionState, ports: Ports, targets: { pack: string; slot: number; item: Item }[], auto = false) {
   const pending = (state.withdrawals ||= {});
   const merchant = state.merchantCharacter!;
   const withdrawals = (pending[merchant] ||= []);
@@ -56,7 +65,7 @@ function enqueue(state: BankDeconstructionState, ports: Ports, targets: { pack: 
     const id = "deconstruct-" + ports.next();
     state.deconstructionMarks.push({ id, origin: merchant, owner: merchant,
       slot: -1, storage: { pack: target.pack, slot: target.slot }, item: { ...target.item },
-      quantity: Number(target.item.q) || 1, state: "withdrawing", auto: false, updatedAt: ports.now() });
+      quantity: Number(target.item.q) || 1, state: "withdrawing", auto, updatedAt: ports.now() });
     withdrawals.push({ ...target, deconstructionId: id }); added++;
   }
   return added;

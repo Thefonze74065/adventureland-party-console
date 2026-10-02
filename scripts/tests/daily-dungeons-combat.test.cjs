@@ -4,11 +4,11 @@ const vm = require('node:vm');
 const fs = require('node:fs');
 const source = fs.readFileSync('characters/shared.js', 'utf8');
 function fixture() {
-  const actor = {name:'W',ctype:'warrior',map:'cave',in:'run',hp:100,max_hp:100,cave:{run:'run',paused:false}};
+  const actor = {name:'W',ctype:'warrior',map:'cave',in:'run',hp:100,max_hp:100,real_x:0,real_y:0,cave:{run:'run',paused:false}};
   const priest = {...actor,name:'P',ctype:'priest',hp:40};
   const enemies = {a:{id:'a',type:'monster',visible:true,hp:100,map:'cave',in:'run',target:'P'},
     b:{id:'b',type:'monster',visible:true,hp:100,map:'cave',in:'run',target:'W'}};
-  const c = vm.createContext({character:actor,root:{},parent:{entities:enemies,chests:{}},
+  const c = vm.createContext({dungeonOpenedChests:{},can_move_to:()=>true,character:actor,root:{},parent:{entities:enemies,chests:{}},
     currentPartyList:()=>['W','P'],get_player:name=>name==='W'?actor:priest,get_entity:id=>enemies[id],
     groupedFresh:()=>true,groupedCombat:{target:{id:'a'}},monsterPriority:()=>50,runtimeCurrent:()=>true,distance:()=>50,
     anniversaryWithTimeout:p=>p,loot:async()=>{}});
@@ -32,8 +32,8 @@ test('cave focus follows the shared queue and proactively admits visible enemy s
 });
 
 test('cave looting opens only this instance, stops during votes and death',async()=>{
-  const {c,actor}=fixture(); const opened=[]; c.loot=async id=>opened.push(id);
-  c.parent.chests={yes:{map:'cave',in:'run'},wrong:{map:'cave',in:'other'}};
+  const {c,actor}=fixture(); const opened=[]; c.parent.open_chest=async id=>opened.push(id);
+  c.parent.chests={yes:{map:'cave',in:'run',x:10,y:0},wrong:{map:'cave',in:'other',x:10,y:0}};
   await c.lootDungeonChests(); assert.deepEqual(opened,['yes']);
   actor.cave.paused=true;await c.lootDungeonChests();
   actor.cave.paused=false;actor.rip=true;await c.lootDungeonChests();

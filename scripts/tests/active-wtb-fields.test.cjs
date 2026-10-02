@@ -6,9 +6,9 @@ const context={exports:{},require(name){if(name==='react')return React;if(name==
 vm.runInNewContext(code,context);global.IS_REACT_ACT_ENVIRONMENT=true;
 const bid={quantity:12,price:300,priorityOverride:88};
 test('each button becomes only its own same-size input and saves just that field',async()=>{
- const calls=[];let root;
- await renderer.act(async()=>{root=renderer.create(React.createElement(context.exports.ActiveWTBFields,{name:'Cap',bid,onSave:async(...args)=>calls.push(args)}))});
- for(const field of ['quantity','price','priority']){
+ const calls=[];let root,priceEdits=0;
+ await renderer.act(async()=>{root=renderer.create(React.createElement(context.exports.ActiveWTBFields,{name:'Cap',bid,onEditPrice:()=>priceEdits++,onSave:async(...args)=>calls.push(args)}))});
+ for(const field of ['quantity','priority']){
   const button=root.root.findByProps({'aria-label':`Edit ${field} for Cap`});
   await renderer.act(async()=>button.props.onClick());
   const input=root.root.findByType('input');
@@ -17,17 +17,19 @@ test('each button becomes only its own same-size input and saves just that field
   await renderer.act(async()=>root.root.findByType('input').props.onKeyDown({key:'Enter',preventDefault(){}}));
   assert.deepEqual(calls.at(-1),[field,25]);
  }
+ await renderer.act(async()=>root.root.findByProps({'aria-label':'Edit price for Cap'}).props.onClick());
+ assert.equal(priceEdits,1);assert.equal(root.root.findAllByType('input').length,0);
  await renderer.act(async()=>root.unmount());
 });
 test('Escape cancels, blank priority saves default, invalid input and failures keep editing',async()=>{
  let calls=[],fail=false,root;
- await renderer.act(async()=>{root=renderer.create(React.createElement(context.exports.ActiveWTBFields,{name:'Cap',bid,onSave:async(...args)=>{calls.push(args);if(fail)throw Error('Server rejected edit')}}))});
+ await renderer.act(async()=>{root=renderer.create(React.createElement(context.exports.ActiveWTBFields,{name:'Cap',bid,onEditPrice:()=>{},onSave:async(...args)=>{calls.push(args);if(fail)throw Error('Server rejected edit')}}))});
  const edit=async field=>renderer.act(async()=>root.root.findByProps({'aria-label':`Edit ${field} for Cap`}).props.onClick());
  const change=async value=>renderer.act(async()=>root.root.findByType('input').props.onChange({target:{value}}));
  await edit('quantity');const old=root.root.findByType('input').props;
  await renderer.act(async()=>{old.onKeyDown({key:'Escape',preventDefault(){}});old.onBlur()});assert.equal(calls.length,0);
  await edit('priority');await change('');await renderer.act(async()=>root.root.findByType('input').props.onBlur());assert.deepEqual(calls,[['priority',null]]);
- await edit('price');await change('0');await renderer.act(async()=>root.root.findByType('input').props.onBlur());assert.equal(calls.length,1);assert.equal(root.root.findAllByType('input').length,1);
+ await edit('quantity');await change('0');await renderer.act(async()=>root.root.findByType('input').props.onBlur());assert.equal(calls.length,1);assert.equal(root.root.findAllByType('input').length,1);
  fail=true;await change('42');await renderer.act(async()=>root.root.findByType('input').props.onBlur());assert.match(root.root.findByProps({role:'alert'}).children[0],/Server rejected edit/);
  await renderer.act(async()=>root.unmount());
 });

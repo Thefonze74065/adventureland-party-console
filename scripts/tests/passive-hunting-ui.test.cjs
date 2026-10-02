@@ -52,7 +52,7 @@ test('closing nested monster details preserves both passive hunting and farming 
   const search=()=>view.root.findByProps({'aria-label':'Filter passive hunting monsters'});
   await act(async()=>search().props.onChange({target:{value:'bee'}}));
   for(const dismiss of ['x','escape']) {
-   await act(async()=>view.root.findByProps({'aria-label':'Inspect Bee'}).props.onClick());
+   await act(async()=>view.root.findAllByType('button').find(n=>n.props['aria-label']==='Inspect Bee').props.onClick());
    const dialogs=view.root.findAllByType('Dialog').filter(dialog=>dialog.props.open);assert.equal(dialogs.length,3);assert.ok(dialogs.every(dialog=>dialog.props.open));
    assert.ok(dialogs[1].findAllByType('Dialog').includes(dialogs[2]),'monster dialog must be nested inside passive hunting');
    await act(async()=>dismiss==='x'?view.root.findByProps({'aria-label':'Close monster'}).props.onClick():dialogs[2].props.onOpenChange(false));
