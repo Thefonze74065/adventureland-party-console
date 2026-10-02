@@ -25,6 +25,11 @@ function fixture() {
   }
   return { party, service, action, active, advance: ms => { now += ms; } };
 }
+test('persisted Cave travel without leader observations returns no route', () => {
+ const f=fixture();
+ f.party.dailyDungeons={protectFromEvents:true,participants:[],phase:'idle',commands:{},operations:[],travel:{stage:'travelling'}};
+ assert.equal(f.service.control('W').route,undefined);
+});
 test('manual entry excludes merchant, validates eligibility again at Dorr, and enters only through leader', () => {
   const f = fixture(); f.party.followers.Bank = true;
   f.action({ action: 'enter' });

@@ -25,6 +25,12 @@ function fixture(overrides = {}) {
   const bridge = (body = {}) => request('/steam/bridge', { version: 1, clientId: 'window', character: 'Priest', ...body });
   return { state, ports, online, installed, request, bridge, advance: value => { now += value; } };
 }
+test('startup preserves explicit failed handoff errors',()=>{
+ const state={native:'Priest',steam:['Priest'],slots:[null,null,null,null],handoff:{phase:'failed',error:'stop_runner failed'}};
+ const installed=installRosterRoutes({get(){},post(){}},state,{save(){},now:()=>100});
+ try { assert.equal(state.handoff.error,'stop_runner failed'); }
+ finally { installed.dispose(); }
+});
 test('selection-screen bridge readiness permits a headless transfer without claiming a connected character',async()=>{
  const f=fixture();f.state.native=null;
  try {

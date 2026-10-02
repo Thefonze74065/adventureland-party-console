@@ -497,7 +497,7 @@ export function createDungeons(party: DungeonParty, ports: Ports) {
   }
   function caveRoute(d: DungeonState) {
     const leader = d.participants[0], sample = observation(leader)?.travel;
-    return d.travel?.stage === 'travelling' && sample?.id === d.commands[leader]?.id ? sample.route : undefined;
+    return d.travel?.stage === 'travelling' && sample && sample.id === d.commands[leader]?.id ? sample.route : undefined;
   }
   function formationReady(d: DungeonState, name: string) {
     if (!d.travel || d.travel.stage === 'assembling') return true;

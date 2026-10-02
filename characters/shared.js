@@ -5033,7 +5033,7 @@
         banking || bankQueued || upgrading || stocking || anniversaryBusy ||
         gatheringActive || root.__merchantActiveJob || root.__merchantInventoryTidy ||
         root.__partyUpgradePreviewInFlight || (luckyUpgradeService && luckyUpgradeService.pending())) return;
-    var last = character.items.length - 1;
+    var last = (Number(character.isize) || character.items.length) - 1;
     if (last < 0 || isPersonalTracker(character.items[last])) return;
     var source = character.items.findIndex(isPersonalTracker);
     if (source < 0 || typeof swap !== "function") return;

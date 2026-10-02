@@ -1,6 +1,7 @@
 import { RosterConflict, type Handoff, type HandoffPorts, type RosterOwnership } from "./handoff.ts";
 
 export type SteamAction = "primary" | "login" | "headless" | "logout";
+const RELEASE_TIMEOUT = "Steam operation timed out; assignments remain reserved until recovery";
 /** One operation owns the entire affected set until releases and CODE arrivals agree. */
 export class SteamGroup {
   private advancing = false;
@@ -120,12 +121,23 @@ export class SteamGroup {
     } catch (error) { this.phase("failed", String(error)); }
     finally { this.advancing = false; }
   }
-  async released(id: string) {
+  private lostHeadlessRelease(op: Handoff) {
+    return op.phase === "failed" && (op.error === RELEASE_TIMEOUT ||
+      op.error === "Coordinator restarted during handoff; confirm offline ownership before recovery") &&
+      op.multi?.action === "headless" && op.multi.releaseIssued && !op.releasedAt;
+  }
+  async released(id: string, accountPoll = false) {
     const op = this.state.handoff;
-    if (!op?.multi || op.id !== id || !["release", "confirm-release"].includes(op.phase) || this.advancing) return;
-    this.advancing = true; this.phase("confirm-release");
+    if (!op?.multi || op.id !== id || this.advancing) return;
+    const recovering = this.lostHeadlessRelease(op);
+    if (!["release", "confirm-release"].includes(op.phase) && !recovering) return;
+    this.advancing = true;
+    if (!recovering && !accountPoll) this.phase("confirm-release");
     try {
       for (const name of op.multi.release) if (!await this.ports.confirmOffline(name)) return;
+      if (this.state.handoff !== op) return;
+      if (accountPoll && op.phase === "release") this.phase("confirm-release");
+      if (recovering && this.lostHeadlessRelease(op)) this.phase("confirm-release");
       if (op.phase !== "confirm-release") return;
       const { subject, action, desired, primary, release } = op.multi;
       if (op.targetSlot !== null) this.state.slots[op.targetSlot] = null;
@@ -166,10 +178,17 @@ export class SteamGroup {
         .catch(error => { op.phase = "failed"; op.error = String(error); this.ports.save(); });
       return;
     }
-    if (op?.phase === "confirm-release" && !this.advancing) void this.released(op.id);
-    if (op?.multi && !["complete", "failed", "awaiting-realm-choice"].includes(op.phase) && this.ports.now()-op.startedAt >= 180000)
-      this.phase("failed", "Steam operation timed out; assignments remain reserved until recovery");
-    else if (op?.multi && op.phase === "preparing") void this.prepare();
+    if (op?.multi && !["complete", "failed", "awaiting-realm-choice"].includes(op.phase) && this.ports.now()-op.startedAt >= 180000) {
+      this.phase("failed", RELEASE_TIMEOUT);
+      return;
+    }
+    // Disconnecting the last primary can destroy its bridge before the final
+    // release reply. Account-confirmed offline state is sufficient proof,
+    // including a persisted timeout; stale telemetry never releases ownership.
+    if (op && !this.advancing && (op.phase === "confirm-release" ||
+      (op.phase === "release" && op.multi?.action === "headless" && op.multi.releaseIssued) ||
+      this.lostHeadlessRelease(op))) void this.released(op.id, true);
+    if (op?.multi && op.phase === "preparing") void this.prepare();
   }
   async recover() {
     const op = this.state.handoff;

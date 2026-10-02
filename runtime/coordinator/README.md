@@ -99,6 +99,9 @@ Personal Tracktrix items use the native item ID `tracker`, not `tracktrix`.
 Merchant collection and emergency cleanout retain trackers and supercomputers.
 Character inventory maintenance pins one to the final inventory slot when no
 inventory command is running; merchant lucky-slot tidying preserves that slot.
+Use the native `isize` capacity for this destination, since item arrays can extend
+into overflow cells. Dashboard inventory streams retain occupied overflow cells;
+fighter inventory compaction keeps a tracker pinned in the final visible slot.
 Explicit Give remains available. Validate the native full-bag Tracktrix cleanout
 journey in `e2e/live-economy.spec.ts`, with conserved cargo and restart evidence.
 Publish character and coordinator assets through the supported full restart;
@@ -1074,6 +1077,22 @@ For coordinator/dashboard-only changes, use `scripts/start-console.ps1 -Coordina
 This verifies the installed launcher, builds the coordinator, and restarts services
 without installing or publishing character assets or starting their build watcher.
 Use the ordinary restart when character changes must also be published.
+
+Steam-to-headless releases also poll the authoritative account roster: a last
+primary may lose its bridge acknowledgement while disconnecting. Every released
+character must be confirmed offline before headless starts. Release timeouts and
+interrupted releases resume through that same check after restart; explicit
+failed operation errors remain preserved. A still-online Steam character retains
+its reservation until logged out. Missing leader travel observations in persisted
+Cave state return no shared route rather than failing character status requests.
+The Steam bridge disables native auto_reload, clears character_to_load and pending
+reload_state, and persists its receipt before intentionally disconnecting the
+primary. An updated bridge can finish a previously interrupted headless release
+when that primary's CODE reconnects. Publish browser assets with
+`npm run build:runtime -- --publish`, then use the coordinator-only restart to
+preserve the currently installed character generation. Existing stopped Steam
+CODE must be Engaged once to load the updated bridge; subsequent transfers require
+only the Party Console button.
 
 The start script builds before stopping the previous supervisor, installs the
 launcher, publishes character/browser assets, and starts the services. Use that

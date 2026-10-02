@@ -61,7 +61,7 @@ export function installRosterRoutes(
   router.get("/party-api/steam/connection", (_request, response) => {
     response.json({ connected: bridge.connected(), ready: bridge.ready(2) });
   });
-  if (state.handoff && !["complete", "awaiting-realm-choice"].includes(state.handoff.phase)) {
+  if (state.handoff && !["complete", "failed", "awaiting-realm-choice"].includes(state.handoff.phase)) {
     state.handoff.phase = "failed";
     state.handoff.error =
       "Coordinator restarted during handoff; confirm offline ownership before recovery";

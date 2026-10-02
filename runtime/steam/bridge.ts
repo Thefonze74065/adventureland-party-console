@@ -55,6 +55,10 @@ interface NativeHost extends Pick<
   no_html?: boolean;
   is_bot?: boolean;
   code_active?: boolean;
+  // Native game.js schedules reconnects through these window-local fields.
+  auto_reload?: string | boolean;
+  character_to_load?: string | null;
+  reload_state?: string | boolean;
   __partySteamSessionId?: string;
   get_active_characters?(): Record<string, string>;
   start_character_runner?(name: string, slot: string): Promise<unknown>;
@@ -150,6 +154,20 @@ export function installSteamBridge(host: NativeHost): void {
     return slot;
   }
 
+  function persistRelease(operation: Handoff) {
+    releasing = operation.id;
+    released = { operationId: operation.id, from: operation.from, released: true };
+    host.sessionStorage.setItem(releaseKey, JSON.stringify(released));
+  }
+  function disconnectPrimary() {
+    // game.js otherwise automatically reloads even after stop_runner(), logging
+    // the character back into Steam before headless can claim ownership.
+    host.auto_reload = "off";
+    host.character_to_load = null;
+    host.reload_state = false;
+    host.stop_runner();
+    host.socket?.disconnect();
+  }
   async function releaseNative(operation: Handoff): Promise<void> {
       releasing = operation.id;
       // Prepare persistence before disconnecting, so a save error leaves the
@@ -157,10 +175,8 @@ export function installSteamBridge(host: NativeHost): void {
       if (operation.target) await ensureBootstrap(operation.target);
       if (lifecycle.signal.aborted) return;
       host.localStorage.setItem(operationKey, operation.id);
-      host.stop_runner();
-      host.socket?.disconnect();
-      released = { operationId: operation.id, from: operation.from, released: true };
-      host.sessionStorage.setItem(releaseKey, JSON.stringify(released));
+      persistRelease(operation);
+      disconnectPrimary();
   }
   function navigate(id: string, target: string, destinationRealm: string): void {
       navigating = id;
@@ -199,20 +215,26 @@ export function installSteamBridge(host: NativeHost): void {
     }
     if (operation?.multi) {
       const group = operation.multi;
-      if (operation.phase === "failed") { releasing = null; failure = null; return; }
+      // A previous bridge may have disconnected with native auto-reload still
+      // enabled. Finish that interrupted headless release when CODE reconnects.
+      const retryRelease = operation.phase === "failed" && group.action === "headless" &&
+        group.releaseIssued && !operation.releasedAt && host.socket?.connected &&
+        group.release.includes(host.character?.name || "") && [
+          "Steam operation timed out; assignments remain reserved until recovery",
+          "Coordinator restarted during handoff; confirm offline ownership before recovery",
+        ].includes(operation.error || "");
+      if (operation.phase === "failed" && !retryRelease) { releasing = null; failure = null; return; }
       if (operation.phase === "complete") return;
-      if (operation.phase === "release" && releasing !== operation.id) {
+      if ((operation.phase === "release" && releasing !== operation.id) || retryRelease) {
         // Save every bootstrap before touching a running character.
         for (const name of group.desired) await ensureBootstrap(name);
         if (lifecycle.signal.aborted) return;
         host.localStorage.setItem(operationKey, operation.id);
+        persistRelease(operation);
         for (const name of group.release) {
-          if (name === host.character?.name) { host.stop_runner(); host.socket?.disconnect(); }
+          if (name === host.character?.name) disconnectPrimary();
           else host.stop_character_runner?.(name);
         }
-        releasing = operation.id;
-        released = { operationId: operation.id, from: operation.from, released: true };
-        host.sessionStorage.setItem(releaseKey, JSON.stringify(released));
       }
       if (operation.phase === "navigate" && group.primary) {
         const destination = operation.destinationRealm || reply.realm;

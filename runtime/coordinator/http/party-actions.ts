@@ -139,6 +139,9 @@ export function createPartyActionRoutes(state: PartyActionState, ports: PartyAct
   }
   function exitDungeon(res: HttpResponse) {
     if (!dungeonOwns(state) || !ports.dungeon) return false;
+    // A held visit with every participant already outside can release normally.
+    // Otherwise Town still exits the live dungeon before mainland travel.
+    try { ports.dungeon.release(); return false; } catch { /* Still inside or awaiting fresh observations. */ }
     ports.dungeon.exit('manual-exit:' + ports.now() + ':' + ports.nextCommand());
     res.json({ ok: true, dailyDungeon: state.dailyDungeons }); return true;
   }

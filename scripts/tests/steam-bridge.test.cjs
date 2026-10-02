@@ -4,6 +4,29 @@ const { JSDOM } = require('../../.caracal/node_modules/jsdom');
 const { installSteamBridge } = require('../../runtime/steam/bridge.ts');
 const { createSwitcher } = require('../../runtime/steam/switcher.ts');
 
+for(const mode of ['group','legacy','interrupted']) test(`intentional primary release suppresses game auto-reconnect (${mode})`,async()=>{
+ const multi=mode!=='legacy';
+ const dom=new JSDOM('',{url:'https://adventure.land'});let timer,scheduled=false,receipt;
+ const operation={id:'logout',from:'P',target:null,phase:'release',...(multi?{multi:{action:'headless',subject:'P',before:['P'],desired:[],primary:null,release:['P']}}:{})};
+ const host={document:dom.window.document,localStorage:dom.window.localStorage,sessionStorage:dom.window.sessionStorage,
+  character:{name:'P'},code_active:true,auto_reload:'auto',character_to_load:'P',reload_state:'schedule',
+  socket:{connected:true,disconnect(){
+   receipt=JSON.parse(host.sessionStorage.getItem('party-console-steam-release-v1')||'null');
+   scheduled=host.auto_reload==='auto'||host.auto_reload==='on'||!!host.character_to_load||!!host.reload_state;
+   this.connected=false;
+  }},stop_runner(){host.code_active=false;},location:{href:''},
+  setTimeout:fn=>{timer=fn;return 1;},clearTimeout(){},fetch:async()=>Response.json({operation,primary:'P',steam:['P'],realm:'SR_USII',members:[]})};
+ if(mode==='interrupted') {
+  operation.phase='failed';operation.error='Coordinator restarted during handoff; confirm offline ownership before recovery';
+  operation.multi.releaseIssued=true;
+  host.sessionStorage.setItem('party-console-steam-release-v1',JSON.stringify({operationId:operation.id,from:'P',released:true}));
+ }
+ try {
+  installSteamBridge(host);await new Promise(r=>setImmediate(r));
+  assert.equal(scheduled,false);assert.equal(host.socket.connected,false);
+  assert.equal(receipt?.operationId,'logout');assert.equal(receipt?.released,true);
+ }finally{host.__partySteamBridge?.dispose();dom.window.close();}
+});
 test('X requires explicit confirmation before asking the server for a bulk handoff',async()=>{
  const dom=new JSDOM(''),doc=dom.window.document,calls=[];
  dom.window.HTMLDialogElement.prototype.showModal=function(){this.open=true};

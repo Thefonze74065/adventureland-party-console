@@ -713,6 +713,7 @@ export function startCoordinatorApplication(
     });
     const monsterSelectionRoutes = coordinatorPolicies.createMonsterSelectionRoutes(party, {
       now: () => Date.now(),
+      dungeon: dungeons,
       validPhoenixOrder: (order) => rareHunting.validateOrder(party.monsterChoices, order),
       validLocation: (id, location) =>
         validFarmingLocation(party.monsterChoices || [], [id], location),
@@ -870,7 +871,13 @@ export function startCoordinatorApplication(
       party,
       character_manage,
       {
-        navigation: manualNavigationCommands.handle,
+        navigation: body => {
+          try {
+            if (["party-monster-travel", "character-travel", "travel", "force-travel", "return-leader"].includes(String(body.type)) &&
+                body.character !== party.merchantCharacter) dungeons.release();
+          } catch (error) { return { status: 409, body: { error: String(error) } }; }
+          return manualNavigationCommands.handle(body);
+        },
         farmingState: name => farmingScopes.effective(name),
         farmingLocation: validFarmingLocation,
         key: autoItemRuleKey,

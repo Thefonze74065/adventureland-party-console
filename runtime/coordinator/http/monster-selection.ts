@@ -7,7 +7,7 @@ import {
 
 export function createMonsterSelectionRoutes(
   state: MonsterSelectionState,
-  ports: MonsterSelectionPorts,
+  ports: MonsterSelectionPorts & { dungeon?: { release(): void } },
 ) {
   const selection = createMonsterSelection(state, ports);
   function known(id: unknown): id is string {
@@ -20,6 +20,10 @@ export function createMonsterSelectionRoutes(
   function onlineLeader(): boolean {
     const status = state.statuses[String(state.leader)];
     return !!state.leader && !!status && !(status.seenAt < ports.now() - 10000);
+  }
+  function releaseDungeon(res: HttpResponse): boolean {
+    try { ports.dungeon?.release(); return true; }
+    catch (error) { res.status(409).json({ error: String(error) }); return false; }
   }
   function navigate(req: HttpRequest, res: HttpResponse): unknown {
     const body = requestObject(req.body),
@@ -37,6 +41,7 @@ export function createMonsterSelectionRoutes(
       body.location !== undefined ? ports.validLocation(id, body.location) : ports.destination(id);
     if (!location)
       return res.status(409).json({ error: "this monster has no known spawn location" });
+    if (!releaseDungeon(res)) return;
     const participants = selection.select(id, location, body.phoenixRouteOrder);
     if (!participants)
       return res.status(409).json({ error: "the party convoy could not be started" });

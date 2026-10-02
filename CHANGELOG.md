@@ -49,6 +49,10 @@ from the commits merged into `main`.
 
 ### Fixed
 
+- Cave recovery releases a completed dungeon hold before manual Town or farming
+  travel. Parties already outside the cave can resume movement instead of
+  silently ignoring Town commands or stalling at convoy regroup (#49).
+
 - Keep independent farming combat authorized through a singleton group while
   Follow is off, so solo priests attack at their Hunt spawn and finish turn-in.
 - Let BankBoi storage proceed independently of the merchant's production-receipt

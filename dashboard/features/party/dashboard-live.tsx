@@ -73,12 +73,16 @@ export function DashboardLive() {
       writeVitals(client, name, record.vitals, sampledAt);
       const size =
         Number(record.vitals.inventorySize) || Object.keys(record.items).length;
+      // Native arrays can contain occupied overflow cells beyond isize. Keep
+      // them inspectable while retaining the actual capacity separately.
+      const displaySize = Object.keys(record.items).reduce((length, key) =>
+        /^\d+$/.test(key) && record.items[key] ? Math.max(length, Number(key) + 1) : length, size);
       const previous = inventories.get(name);
       if (previous?.items === record.items && previous.slots === record.slots && previous.size === size) return;
       inventories.set(name, { items: record.items, slots: record.slots, size });
       writeCharacter(client, name, 'inventory', {
         items: Array.from(
-          { length: size },
+          { length: displaySize },
           (_, index) => record.items[String(index)] || null,
         ),
         inventorySize: size,

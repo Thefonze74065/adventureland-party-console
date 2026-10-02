@@ -13,6 +13,37 @@ function fixture(steam=['P'],slots=['M','W','Trader',null]) {
   release:async()=>{state.handoff.multi.release.forEach(n=>online.delete(n));await service.released(state.handoff.id);}};
 }
 
+test('lost primary release reply completes only after authoritative offline confirmation',async()=>{
+ const f=fixture();await f.service.begin('headless','P');
+ f.service.expire();await new Promise(resolve=>setImmediate(resolve));
+ assert.deepEqual(f.started,[]);assert.equal(f.state.native,'P');
+ f.online.delete('P');f.service.expire();await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(f.state.handoff.phase,'complete');assert.equal(f.state.native,null);
+ assert.deepEqual(f.started,[['P',3]]);assert.deepEqual(f.state.steam,[]);
+ f.service.expire();await f.service.released(f.state.handoff.id);
+ assert.deepEqual(f.started,[['P',3]]);
+});
+test('persisted lost-release timeout resumes without a Steam bridge reply',async()=>{
+ const f=fixture();await f.service.begin('headless','P');
+ f.state.handoff.phase='failed';f.state.handoff.error='Steam operation timed out; assignments remain reserved until recovery';
+ f.advance(180000);const restarted=new SteamGroup(f.state,f.ports);
+ restarted.expire();await new Promise(resolve=>setImmediate(resolve));
+ assert.deepEqual(f.started,[]);assert.equal(f.state.handoff.phase,'failed');
+ f.online.delete('P');restarted.expire();await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(f.state.handoff.phase,'complete');assert.deepEqual(f.started,[['P',3]]);
+});
+test('headless release polling does not retry explicit bridge failures',async()=>{
+ const f=fixture();await f.service.begin('headless','P');
+ f.service.fail(f.state.handoff.id,'stop_runner failed');f.online.delete('P');
+ f.service.expire();await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(f.state.handoff.phase,'failed');assert.deepEqual(f.started,[]);
+});
+test('interrupted headless release resumes after startup marks ownership uncertain',async()=>{
+ const f=fixture();await f.service.begin('headless','P');
+ f.state.handoff.phase='failed';f.state.handoff.error='Coordinator restarted during handoff; confirm offline ownership before recovery';
+ f.online.delete('P');f.service.expire();await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(f.state.handoff.phase,'complete');assert.deepEqual(f.started,[['P',3]]);
+});
 test('restoring Steam companions is not blocked by an untouched headless merchant',async()=>{
  const f=fixture(['P','M','W'],['Trader',null,null,null]);
  const checked=[];

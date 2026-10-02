@@ -225,7 +225,7 @@ export const InventoryPanel = memo(function InventoryPanel({
   const [pendingAutomaticClear, setPendingAutomaticClear] = useState<AutomaticSection | null>(null);
   const occupiedSlots = character.items.filter(Boolean).length;
   const totalSlots = character.inventorySize || character.items.length;
-  const freeSlots = totalSlots - occupiedSlots;
+  const freeSlots = Math.max(0, totalSlots - occupiedSlots);
   const standFull = standIsFull(standListings, standBids);
   const capacityColor =
     freeSlots < 5 ? "text-rose-400" : freeSlots <= 10 ? "text-orange-400" : "text-emerald-100/55";
@@ -579,7 +579,7 @@ export const InventoryPanel = memo(function InventoryPanel({
         <>
           <LuckySlotMenu selection={luckySlotMenu} onClose={() => setLuckySlotMenu(null)} onData={() => onLuckySlot?.()} onItem={onSelect} />
           <div className="grid grid-cols-5 gap-2">
-            {(character.name === merchant ? physicalInventory(character.items) : compactInventory(character.items)).map((entry, i) => {
+            {(character.name === merchant ? physicalInventory(character.items) : compactInventory(character.items, totalSlots)).map((entry, i) => {
               const lucky = character.name === merchant && i === nextUpgradeSlot;
               if (!entry)
                 return (

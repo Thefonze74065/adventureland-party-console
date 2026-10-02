@@ -175,7 +175,7 @@
   }
 
   // runtime/steam/connection.ts
-  var steamBridgeVersion = 9;
+  var steamBridgeVersion = 10;
   function serverAddress(host = globalThis) {
     return (host.__partyServer || host.parent?.__partyServer || "http://127.0.0.1:924").replace(
       /\/$/,
@@ -541,15 +541,25 @@ globalThis.__partyServer=${JSON.stringify(base)};parent.__partyServer=globalThis
       host.storage_set("code_cache", JSON.stringify(cache));
       return slot;
     }
+    function persistRelease(operation) {
+      releasing = operation.id;
+      released = { operationId: operation.id, from: operation.from, released: true };
+      host.sessionStorage.setItem(releaseKey, JSON.stringify(released));
+    }
+    function disconnectPrimary() {
+      host.auto_reload = "off";
+      host.character_to_load = null;
+      host.reload_state = false;
+      host.stop_runner();
+      host.socket?.disconnect();
+    }
     async function releaseNative(operation) {
       releasing = operation.id;
       if (operation.target) await ensureBootstrap(operation.target);
       if (lifecycle.signal.aborted) return;
       host.localStorage.setItem(operationKey, operation.id);
-      host.stop_runner();
-      host.socket?.disconnect();
-      released = { operationId: operation.id, from: operation.from, released: true };
-      host.sessionStorage.setItem(releaseKey, JSON.stringify(released));
+      persistRelease(operation);
+      disconnectPrimary();
     }
     function navigate(id, target, destinationRealm) {
       navigating = id;
@@ -582,25 +592,25 @@ globalThis.__partyServer=${JSON.stringify(base)};parent.__partyServer=globalThis
       }
       if (operation?.multi) {
         const group = operation.multi;
-        if (operation.phase === "failed") {
+        const retryRelease = operation.phase === "failed" && group.action === "headless" && group.releaseIssued && !operation.releasedAt && host.socket?.connected && group.release.includes(host.character?.name || "") && [
+          "Steam operation timed out; assignments remain reserved until recovery",
+          "Coordinator restarted during handoff; confirm offline ownership before recovery"
+        ].includes(operation.error || "");
+        if (operation.phase === "failed" && !retryRelease) {
           releasing = null;
           failure = null;
           return;
         }
         if (operation.phase === "complete") return;
-        if (operation.phase === "release" && releasing !== operation.id) {
+        if (operation.phase === "release" && releasing !== operation.id || retryRelease) {
           for (const name of group.desired) await ensureBootstrap(name);
           if (lifecycle.signal.aborted) return;
           host.localStorage.setItem(operationKey, operation.id);
+          persistRelease(operation);
           for (const name of group.release) {
-            if (name === host.character?.name) {
-              host.stop_runner();
-              host.socket?.disconnect();
-            } else host.stop_character_runner?.(name);
+            if (name === host.character?.name) disconnectPrimary();
+            else host.stop_character_runner?.(name);
           }
-          releasing = operation.id;
-          released = { operationId: operation.id, from: operation.from, released: true };
-          host.sessionStorage.setItem(releaseKey, JSON.stringify(released));
         }
         if (operation.phase === "navigate" && group.primary) {
           const destination = operation.destinationRealm || reply.realm;

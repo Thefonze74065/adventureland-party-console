@@ -286,7 +286,7 @@ test('buy with upgrade target survives lucky restoration failure and missing cli
   await record(live, info, 'buy-upgrade-lucky-journal-recovery', before, { order, held, after });
 });
 type Economy = {
-  characters: Record<string, { map: string; gold: number; items: Items; upgrading: boolean }>;
+  characters: Record<string, { map: string; gold: number; isize: number; items: Items; upgrading: boolean }>;
   bank: Record<string, Items>;
   savedBank: Record<string, Items>;
   bankGold: number;
@@ -305,7 +305,7 @@ async function economy(live: LiveGame): Promise<Economy> {
     const bank=mounted?mounted.user:user.info;
     const packs=value=>Object.fromEntries(Object.entries(value).filter(([key,items])=>/^items[0-9]+$/.test(key)&&Array.isArray(items)));
     return {characters:Object.fromEntries(${JSON.stringify(names)}.map(name=>{
-      const p=get_player(name);return [name,{map:p.map,gold:p.gold,items:p.items,upgrading:!!p.q.upgrade}];
+      const p=get_player(name);return [name,{map:p.map,gold:p.gold,isize:p.isize,items:p.items,upgrading:!!p.q.upgrade}];
     })),bank:packs(bank),savedBank:packs(user.info),bankGold:Number(bank.gold)||0};
   })()`);
 }
@@ -695,7 +695,7 @@ test('native WTB retries an empty never-confirmed reservation after restart with
 });
 
 
-test('native Tracktrix stays in the final inventory slot through full-bag cleanout and merchant tidying', async ({ live }, info) => {
+test('native Tracktrix stays in the final inventory slot through full-bag cleanout and merchant tidying', async ({ live, page }, info) => {
   test.setTimeout(240_000);
   // Failure modes: display name mistaken for native tracker ID; unmarked tracker
   // collected in a full bag; occupied final slot loses cargo; merchant tidy
@@ -705,18 +705,18 @@ test('native Tracktrix stays in the final inventory slot through full-bag cleano
   const seeded = await live.admin(`output=(()=>{
     const w=get_player('E2EWarrior'),m=get_player('E2EMerchant');
     if(w.items[10]||m.items[10]||m.items[11])throw Error('Tracker seed slots occupied');
-    w.items[10]={name:'tracker'};m.items[10]={name:'tracker'};m.items[11]={name:'stand0'};
-    for(let i=0;i<w.items.length;i++)if(!w.items[i])w.items[i]={name:'feather0',q:1};
+    w.items[42]={name:'tracker'};m.items[43]={name:'tracker'};m.items[11]={name:'stand0'};
+    for(let i=0;i<w.isize;i++)if(!w.items[i])w.items[i]={name:'feather0',q:1};
     for(const p of [w,m]){cache_player_items(p);calculate_player_stats(p);resend(p,'reopen+cid');}
     return {warrior:w.items,merchant:m.items};
   })()`);
   await expect.poll(async () => {
     const current=await economy(live);
-    return ['E2EWarrior',merchant].every(name=>current.characters[name].items.at(-1)?.name==='tracker');
+    return ['E2EWarrior',merchant].every(name=>current.characters[name].items[current.characters[name].isize-1]?.name==='tracker');
   }, {timeout:30_000}).toBe(true);
   const before=await economy(live);
   expect(quantity(before.characters.E2EWarrior.items,'tracker')).toBe(1);
-  expect(before.characters.E2EWarrior.items.filter(Boolean)).toHaveLength(42);
+  expect(before.characters.E2EWarrior.items.filter(Boolean)).toHaveLength(43);
   expect(quantity(before.characters.E2EWarrior.items,'feather0')).toBe(quantity(seeded.warrior,'feather0'));
   await live.post('/merchant/force-stand', { enabled: false });
   await live.post('/merchant/routine-priorities', { priorities: {}, enabled: { 'inventory cleanout': true } });
@@ -727,13 +727,22 @@ test('native Tracktrix stays in the final inventory slot through full-bag cleano
   await restartAndObserve(live);
   const after=await economy(live);
   for(const name of ['E2EWarrior',merchant]) {
-    expect(after.characters[name].items.at(-1)?.name).toBe('tracker');
+    expect(after.characters[name].items[after.characters[name].isize-1]?.name).toBe('tracker');
     expect(quantity(after.characters[name].items,'tracker')).toBe(1);
   }
   const totalFeathers=(value:Economy)=>bankQuantity(value,'feather0')+Object.values(value.characters).reduce((sum,c)=>sum+quantity(c.items,'feather0'),0);
   expect(totalFeathers(after)).toBe(totalFeathers(before));
   await record(live,info,'tracktrix-full-bag-cleanout-retained',before,{initial,seeded});
   await info.attach('tracktrix-final-native-inventory',{body:await live.clients.E2EWarrior.page.screenshot(),contentType:'image/png'});
+  await page.goto(live.url);
+  const card=page.locator('article').filter({has:page.getByRole('heading',{name:'E2EWarrior',exact:true})});
+  const inventory=card.getByRole('button',{name:/^Inventory/});
+  await expect(inventory).toBeVisible();
+  if(await inventory.getAttribute('aria-expanded')==='false') await inventory.click();
+  const tracker=card.getByLabel(/^(Tracktrix|tracker)$/);
+  await expect(tracker).toBeVisible();
+  await tracker.scrollIntoViewIfNeeded();
+  await info.attach('tracktrix-final-console-inventory',{body:await page.screenshot(),contentType:'image/png'});
 });
 
 for (const kind of ['upgrade', 'compound']) test(`auto merchant collects twelve native copies alongside a finite ${kind} rule`, async ({live},info) => {
