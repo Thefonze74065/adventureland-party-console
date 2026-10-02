@@ -42,6 +42,8 @@ export interface DailyChaseState {
   /** Also chase slots on other regions' schedules (extra events, not replacements). */
   otherRegions: boolean;
   observations: Record<string, Partial<Record<DailyEvent, DailyObservation>>>;
+  /** Game version the observations were gathered under; an update restarts and reshuffles every realm. */
+  gameVersion: number;
   trip: DailyChaseTrip | null;
   retryAt: number;
   lastError: string | null;
@@ -51,6 +53,8 @@ export interface DailyChaseParty { dailyChase: DailyChaseState }
 export interface DailyStatusReport { realm: string; live: DailyEvent[] }
 export interface DailyChasePorts {
   now(): number;
+  /** Installed game version; 0 while unknown. */
+  gameVersion(): number;
   /** ALData `/monsters/crabxx,rgoo,bgoo`: live daily-event bosses on any realm. */
   fetchBosses(): Promise<unknown>;
   /** Fresh reports from the party's own characters: their realm and its live daily events. */
@@ -94,6 +98,7 @@ export function initialDailyChase(saved: unknown): DailyChaseState {
     leadMinutes: Number.isFinite(lead) && lead >= 14 ? lead : 16,
     otherRegions: value.otherRegions === true,
     observations: (requestObject(value.observations) as DailyChaseState["observations"]) || {},
+    gameVersion: Number.isSafeInteger(value.gameVersion) ? Number(value.gameVersion) : 0,
     trip: (value.trip as DailyChaseTrip | null | undefined) || null,
     retryAt: 0,
     lastError: null,
@@ -132,6 +137,18 @@ export function createDailyChase(party: DailyChaseParty, ports: DailyChasePorts)
       return other === event ? !sameResidue : sameResidue;
     });
     party.dailyChase.observations[realm] = { ...(restarted ? {} : observed), [event]: { slot, at } };
+    ports.persist();
+  }
+
+  /** A game update restarts every realm, so every learned cycle is void until seen again. */
+  function resetOnUpdate(): void {
+    const chase = party.dailyChase, version = ports.gameVersion();
+    if (!version || version === chase.gameVersion) return;
+    if (chase.gameVersion && Object.keys(chase.observations).length) {
+      chase.observations = {};
+      ports.log("Daily chase: game updated to " + version + "; cleared realm event cycles", "info");
+    }
+    chase.gameVersion = version;
     ports.persist();
   }
 
@@ -251,6 +268,7 @@ export function createDailyChase(party: DailyChaseParty, ports: DailyChasePorts)
 
   async function tick(): Promise<void> {
     const now = ports.now(), chase = party.dailyChase;
+    resetOnUpdate();
     pruneObservations(now);
     await collect(now);
     chase.upcoming = upcoming(now);

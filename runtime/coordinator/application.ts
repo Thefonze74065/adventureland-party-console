@@ -1101,6 +1101,7 @@ export function startCoordinatorApplication(
     });
     const dailyChase = coordinatorPolicies.createDailyChase(party, {
       ...chasePorts,
+      gameVersion: () => party.gameVersion,
       fetchBosses: () => aldataFetch("/monsters/crabxx,rgoo,bgoo"),
       reports: () =>
         realmParticipants().flatMap((name) => {

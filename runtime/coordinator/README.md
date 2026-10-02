@@ -1578,7 +1578,8 @@ k+3, k+6 and so on, and two sightings fix the whole cycle. A sighting that contr
 is treated as a server restart and resets that realm. Sightings come from the party's own fresh
 status reports (any daily event on the realm it is on) and from ALData `/monsters/crabxx,rgoo,bgoo`
 (Giga Crab and Goo Brawl only), polled within 90 minutes after any region's slot. Sightings expire
-after two days.
+after two days. A game update restarts every realm, so all sightings are cleared when the
+installed game version changes. Restarts without an update are caught only by contradicting sightings.
 
 When enabled (Realm panel, `POST /party-api/realm/daily-chase`) and a daily event is selected,
 the party hops only when the current realm is known to miss every selected event at its next slot
