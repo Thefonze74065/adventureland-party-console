@@ -10369,8 +10369,10 @@
       var value = raw[name];
       if (!value || typeof value !== "object") { corrected[name] = value; return; }
       corrected[name] = Object.assign({}, value);
-      ["next", "expires", "end"].forEach(function(key) {
-        if (value[key]) corrected[name][key] = anniversaryEpoch(value[key]) - eventClockOffset;
+      ["next", "expires", "end", "spawn"].forEach(function(key) {
+        // Epoch numbers and ISO strings (monster events' spawn/end) both convert; unparseable stays as-is.
+        var at = value[key] ? eventEpoch(value[key]) : 0;
+        if (at) corrected[name][key] = at - eventClockOffset;
       });
     });
     return corrected;
@@ -11690,9 +11692,12 @@
     return Date.now() - frankyHold.since >= frankyHoldMinMs;
   }
 
-  // Franky despawns when left unattacked late in his lifetime (every 2 minutes past minute 40).
-  // Stay ahead of that: from minute 35, one off-tank keeper lands a hit at least once a minute.
-  var frankyKeepaliveFromMs = 35 * 60000, frankyKeepaliveDueMs = 45000;
+  // The server ends Franky's event once its 40-minute timer (S.franky.end) has passed and nobody has
+  // attacked him for 20 seconds (server_functions.js). From 5 minutes before the end, one off-tank
+  // keeper makes sure he is hit at least every 45s; from 60s before it, the keeper stays engaged and
+  // hits whenever 10s pass without one.
+  var frankyKeepaliveLeadMs = 5 * 60000, frankyKeepaliveDueMs = 45000;
+  var frankyKeepaliveHoldMs = 60000, frankyKeepaliveTightMs = 10000, frankyEventMs = 40 * 60000;
   var frankyHits = {}, frankyFirstSeen = {};
   function observeFrankyHit(data) {
     var target = data && data.id != null && parent.entities && parent.entities[data.id];
@@ -11725,10 +11730,22 @@
     members.sort(function (a, b) { return (Number(b.range) || 0) - (Number(a.range) || 0) || String(a.name).localeCompare(String(b.name)); });
     return members[0] ? members[0].name : character.name;
   }
+  function frankyEventEnd(target) {
+    var status = (eventStatus() || {}).franky, end = status && status.live !== false ? eventEpoch(status.end) : 0;
+    return end || frankySpawnedAt(target) + frankyEventMs;
+  }
+  /** Past the final minute the keeper stays in range; a 20s lull would end the event. */
+  function frankyKeepaliveHolding(target) {
+    return frankyTargetAllowed(target) && Date.now() >= frankyEventEnd(target) - frankyKeepaliveHoldMs &&
+      frankyKeeper() === character.name;
+  }
   function frankyKeepaliveDue(target) {
-    if (!frankyTargetAllowed(target) || Date.now() - frankySpawnedAt(target) < frankyKeepaliveFromMs) return false;
-    var lastHit = frankyHits[target.id] || frankyFirstSeen[target.id];
-    return Date.now() - lastHit >= frankyKeepaliveDueMs && frankyKeeper() === character.name;
+    if (!frankyTargetAllowed(target)) return false;
+    var untilEnd = frankyEventEnd(target) - Date.now();
+    if (untilEnd > frankyKeepaliveLeadMs) return false;
+    var lastHit = frankyHits[target.id] || frankyFirstSeen[target.id] || 0;
+    var interval = untilEnd <= frankyKeepaliveHoldMs ? frankyKeepaliveTightMs : frankyKeepaliveDueMs;
+    return Date.now() - lastHit >= interval && frankyKeeper() === character.name;
   }
 
   function nearestEventTarget() {
@@ -15655,8 +15672,9 @@
         target: null, reason: "No terrain-clear path toward Franky" };
       return true;
     }
-    // Despawn keepalive outranks fleeing: land the hit, then the flee resumes next tick.
-    if (frankyKeepaliveDue(target)) return engageMovementTick(target);
+    // Despawn keepalive outranks fleeing: land the hit, then the flee resumes next tick. In the
+    // final minute the keeper holds in range so a hit is always available.
+    if (frankyKeepaliveDue(target) || frankyKeepaliveHolding(target)) return engageMovementTick(target);
     if (target.target === character.name) {
       // Fragile gear: don't try to tank him. Actually leave the room through
       // its exit door and wait a few seconds for the human tank to reclaim
