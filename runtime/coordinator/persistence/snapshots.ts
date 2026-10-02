@@ -117,6 +117,7 @@ export const settingsFields = [
   "mluckCastAt",
   "activeRealm",
   "bossChase",
+  "dailyChase",
   "activeConvoy",
   "convoyCompletionReceipts",
   "navigationEpoch",

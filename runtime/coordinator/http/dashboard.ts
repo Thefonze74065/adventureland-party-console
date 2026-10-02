@@ -31,6 +31,7 @@ type DashboardHandlers<Handler> = AnniversaryAndCommerceHandlers<Handler> &
     bankboiDeleteRoute: Handler;
     realmRoutes: { switchRealm: Handler; homeComplete: Handler };
     bossChaseRoute: Handler;
+    dailyChaseRoute: Handler;
     statusIngestion: { handle: Handler };
     partyActionRoutes: { escape: Handler };
   };
@@ -87,6 +88,7 @@ export function installCoordinatorDashboard<
   router.post("/party-api/realm/switch", handlers.realmRoutes.switchRealm);
   router.post("/party-api/realm/home-complete", handlers.realmRoutes.homeComplete);
   router.post("/party-api/realm/boss-chase", handlers.bossChaseRoute);
+  router.post("/party-api/realm/daily-chase", handlers.dailyChaseRoute);
   router.post("/party-api/status", handlers.statusIngestion.handle);
   ports.combatLogs(router);
   installFarmingAndTravelRoutes(router, handlers);

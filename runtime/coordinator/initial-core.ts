@@ -3,6 +3,7 @@ import type { SavedEventState, LastEventReturn } from "./events/initial-contract
 import type { SavedRecoveryState } from "./navigation/recovery-contracts.ts";
 import type { Catalog } from "../../dashboard/lib/farming-zones.ts";
 import { initialBossChase } from "./events/boss-chase.ts";
+import { initialDailyChase } from "./events/daily-chase.ts";
 import type { RealmOperation } from "./characters/realm-switch.ts";
 
 export function initialRecoveryState(saved: SavedRecoveryState) {
@@ -36,6 +37,7 @@ export function initialEventState(saved: SavedEventState, configuredRealm: strin
     combatEventHandoff: saved.combatEventHandoff || null,
     abtestingStrategy: saved.abtestingStrategy || null,
     bossChase: initialBossChase(saved.bossChase),
+    dailyChase: initialDailyChase(saved.dailyChase),
   };
 }
 export function initialMarketObservations() {

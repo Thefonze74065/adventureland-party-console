@@ -1063,21 +1063,19 @@ export function startCoordinatorApplication(
       stamp: stampMerchantJob,
     });
     setInterval(() => merchantSettingsRoutes.bankSort.reconcile(), 1000);
-    const bossChase = coordinatorPolicies.createBossChase(party, {
+    // Realm chases share the dashboard's realm-switch route so every participant/bankboi/Steam guard applies.
+    const chasePorts = {
       now: () => Date.now(),
-      fetchLive: (boss) => aldataFetch("/monsters/" + boss),
       currentRealm: () => realmControlPayload().currentRealm,
       homeRealm: accountHomeRealm,
-      realmExists: (realm) => !!my_acc.resolve_realm(realm),
       realmSwitchBusy: () =>
         !!party.realmSwitch && ["switching", "setting-home"].includes(party.realmSwitch.phase),
-      selected: (boss) =>
+      selected: (event: string) =>
         realmParticipants().some((name) => {
           const selected = party.eventSelectionsByCharacter[name];
-          return Array.isArray(selected) && selected.includes(boss);
+          return Array.isArray(selected) && selected.includes(event);
         }),
-      // Reuse the dashboard's realm-switch route so every participant/bankboi/Steam guard applies.
-      switchRealm: async (realm) => {
+      switchRealm: async (realm: string) => {
         const outcome: { code: number; body: unknown } = { code: 200, body: null };
         const response = {
           status(code: number) { outcome.code = code; return response; },
@@ -1089,13 +1087,38 @@ export function startCoordinatorApplication(
         const error = (outcome.body as { error?: unknown } | null)?.error;
         return outcome.code < 400 ? { ok: true } : { ok: false, error: typeof error === "string" ? error : "HTTP " + outcome.code };
       },
-      log: (message, level) => {
+      log: (message: string, level: string) => {
         console.log(message);
         merchantLog(message, level as Parameters<typeof merchantLog>[1]);
       },
       persist: persistSettings,
+    };
+    const bossChase = coordinatorPolicies.createBossChase(party, {
+      ...chasePorts,
+      fetchLive: (boss) => aldataFetch("/monsters/" + boss),
+      realmExists: (realm) => !!my_acc.resolve_realm(realm),
+      paused: () => !!party.dailyChase.trip,
+    });
+    const dailyChase = coordinatorPolicies.createDailyChase(party, {
+      ...chasePorts,
+      fetchBosses: () => aldataFetch("/monsters/crabxx,rgoo,bgoo"),
+      reports: () =>
+        realmParticipants().flatMap((name) => {
+          const status = party.statuses[name];
+          if (!status?.server || Date.now() - (status.seenAt || 0) > 15_000) return [];
+          const schedules: unknown = status.eventSchedules;
+          const live = (Array.isArray(schedules) ? (schedules as { id?: unknown; live?: unknown }[]) : [])
+            .filter((entry) => entry.live === true)
+            .map((entry) => entry.id)
+            .filter((id): id is coordinatorPolicies.DailyEvent =>
+              (coordinatorPolicies.dailyEvents as readonly unknown[]).includes(id));
+          return [{ realm: "SR_" + status.server.replace(/^SR_/, ""), live }];
+        }),
+      realms: () => realmControlPayload().realms.filter((realm) => !realm.pvp).map((realm) => realm.key),
+      paused: () => !!party.bossChase.trip,
     });
     bossChase.start((callback, milliseconds) => setInterval(callback, milliseconds));
+    dailyChase.start((callback, milliseconds) => setInterval(callback, milliseconds));
     const { maps: mapStreams, combat: combatLogRoutes, prepareVersion } =
       coordinatorPolicies.createCoordinatorTelemetry(__dirname, version, party.combatLogs, {
         owned: ownedCharacter,
@@ -2181,6 +2204,7 @@ export function startCoordinatorApplication(
               bankboiDeleteRoute,
               realmRoutes,
               bossChaseRoute: bossChase.update,
+              dailyChaseRoute: dailyChase.update,
               statusIngestion,
               monsterSelectionRoutes,
               focusRoute: scopedRoute(focusRoute, service => service.focusRoute),
