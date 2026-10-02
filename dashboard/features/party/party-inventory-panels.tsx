@@ -341,11 +341,13 @@ function PartyInventoryPanelsConnected({ base }: { base: PartyConsoleModel }) {
                       state.realmControl?.currentRealm ||
                       "Unknown"}{" "}
                   · Home:{" "}
-                  {state.realmControl?.realms.find(
-                    (realm) => realm.key === state.realmControl?.homeRealm,
-                  )?.label ||
-                    state.realmControl?.homeRealm ||
-                    "Unknown"}
+                  {new Set((state.realmControl?.characters || []).map((member) => member.home).filter(Boolean)).size > 1
+                    ? "Mixed homes"
+                    : state.realmControl?.realms.find(
+                        (realm) => realm.key === state.realmControl?.homeRealm,
+                      )?.label ||
+                      state.realmControl?.homeRealm ||
+                      "Unknown"}
                 </p>
               </div>
               {state.realmControl?.operation &&
@@ -358,6 +360,16 @@ function PartyInventoryPanelsConnected({ base }: { base: PartyConsoleModel }) {
                 {state.realmControl.characters.map((member) => (
                   <span key={member.name}>
                     {member.name}: {member.realm || "offline"}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {new Set((state.realmControl?.characters || []).map((member) => member.home).filter(Boolean)).size > 1 ? (
+              <div className="mt-3 grid gap-1 rounded border border-amber-700 bg-amber-950/40 p-2 text-xs text-amber-100">
+                <span>Characters have different home realms; logging in off-home causes Hop Sickness.</span>
+                {state.realmControl!.characters.map((member) => (
+                  <span key={"home-" + member.name}>
+                    {member.name}: home {member.home?.replace(/^SR_/, "") || "unknown"}
                   </span>
                 ))}
               </div>

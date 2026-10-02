@@ -14,6 +14,11 @@ export interface RealmOperation {
   fromRealm?: string | null;
   homeRealm?: string | null;
   homeExecutor?: string;
+  /** Home realm is per character in Adventure Land, so every connected participant visits Bean. */
+  homeTargets?: string[];
+  /** Targets that haven't reported their set_home result yet. */
+  homePending?: string[];
+  homeFailures?: Record<string, string>;
 }
 interface RealmStatus {
   seenAt: number;
@@ -43,6 +48,8 @@ interface RealmPorts {
   label(realm: string): string;
   leader(): string | null;
   dispatchMerchant(): void;
+  /** Schedules a one-off check (setTimeout in the coordinator). */
+  timeout?(ms: number, callback: () => void): void;
 }
 
 /** Coordinates one requested realm transition without changing worker restart ownership. */
@@ -98,24 +105,29 @@ export function createRealmSwitch(ports: RealmPorts) {
       throw new Error("Not every active character confirmed the destination within 60 seconds");
   }
 
-  function canSetHome(name: string): boolean {
-    const status = ports.status(name);
-    return !!status && status.ctype !== "merchant";
-  }
-
-  function assignHomeExecutor(operation: RealmOperation): void {
-    const leader = ports.leader();
-    const executor =
-      leader && operation.participants.includes(leader) && canSetHome(leader)
-        ? leader
-        : operation.participants.find(canSetHome);
-    if (!executor) throw new Error("No connected non-merchant character can visit Bean");
-    operation.homeExecutor = executor;
-    ports.command(executor, {
-      id: ports.nextCommand(),
-      type: "realm-set-home",
-      operationId: operation.id,
-      realm: operation.realm,
+  // A character that never reports back (deferred command, disconnect) must not hold the
+  // realm switch in "setting-home" forever; that phase blocks every later switch.
+  const homeTimeoutMs = 5 * 60_000;
+  function assignHomeExecutors(operation: RealmOperation): void {
+    const targets = operation.participants.filter((name) => !!ports.status(name));
+    if (!targets.length) throw new Error("No connected character can visit Bean");
+    operation.homeTargets = targets;
+    operation.homePending = [...targets];
+    operation.homeFailures = {};
+    operation.homeExecutor = targets[0];
+    for (const name of targets)
+      ports.command(name, {
+        id: ports.nextCommand(),
+        type: "realm-set-home",
+        operationId: operation.id,
+        realm: operation.realm,
+      });
+    ports.timeout?.(homeTimeoutMs, () => {
+      if (operation.phase !== "setting-home") return;
+      operation.phase = "failed";
+      operation.error = "No home realm confirmation from " + (operation.homePending || []).join(", ");
+      operation.completedAt = ports.now();
+      ports.persist();
     });
   }
 
@@ -124,10 +136,10 @@ export function createRealmSwitch(ports: RealmPorts) {
     operation.phase = operation.setHome ? "setting-home" : "complete";
     operation.completedAt = operation.setHome ? null : ports.now();
     operation.message = operation.setHome
-      ? "Party arrived; visiting Bean to set the home realm"
+      ? "Party arrived; every character is visiting Bean to set its home realm"
       : "Every active character arrived on " + ports.label(operation.realm);
     ports.persist();
-    if (operation.setHome) assignHomeExecutor(operation);
+    if (operation.setHome) assignHomeExecutors(operation);
     else ports.dispatchMerchant();
   }
 

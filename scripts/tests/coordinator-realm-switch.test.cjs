@@ -47,17 +47,18 @@ test('all-headless participants reconnect to the destination without a native co
   assert.equal(effects.filter(e=>Array.isArray(e)&&e[0]==='stop').length,3);
   assert.ok(operation.characters.every(entry=>entry.arrived));
   const commands=effects.filter(e=>Array.isArray(e)&&e[0]==='command');
-  assert.deepEqual(commands.map(e=>[e[1],e[2].type]),setHome?[['P','realm-set-home']]:[]);
+  assert.deepEqual(commands.map(e=>[e[1],e[2].type]),setHome?[['M','realm-set-home'],['P','realm-set-home'],['S','realm-set-home']]:[]);
   assert.equal(effects.includes('dispatch'),!setHome);
  }
 });
 
-test('home assignment prefers the non-merchant leader after everyone has arrived',async()=>{
+test('home realm is per character: every connected participant, merchant included, visits Bean after arrival',async()=>{
   const {operation,service,statuses,effects}=fixture();operation.setHome=true;
   for(const name of operation.participants) statuses[name]={seenAt:1000,server:'EUI',ctype:name==='M'?'merchant':'priest'};
   await service.run(operation);
-  assert.equal(operation.phase,'setting-home');assert.equal(operation.homeExecutor,'P');
-  assert.equal(effects.at(-1)[2].type,'realm-set-home');assert.equal(operation.completedAt,null);
+  assert.equal(operation.phase,'setting-home');assert.deepEqual(operation.homeTargets,['M','P','S']);
+  assert.deepEqual(operation.homePending,['M','P','S']);assert.equal(operation.completedAt,null);
+  assert.deepEqual(effects.filter(e=>Array.isArray(e)&&e[0]==='command'&&e[2].type==='realm-set-home').map(e=>e[1]),['M','P','S']);
 });
 
 test('shutdown waits for workers before closing storage and ignores duplicate requests',async()=>{

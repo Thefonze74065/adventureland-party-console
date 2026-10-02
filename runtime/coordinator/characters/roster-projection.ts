@@ -65,7 +65,19 @@ export function createRosterProjection(
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }
+  function characterHome(name: unknown): string | null {
+    const home = owned(name)?.home;
+    return home ? "SR_" + String(home).replace(/^SR_/, "") : null;
+  }
+  /** The party's home: the most common home among active characters, else the first known one. */
   function homeRealm(): string | null {
+    const counts = new Map<string, number>();
+    for (const name of participants()) {
+      const home = characterHome(name);
+      if (home) counts.set(home, (counts.get(home) || 0) + 1);
+    }
+    const common = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0];
+    if (common) return common;
     const home = (account().characters || []).map((entry) => entry && entry.home).find(Boolean);
     return home ? "SR_" + String(home).replace(/^SR_/, "") : null;
   }
@@ -109,6 +121,7 @@ export function createRosterProjection(
       name,
       ctype: status?.ctype || character?.type || null,
       realm: server,
+      home: characterHome(name),
       online: !!(status && status.seenAt >= cutoff),
     };
   }
@@ -145,5 +158,5 @@ export function createRosterProjection(
       realms: realms(),
     };
   }
-  return { owned, roster, homeRealm, slots, participants, control };
+  return { owned, roster, homeRealm, characterHome, slots, participants, control };
 }

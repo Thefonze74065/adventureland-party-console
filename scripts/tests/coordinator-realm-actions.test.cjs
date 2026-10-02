@@ -10,19 +10,23 @@ function fixture(){
   pauseMerchant:()=>calls.push('pause'),native:()=> 'F',block:name=>{assert.equal(name,'M');return block;},
   stop:async worker=>{assert.equal(worker,block);calls.push(['stop',worker.realm]);},persist:()=>calls.push('persist'),label:realm=>realm,
   dispatch:()=>calls.push('dispatch'),resolve:realm=>realm==='SR_EUI',bankBusy:()=>false,participants:()=>['F','M'],current:()=>state.activeRealm,
-  home:()=>home,refresh:async()=>{calls.push('refresh');home='SR_EUI';},
+  home:()=>home,characterHome:()=>home,refresh:async()=>{calls.push('refresh');home='SR_EUI';},
  });
  async function invoke(handler,body){const res={code:200,status(code){this.code=code;return this;},json(body){this.body=body;return this;}};await handler({body},res);return res;}
  async function settled(){for(let i=0;i<30&&state.realmSwitch.phase==='switching';i++)await Promise.resolve();assert.notEqual(state.realmSwitch.phase,'switching');}
  return {state,calls,routes,invoke,settled};
 }
 
-test('home-realm changes wait for the HTTP acknowledgement before dispatching the merchant',async()=>{
+test('home-realm changes wait for every character acknowledgement before dispatching the merchant',async()=>{
  const t=fixture();await t.invoke(t.routes.switchRealm,{realm:'SR_EUI',setHome:true});await t.settled();
  assert.equal(t.state.realmSwitch.phase,'setting-home');assert.equal(t.state.commands.F.type,'realm-set-home');assert.equal(t.state.commands.F.id,81);
+ assert.equal(t.state.commands.M.type,'realm-set-home');
  assert.equal(t.calls.includes('dispatch'),false);
  assert.equal((await t.invoke(t.routes.homeComplete,{character:'F',operationId:'wrong',success:true})).code,409);
  assert.equal((await t.invoke(t.routes.homeComplete,{character:'F',operationId:t.state.realmSwitch.id,success:true})).code,200);
- assert.equal(t.state.realmSwitch.phase,'complete');assert.equal(t.state.commands.F,undefined);
+ assert.equal(t.state.realmSwitch.phase,'setting-home');assert.equal(t.state.commands.F,undefined);assert.equal(t.calls.includes('dispatch'),false);
+ assert.equal((await t.invoke(t.routes.homeComplete,{character:'F',operationId:t.state.realmSwitch.id,success:true})).code,409);
+ assert.equal((await t.invoke(t.routes.homeComplete,{character:'M',operationId:t.state.realmSwitch.id,success:true})).code,200);
+ assert.equal(t.state.realmSwitch.phase,'complete');assert.equal(t.state.commands.M,undefined);
  assert.deepEqual(t.calls.slice(-3),['refresh','persist','dispatch']);
 });

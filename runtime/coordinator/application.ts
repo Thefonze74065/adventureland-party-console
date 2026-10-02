@@ -294,6 +294,7 @@ export function startCoordinatorApplication(
       participants: realmParticipants,
       current: () => realmControlPayload().currentRealm,
       home: accountHomeRealm,
+      characterHome: (name) => rosterProjection.characterHome(name),
       refresh: () => my_acc.updateInfo(),
     });
     const shutdownCoordinator = coordinatorPolicies.createShutdown({

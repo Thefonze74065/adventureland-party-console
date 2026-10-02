@@ -47,5 +47,8 @@ export function createCoordinatorRealmSwitch(state: RealmState, ports: Compositi
     label: (realm) => ports.label(realm),
     leader: () => state.leader,
     dispatchMerchant: () => ports.dispatchMerchant(),
+    timeout: (ms, callback) => {
+      setTimeout(callback, ms).unref?.();
+    },
   });
 }

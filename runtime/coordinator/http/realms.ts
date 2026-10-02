@@ -16,6 +16,8 @@ interface RealmRoutePorts {
   native(): string | null;
   current(): string | null;
   home(): string | null;
+  /** One character's home realm (SR_ key) from the refreshed account roster. */
+  characterHome(name: string): string | null;
   persist(): void;
   run(operation: RealmOperation): unknown;
   refresh(): Promise<unknown>;
@@ -31,7 +33,7 @@ function isCurrentHome(
     !!operation &&
     operation.id === body.operationId &&
     operation.phase === "setting-home" &&
-    operation.homeExecutor === body.character
+    (operation.homePending ?? [operation.homeExecutor]).includes(String(body.character))
   );
 }
 
@@ -108,8 +110,11 @@ export function createRealmRoutes(state: RealmRouteState, ports: RealmRoutePorts
   async function confirmHome(operation: RealmOperation, res: HttpResponse): Promise<unknown> {
     try {
       await ports.refresh();
-      if (ports.home() !== operation.realm)
-        throw new Error("Adventure Land did not confirm the new home realm");
+      const targets = operation.homeTargets || [operation.homeExecutor || ""];
+      const failed = Object.entries(operation.homeFailures || {}).map(([name, error]) => name + " (" + error + ")");
+      const unconfirmed = targets.filter((name) => !operation.homeFailures?.[name] && ports.characterHome(name) !== operation.realm);
+      if (failed.length || unconfirmed.length)
+        throw new Error("Home realm not set for " + [...failed, ...unconfirmed.map((name) => name + " (not confirmed by Adventure Land)")].join(", "));
       operation.phase = "complete";
       operation.homeRealm = operation.realm;
       operation.completedAt = ports.now();
@@ -127,11 +132,14 @@ export function createRealmRoutes(state: RealmRouteState, ports: RealmRoutePorts
       operation = state.realmSwitch;
     if (!isCurrentHome(operation, body))
       return res.status(409).json({ error: "home realm operation is no longer current" });
-    delete state.commands[requestText(body.character)];
-    if (!body.success) {
-      fail(operation, requestText(body.error || "Adventure Land rejected the home realm change"));
-      return res.json({ ok: false });
-    }
+    const name = requestText(body.character);
+    delete state.commands[name];
+    if (operation.homePending) operation.homePending = operation.homePending.filter((pending) => pending !== name);
+    if (!body.success)
+      (operation.homeFailures ||= {})[name] = requestText(body.error || "Adventure Land rejected the home realm change");
+    ports.persist();
+    // Wait for every character's Bean visit before checking the account roster.
+    if (operation.homePending?.length) return res.json({ ok: true, pending: operation.homePending });
     return confirmHome(operation, res);
   }
   return { switchRealm, homeComplete };

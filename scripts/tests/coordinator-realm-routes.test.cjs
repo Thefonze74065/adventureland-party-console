@@ -3,7 +3,7 @@ const {createRealmRoutes}=require('../../runtime/coordinator/http/realms.ts');
 function fixture(){
  const state={steamMembers:['P'],realmSwitch:null,bankboiTransaction:null,statuses:{P:{server:'USII',seenAt:100000}},commands:{P:{id:1}}};
  const calls=[],ports={now:()=>100000,resolve:realm=>['SR_USII','SR_EUI','SR_PVP'].includes(realm),bankBusy:()=>false,participants:()=>['P'],native:()=> 'P',
-  current:()=> 'SR_USII',home:()=> 'SR_USII',persist:()=>calls.push('persist'),run:operation=>calls.push(operation),refresh:async()=>{},label:realm=>realm,dispatch:()=>calls.push('dispatch')};
+  current:()=> 'SR_USII',home:()=> 'SR_USII',characterHome:()=>ports.home(),persist:()=>calls.push('persist'),run:operation=>calls.push(operation),refresh:async()=>{},label:realm=>realm,dispatch:()=>calls.push('dispatch')};
  const routes=createRealmRoutes(state,ports);
  async function send(route,body){const res={code:200,status(code){this.code=code;return this;},json(body){this.body=body;return this;}};await routes[route]({body},res);return res;}
  return {state,ports,calls,send};
