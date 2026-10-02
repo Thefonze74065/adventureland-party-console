@@ -15585,15 +15585,41 @@
     frankyFleeState.phase = "none";
     return false;
   }
+  // Tank approach: only terrain constrains it. Adds and healer coverage must not
+  // cause a retreat or prevent closing on Franky, and once in range he is held
+  // even when closer than the weapon range.
+  function frankyTankMovementTick(target) {
+    if (!frankyTargetAllowed(target) || is_in_range(target)) {
+      resetCombatMovement();
+      root.partyCombatPosition = { at: Date.now(), mode: target ? "franky-holding" : "franky-waiting",
+        movementOwner: "combat", target: target && target.id || null,
+        reason: target ? "Franky is in attack range" : "Waiting for Franky" };
+      return true;
+    }
+    var destination = combatApproachPoint(target);
+    var dx = destination.x - character.x, dy = destination.y - character.y;
+    var step = Math.min(Math.hypot(dx, dy), Math.max(1, Number(character.speed || 40) * 0.6));
+    var angle = Math.atan2(dy, dx);
+    for (var offsets = [0, 0.4, -0.4, 0.8, -0.8], i = 0; i < offsets.length; i++) {
+      var point = { x: character.x + Math.cos(angle + offsets[i]) * step,
+        y: character.y + Math.sin(angle + offsets[i]) * step };
+      if (typeof can_move_to === "function" && can_move_to(point.x, point.y))
+        return sendCombatMove(target, point, "franky-approaching");
+    }
+    resetCombatMovement();
+    root.partyCombatPosition = { at: Date.now(), mode: "blocked", movementOwner: "combat",
+      target: target.id, reason: "No terrain-clear approach to Franky" };
+    return true;
+  }
   function frankyMovementTick(target) {
     if (!frankyCombatActive()) { frankyLastKnown = null; frankyFleeState.phase = "none"; frankyFleeState.since = 0; return false; }
     if (frankyRoutine === "tank") {
-      // A party that can actually tank Franky engages him like any other
-      // combat target instead of running the off-tank/support state machine
-      // below (stacking on someone else's aggro, fleeing when targeted).
+      // A party that can actually tank Franky closes on him directly instead of
+      // running the off-tank/support state machine below (stacking on someone
+      // else's aggro, fleeing when targeted).
       frankyFleeState.phase = "none"; frankyFleeState.since = 0;
       if (frankyTargetAllowed(target)) frankyLastKnown = { x: target.x, y: target.y, at: Date.now() };
-      return engageMovementTick(target);
+      return frankyTankMovementTick(target);
     }
     // A flee sequence runs to completion once started, since Franky's aggro
     // isn't observable while briefly off on the adjacent map.

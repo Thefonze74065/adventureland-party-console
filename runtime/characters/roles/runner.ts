@@ -93,7 +93,8 @@ export function installRoleRunner(
   function passingTarget(): Target | null {
     if (sharedRoutine.dungeonOwned?.()) return null;
     if (character.ctype === "merchant" || !active || character.rip || !resolvedRole().combat || ["pending","feed"].includes(sharedRoutine.getAbtestingMode())) return null;
-    if (sharedRoutine.frankyCombatActive?.()) return sharedRoutine.getWalkingPassiveTarget?.() || null;
+    // Franky attendance permits only Franky; passing attacks would pull his adds.
+    if (sharedRoutine.frankyCombatActive?.()) return null;
     return (sharedRoutine as any).getPassingTarget?.() || null;
   }
   function attackTarget(): Target | null {

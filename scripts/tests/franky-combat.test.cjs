@@ -24,10 +24,12 @@ function fixture(range = 100) {
     stop:kind=>{stops.push(kind);c.character.moving=false;},
     is_in_range:t=>Math.hypot(t.x-c.character.x,t.y-c.character.y)<=c.character.range,
     isLiveAbtesting:()=>false,
+    // These cases cover the tank routine (what auto mode starts as); off-tank is a separate state machine.
+    frankyRoutine:'tank',frankyFleeState:{phase:'none',homeMap:null,since:0},frankyLastKnown:null,
   });
   c.root=c;
   for(const name of ['frankyCombatActive','frankyTargetAllowed','nearestEventTarget','desiredCombatRange',
-    'combatDistance','combatApproachPoint','resetCombatMovement','sendCombatMove','frankyMovementTick']) load(c,name);
+    'combatDistance','combatApproachPoint','resetCombatMovement','sendCombatMove','frankyTankMovementTick','frankyMovementTick']) load(c,name);
   const add=(id, extra={})=>c.parent.entities[id]={id,type:'monster',mtype:'franky',visible:true,hp:100,dead:false,
     map:'level2w',in:'room',x:200,y:0,...extra};
   return {c,add,moves,stops};
