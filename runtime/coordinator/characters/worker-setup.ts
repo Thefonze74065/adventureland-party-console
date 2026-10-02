@@ -9,6 +9,8 @@ interface SetupState {
 }
 interface SetupPorts {
   configuredRealm: string;
+  /** The character's own home realm (SR_ key), when the account reports one. */
+  homeRealm(name: string): string | null;
   script(name: string): string;
   watch(name: string, worker: SetupWorker): void;
   persist(): void;
@@ -39,6 +41,10 @@ export function createWorkerSetup(
     state.headlessSlots[slot - 1] = name;
     ports.persist();
     const block = ensure(name);
+    // A saved realm goes stale while the character is offline (realm switches only move
+    // online participants), and logging in off-home causes Hop Sickness. Spawning starts at home;
+    // deliberate errands (realm switches, merchant trips) still set block.realm themselves.
+    block.realm = ports.homeRealm(name) || state.activeRealm || block.realm;
     block.enabled = true;
     state.lifecycle[name] = block.connected ? "online" : "starting";
     if (!block.instance) ports.start(name);

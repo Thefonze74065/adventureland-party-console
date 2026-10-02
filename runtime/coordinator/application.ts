@@ -914,6 +914,10 @@ export function startCoordinatorApplication(
     const workerSetup = coordinatorPolicies.createWorkerSetup(character_manage, party, {
       // Keep the original TypeError if a queued worker no longer has an account entry.
       configuredRealm,
+      homeRealm: (name) => {
+        const home = ownedCharacter(name)?.home;
+        return home ? "SR_" + String(home).replace(/^SR_/, "") : null;
+      },
       script: (name) => classScript("./CODE/adventure_land", ownedCharacter(name)!.type),
       watch: watchCharacterCode,
       persist: persistRosterState,
