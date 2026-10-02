@@ -928,6 +928,7 @@
         root.partyLootClient.rare.hit({id:String(data.id),realm:':'+String(parent.server_region||'')+String(parent.server_identifier||''),map:character.map,in:String(character.in||character.map)});
     }
     observeFarmHit(data);
+    observeFrankyHit(data);
     if (data && data.kill && rareKnown[String(data.id)]) {
       rareKills.push({ id: String(data.id), mtype: rareKnown[String(data.id)], map: character.map,
         in: String(character.in || character.map), at: Date.now() + coordinatorClockOffset,
@@ -11695,6 +11696,47 @@
     return Date.now() - frankyHold.since >= frankyHoldMinMs;
   }
 
+  // Franky despawns when left unattacked late in his lifetime (every 2 minutes past minute 40).
+  // Stay ahead of that: from minute 35, one off-tank keeper lands a hit at least once a minute.
+  var frankyKeepaliveFromMs = 35 * 60000, frankyKeepaliveDueMs = 45000;
+  var frankyHits = {}, frankyFirstSeen = {};
+  function observeFrankyHit(data) {
+    var target = data && data.id != null && parent.entities && parent.entities[data.id];
+    var attacker = data && (data.hid || data.actor);
+    if (!target || target.mtype !== "franky" || !attacker || !(Number(data.damage) > 0)) return;
+    if (attacker === character.name || get_player(attacker)) frankyHits[target.id] = Date.now();
+  }
+  function frankySpawnedAt(target) {
+    var now = Date.now();
+    if (!frankyFirstSeen[target.id]) frankyFirstSeen[target.id] = now;
+    var spawned = frankyFirstSeen[target.id];
+    var schedule = (eventStatus() || {}).schedule || {}, offset = Number(schedule.time_offset);
+    if (Array.isArray(schedule.nightlies) && Number.isFinite(offset)) {
+      var serverNow = now + eventClockOffset;
+      schedule.nightlies.forEach(function (hour) {
+        var date = new Date(serverNow); date.setUTCHours((Number(hour) - offset + 24) % 24, 0, 0, 0);
+        var slot = date.getTime(); if (slot > serverNow) slot -= 86400000;
+        spawned = Math.min(spawned, slot - eventClockOffset);
+      });
+    }
+    return spawned;
+  }
+  function frankyKeeper() {
+    var members = currentPartyList().map(function (name) {
+      return name === character.name ? character : get_player(name);
+    }).filter(function (member) {
+      return member && !member.rip && member.ctype !== "merchant" && member.visible !== false &&
+        (!member.map || member.map === character.map);
+    });
+    members.sort(function (a, b) { return (Number(b.range) || 0) - (Number(a.range) || 0) || String(a.name).localeCompare(String(b.name)); });
+    return members[0] ? members[0].name : character.name;
+  }
+  function frankyKeepaliveDue(target) {
+    if (!frankyTargetAllowed(target) || Date.now() - frankySpawnedAt(target) < frankyKeepaliveFromMs) return false;
+    var lastHit = frankyHits[target.id] || frankyFirstSeen[target.id];
+    return Date.now() - lastHit >= frankyKeepaliveDueMs && frankyKeeper() === character.name;
+  }
+
   function nearestEventTarget() {
     if (joinedEvent && !eventSelected(joinedEvent) || travellingEventName && !eventSelected(travellingEventName)) return null;
     if (typeof frankyCombatActive === "function" && frankyCombatActive()) {
@@ -13309,7 +13351,7 @@
     if (typeof root !== "undefined" && root.partyRoleRunner && root.partyRoleRunner.isKnownDead && root.partyRoleRunner.isKnownDead(target.id)) return reject("confirmed death");
     if (typeof frankyCombatActive === "function" && frankyCombatActive()) {
       // Off-tank positioning alone doesn't stop ranged pulls; attacks and skills wait for a proven holder.
-      if (frankyRoutine === "offtank" && !frankyHeldByOther(target))
+      if (frankyRoutine === "offtank" && !frankyHeldByOther(target) && !frankyKeepaliveDue(target))
         return reject("Off-tank waits for someone else to hold Franky for 5 seconds");
       return true;
     }
@@ -15593,6 +15635,8 @@
         target: null, reason: "No terrain-clear path toward Franky" };
       return true;
     }
+    // Despawn keepalive outranks fleeing: land the hit, then the flee resumes next tick.
+    if (frankyKeepaliveDue(target)) return engageMovementTick(target);
     if (target.target === character.name) {
       // Fragile gear: don't try to tank him. Actually leave the room through
       // its exit door and wait a few seconds for the human tank to reclaim
