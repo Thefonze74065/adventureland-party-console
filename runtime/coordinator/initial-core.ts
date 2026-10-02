@@ -2,6 +2,8 @@ import type { SavedPartySelection } from "./navigation/selection-contracts.ts";
 import type { SavedEventState, LastEventReturn } from "./events/initial-contracts.ts";
 import type { SavedRecoveryState } from "./navigation/recovery-contracts.ts";
 import type { Catalog } from "../../dashboard/lib/farming-zones.ts";
+import { initialBossChase } from "./events/boss-chase.ts";
+import type { RealmOperation } from "./characters/realm-switch.ts";
 
 export function initialRecoveryState(saved: SavedRecoveryState) {
   return {
@@ -25,7 +27,7 @@ export function initialPartySelection(saved: SavedPartySelection) {
 export function initialEventState(saved: SavedEventState, configuredRealm: string) {
   return {
     activeRealm: typeof saved.activeRealm === "string" ? saved.activeRealm : configuredRealm,
-    realmSwitch: null,
+    realmSwitch: null as RealmOperation | null,
     eventReturn: saved.eventReturn || null,
     eventReturnLast: null as LastEventReturn,
     eventSessions: saved.eventSessions || {},
@@ -33,6 +35,7 @@ export function initialEventState(saved: SavedEventState, configuredRealm: strin
     huntEventTrips: saved.huntEventTrips || {},
     combatEventHandoff: saved.combatEventHandoff || null,
     abtestingStrategy: saved.abtestingStrategy || null,
+    bossChase: initialBossChase(saved.bossChase),
   };
 }
 export function initialMarketObservations() {

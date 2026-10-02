@@ -70,6 +70,7 @@ export * from "./events/observations.ts";
 export * from "./persistence/dashboard-import.ts";
 
 export * from "./merchant/npc-sales.ts";
+export * from "./events/boss-chase.ts";
 export * from "./http/anniversary-commerce.ts";
 export * from "./http/anniversary-supplies.ts";
 export * from "./http/aldata.ts";

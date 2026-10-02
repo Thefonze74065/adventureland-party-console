@@ -7,6 +7,7 @@ import { lazy, useCallback, useState } from "react";
 import { DeconstructionConfirmation, type DeconstructionSelection } from "./deconstruction-confirmation";
 import { DeferredPanel } from "./deferred-panel";
 import { DashboardStateImport } from "./dashboard-state-import";
+import { BossChaseSetting } from "./boss-chase-setting";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -423,6 +424,7 @@ function PartyInventoryPanelsConnected({ base }: { base: PartyConsoleModel }) {
                 ))}
               </div>
             ) : null}
+            <BossChaseSetting chase={state.bossChase} />
           </div>
           <div className="rounded border border-cyan-900/70 bg-black/20 p-4">
             <div className="flex items-center justify-between gap-3">

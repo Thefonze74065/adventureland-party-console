@@ -1551,3 +1551,16 @@ silently counting a fill. Validate the declared historical unconfirmed-reservati
 native E2E and the market editor layout journey. Coordinator-only restart suffices.
 
 Cave encounter votes open an automatic dashboard dialog; resolved encounters remain reviewable. Dungeon ownership suppresses mainland farm reunion, and manual destinations clear stale travel errors. Generated map definitions are shared across participant streams so follower maps and reconnects retain geometry. These character and coordinator changes require the full restart workflow above; building does not update an existing debug session.
+
+## Event boss realm chase
+
+`events/boss-chase.ts` polls ALData `/monsters/franky` and `/monsters/icegolem` once a minute
+through the shared ALData client budget. It only fetches bosses whose event an active character
+has selected. It acts only when enabled (Realm panel, `POST /party-api/realm/boss-chase`) and when
+no selected boss is live on the party's current realm. A candidate's remaining lifetime is
+estimated from its HP drain across polls (at least 50 seconds apart). The party moves only when
+that estimate meets `minEtaMinutes` (default 15), because Hop Sickness (12 minutes) must clear
+before the kill for full loot luck. The move uses the dashboard realm-switch route without
+changing home, so all of its participant, Steam and bankboi guards still apply. After two polls
+without the chased boss, the party returns to the account home realm. A manual move off the
+chase realm ends the chase. Coordinator-only restart suffices.
