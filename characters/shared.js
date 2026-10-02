@@ -11680,6 +11680,21 @@
       (!target.map || target.map === character.map) && (target.in == null || target.in === character.in);
   }
 
+  // Off-tank waits until another visible, living player has held Franky this long.
+  var frankyHoldMinMs = 5000;
+  var frankyHold = { id: null, holder: null, since: 0 };
+  function frankyHeldByOther(target) {
+    var holder = target && target.target;
+    var entity = holder && holder !== character.name && get_player(holder);
+    if (!entity || entity.visible === false || entity.rip || entity.dead) {
+      frankyHold = { id: null, holder: null, since: 0 };
+      return false;
+    }
+    if (frankyHold.id !== target.id || frankyHold.holder !== holder)
+      frankyHold = { id: target.id, holder: holder, since: Date.now() };
+    return Date.now() - frankyHold.since >= frankyHoldMinMs;
+  }
+
   function nearestEventTarget() {
     if (joinedEvent && !eventSelected(joinedEvent) || travellingEventName && !eventSelected(travellingEventName)) return null;
     if (typeof frankyCombatActive === "function" && frankyCombatActive()) {
@@ -12531,9 +12546,11 @@
   // At the gear level this event is being run, Franky's damage output requires
   // continuous party-wide healing rather than the normal reactive threshold
   // (two members critically injured). This bypasses that gate entirely while
-  // Franky combat is active and casts partyheal on cooldown.
+  // Franky combat is active and casts partyheal on cooldown, once someone has engaged him.
   async function frankySpamPartyHeal() {
     if (character.ctype !== "priest" || character.rip) return false;
+    var engaged = Object.values(parent.entities || {}).some(function (e) { return frankyTargetAllowed(e) && !!e.target; });
+    if (!engaged) return false;
     if (!G.skills.partyheal || character.mp < Number(G.skills.partyheal.mp || 0)) return false;
     if (is_on_cooldown("partyheal") || !can_use("partyheal")) return false;
     await use_skill("partyheal");
@@ -13291,9 +13308,9 @@
         }))) return reject("combat recovery owns target");
     if (typeof root !== "undefined" && root.partyRoleRunner && root.partyRoleRunner.isKnownDead && root.partyRoleRunner.isKnownDead(target.id)) return reject("confirmed death");
     if (typeof frankyCombatActive === "function" && frankyCombatActive()) {
-      // Off-tank positioning alone doesn't stop ranged pulls; attacks and skills wait for another holder.
-      if (frankyRoutine === "offtank" && (!target.target || target.target === character.name))
-        return reject("Off-tank waits for someone else to hold Franky");
+      // Off-tank positioning alone doesn't stop ranged pulls; attacks and skills wait for a proven holder.
+      if (frankyRoutine === "offtank" && !frankyHeldByOther(target))
+        return reject("Off-tank waits for someone else to hold Franky for 5 seconds");
       return true;
     }
     if (target.mtype === "fieldgen0") return reject("excluded monster");
