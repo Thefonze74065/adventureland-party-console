@@ -72,6 +72,19 @@ export function slotLogEvidence(stats?: SlotRollStatistics): number {
   const counts = [stats.perfectRolls, stats.rollsAbove96_3, stats.totalRolls - stats.perfectRolls - stats.rollsAbove96_3];
   return counts.reduce((sum, count, index) => sum + count * Math.log(lucky[index]! / normal[index]!), 0);
 }
+/**
+ * Probability that this slot alone is ordinary, under the same 42-way joint posterior as
+ * luckySlotSearch's own `confidence` (one slot is the lucky one; the rest are ordinary) — not a
+ * standalone per-slot calculation. That keeps elimination symmetric with inference: a slot only
+ * clears once the other 41 collectively explain the evidence 999 times better than it does.
+ */
+export function slotEliminationConfidence(tracking: LuckySlotTracking, slot: number): number {
+  const scores = Array.from({length: 42}, (_, candidate) => slotLogEvidence(tracking.slots[candidate]));
+  const best = Math.max(...scores);
+  const weights = scores.map(score => Math.exp(score - best));
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  return 1 - weights[slot]! / total;
+}
 export function luckySlotSearch(tracking: LuckySlotTracking) {
   const ranked = Array.from({length: 42}, (_, slot) => ({slot, score: slotLogEvidence(tracking.slots[slot]), samples: tracking.slots[slot]?.totalRolls || 0}))
     .sort((a, b) => b.score - a.score || a.samples - b.samples || a.slot - b.slot);
@@ -79,7 +92,13 @@ export function luckySlotSearch(tracking: LuckySlotTracking) {
   const confidence = 1 / ranked.reduce((sum, entry) => sum + Math.exp(entry.score - best.score), 0);
   const total = ranked.reduce((sum, entry) => sum + entry.samples, 0);
   const inferred = confidence >= 0.999 && best.samples >= 100;
-  const nextSlot = inferred ? best.slot : [...ranked].sort((a, b) => a.samples - b.samples || a.slot - b.slot)[0]!.slot;
+  // Elimination isn't sticky: recomputed from the current joint posterior on every call, so a
+  // slot freed up by the leading candidate weakening resumes collecting on the very next search.
+  const eliminated = ranked.filter(entry => entry.samples >= 100 && slotEliminationConfidence(tracking, entry.slot) >= 0.999)
+    .map(entry => entry.slot).sort((a, b) => a - b);
+  const eliminatedSet = new Set(eliminated);
+  const nextSlot = inferred ? best.slot
+    : [...ranked].filter(entry => !eliminatedSet.has(entry.slot)).sort((a, b) => a.samples - b.samples || a.slot - b.slot)[0]!.slot;
   return {slot: total ? best.slot : null, confidence, samples: best.samples, total,
-    inferred, nextSlot};
+    inferred, nextSlot, eliminated};
 }

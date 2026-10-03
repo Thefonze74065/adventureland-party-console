@@ -877,6 +877,12 @@ or older counters cannot double-count or replace newer evidence. The merchant's
 Lucky slots dialog shows combined evidence and search confidence. A slot is labeled
 inferred at 99.9% model confidence after at least 100 observations there; continued
 observations may change that conclusion. See [the source audit](../../docs/lucky-slot-discovery.md).
+`slotEliminationConfidence()` (`runtime/lucky-slot-tracking.ts`) scores a single slot against
+the other 41 collectively under that same joint posterior; `luckySlotSearch()` rules a slot out
+once it has at least 100 rolls there and a 99.9% chance of being ordinary, and the rotation (and
+the dialog's "Ruled out" row/count) skip it. Elimination is never sticky — it is recomputed from
+the current evidence on every call, so a slot resumes collecting as soon as the leading candidate
+weakens enough to put it back in play (#23).
 Validate lucky-slot tracking/UI, lucky-upgrade recovery, heartbeat and persistence
 tests. Publish character and coordinator assets together with the full restart.
 
