@@ -37,6 +37,12 @@ permission to access the engine. Native installations bind debug consoles to
 loopback by default. Set `AL_DEBUG_BIND=0.0.0.0` before launching Party Console
 if you access it from another device; the private debug link is still required.
 
+Podman's `docker` CLI emulation also works: its `info` output doesn't carry
+Docker's own `OSType` field, so the Linux-container check falls back to
+Podman's own `host.os` instead of failing the Go-template lookup. Create
+`/etc/containers/nodocker` to quiet Podman's own advisory line if its noise in
+error output is unwanted; it's otherwise harmless.
+
 ## Party Console in Docker
 
 The image includes the Docker CLI. Opt into engine access with:

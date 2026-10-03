@@ -65,7 +65,13 @@ export class DebugInstances {
   private async launch(signal: AbortSignal) {
     const project = this.state.project!;
     const run = (args: string[]) => docker(args, { signal });
-    if (await run(['info', '--format', '{{.OSType}}']) !== 'linux') throw Error('Select Linux containers in Docker Desktop to run the debug server.');
+    // `docker info`'s own field is OSType; Podman's docker-CLI emulation lacks that field
+    // entirely (its `info` JSON nests `host.os` instead) and errors on the Go-template lookup
+    // Docker's own format string uses. JSON survives either CLI, so inspect it leniently instead:
+    // only block a genuine non-Linux Docker Desktop container mode, Podman's own schema included.
+    const info = JSON.parse(await run(['info', '--format', '{{json .}}']));
+    const osType = info.OSType || info.host?.os;
+    if (osType && osType !== 'linux') throw Error('Select Linux containers in Docker Desktop to run the debug server.');
     await this.checkpoint('Building debug console (first start can take several minutes)…');
     await run(['build', '--target', 'debug', '-t', project + '-console:local', this.root]);
     await this.checkpoint('Building local Adventure Land server…');
