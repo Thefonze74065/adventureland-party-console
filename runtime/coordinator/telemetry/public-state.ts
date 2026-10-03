@@ -1,4 +1,5 @@
 import { offeringStock } from '../inventory/offering-stock.ts';
+import { pendingProduction } from '../inventory/production.ts';
 import { characterConnections } from '../../roster/connection-status.ts';
 import { gameLogs } from "./game-logs.ts";
 import { requestText, type HttpRequest, type HttpResponse } from "../http/contracts.ts";
@@ -144,6 +145,9 @@ function fullPayload(
     anniversary: ports.anniversary(),
     merchantQueue: state.merchantQueue.map((job) => ports.job(job)),
     merchantCurrent: ports.job(state.merchantCurrent),
+    // Any unresolved attempt blocks all new production until reviewed (beginProduction). Carrying
+    // the list here lets the dashboard offer that review (#35) without its own recurring poll.
+    productionPending: pendingProduction(state.production, true),
     mluckSchedule: ports.luckSchedule(),
     aldata,
     ...(dashboardCore ? {} : { bank: state.bankSnapshot, bankVaults: state.bankVaults || [] }),

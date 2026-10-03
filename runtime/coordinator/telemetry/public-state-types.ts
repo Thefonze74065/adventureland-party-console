@@ -1,4 +1,5 @@
 import type { MerchantWork } from "../merchant/work.ts";
+import type { ProductionState } from "../inventory/production.ts";
 
 /** These values are owned by other services; the overview only projects them. */
 export const publicStateFields = [
@@ -109,6 +110,7 @@ export interface PublicState extends Partial<Record<(typeof publicStateFields)[n
   abtestingStrategy: unknown;
   bankSnapshot: unknown;
   bankVaults?: unknown[];
+  production: ProductionState;
   bankboiQueue: unknown;
   bankboiTransaction: unknown;
   ponty: unknown;

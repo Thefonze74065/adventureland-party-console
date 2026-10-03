@@ -170,6 +170,13 @@ export type PartyState = {
   luckySlotTracking?: LuckySlotHistory;
   merchantQueue?: MerchantJob[];
   merchantCurrent?: MerchantJob | null;
+  productionPending?: {
+    id: string;
+    name: string;
+    level: number;
+    kind: "upgrade" | "compound";
+    journal?: { phase: "prepared" | "running" | "complete" } | null;
+  }[];
   merchantActivity?: MerchantActivity[];
   combatLogs?: Record<string, CombatLogEntry[]>;
   bankSortMode?: "automatic" | "request";

@@ -1611,3 +1611,16 @@ dashboard live fields. When recovery keeps failing, the merchant card offers "Cl
 lucky-slot journal" (`POST /party-api/merchant/clear-lucky-journal`): the character drops the
 journal, refusing while an upgrade is in flight, and leaves every item where it is. Character changes
 require the full restart workflow; the discard ships in the staged character generation.
+
+## Stuck production journal review
+
+`fullPayload()` now carries `productionPending` (id/name/level/kind, plus the journal when one
+exists) via `pendingProduction()`, piggybacking on the existing core/config poll instead of a
+separate recurring inspect call. The merchant card renders a review panel from that list whenever
+the merchant is idle (`!merchantCurrent`); an admitted in-flight attempt is ordinary work, not a
+stuck one, matching the dispatcher's own `productionHeld()` distinction. Each entry takes an
+operator-entered reason and resolves through the existing `POST /party-api/merchant/production`
+`action: "resolve-unknown"`, which the character's own recovery already treats as a completed
+receipt on its next pass — reconciling and clearing its local journal without any new client
+command. This is the dashboard UI #35 asked for. Coordinator and dashboard assets publish through
+the ordinary full restart; no character change is required.

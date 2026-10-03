@@ -43,6 +43,7 @@ export const actionDomains = {
   '/merchant/clear': core,
   '/merchant/force-stand': core,
   '/merchant/clear-lucky-journal': core,
+  '/merchant/production': inventory,
   '/merchant/bank-visit': commerce,
   '/merchant/stand-location': core,
   '/merchant/gather': core,
