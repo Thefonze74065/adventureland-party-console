@@ -576,8 +576,8 @@ export function usePartyConsole() {
     else await post("/merchant/order", { buys, crafts, removeAutoBankMark });
     setCommerceMode(null);
   }
-  async function buyALDataListing(listing: ALDataListing, buyQuantity: number) {
-    await post("/merchant/aldata-order", { listing, buyQuantity });
+  async function buyALDataListing(listing: ALDataListing, buyQuantity: number, check?: boolean) {
+    await post("/merchant/aldata-order", { listing, buyQuantity, ...(check ? { check: true } : {}) });
   }
   async function buyPontyListing(listing: PontyListing) {
     await post("/merchant/ponty-order", {
@@ -586,8 +586,8 @@ export function usePartyConsole() {
       unitPrice: listing.unitPrice,
     });
   }
-  async function sellALDataOrder(order: ALDataBuyOrder, sellQuantity: number) {
-    await post("/merchant/aldata-sale", { order, sellQuantity });
+  async function sellALDataOrder(order: ALDataBuyOrder, sellQuantity: number, check?: boolean) {
+    await post("/merchant/aldata-sale", { order, sellQuantity, ...(check ? { check: true } : {}) });
   }
   async function saveStandListing(remove = false) {
     setStandError(null);

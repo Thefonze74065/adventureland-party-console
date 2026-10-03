@@ -47,9 +47,9 @@ export function createManualMarketOrderRoutes(state: ManualOrderState, ports: Ma
     }
     return normalized;
   }
-  function freshness(listing: OrderListing, sale: boolean): string | null {
+  function freshness(listing: OrderListing, sale: boolean, allowStale: boolean): string | null {
     if (listing.serverIdentifier === "PVP") return "automatic PVP realm travel is disabled";
-    if (listing.seenAt < ports.now() - 120000)
+    if (!allowStale && listing.seenAt < ports.now() - 120000)
       return sale
         ? "buy order is stale; refresh the market first"
         : "listing is stale; refresh the market first";
@@ -59,7 +59,11 @@ export function createManualMarketOrderRoutes(state: ManualOrderState, ports: Ma
     return function submit(req: HttpRequest, res: HttpResponse): unknown {
       const body = requestObject(req.body),
         requested = requestObject(sale ? body.order : body.listing),
-        quantity = Number(sale ? body.sellQuantity : body.buyQuantity);
+        quantity = Number(sale ? body.sellQuantity : body.buyQuantity),
+        // "Check" sends the merchant to verify a stale listing (WTB or WTS) in person rather
+        // than trusting the cached snapshot's age; the live trade still fails safely if it's
+        // actually gone (#34).
+        check = body.check === true;
       if (!state.merchantCharacter || typeof requested.key !== "string" || !positive(quantity))
         return res
           .status(400)
@@ -68,10 +72,10 @@ export function createManualMarketOrderRoutes(state: ManualOrderState, ports: Ma
               ? "select a valid ALData buy order and quantity"
               : "select a valid ALData listing and quantity",
           });
-      return submitALData(requested.key, quantity, sale, res);
+      return submitALData(requested.key, quantity, sale, check, res);
     };
   }
-  function submitALData(key: string, quantity: number, sale: boolean, res: HttpResponse): unknown {
+  function submitALData(key: string, quantity: number, sale: boolean, allowStale: boolean, res: HttpResponse): unknown {
     const listing = (sale ? state.aldata.marketBuyOrders : state.aldata.marketListings).find(
       (entry) => entry.key === key,
     );
@@ -83,7 +87,7 @@ export function createManualMarketOrderRoutes(state: ManualOrderState, ports: Ma
             ? "ALData buy order is no longer in the market snapshot"
             : "ALData listing is no longer in the market snapshot",
         });
-    const error = freshness(listing, sale);
+    const error = freshness(listing, sale, allowStale);
     if (error) return res.status(409).json({ error });
     return res.json({ ok: true, jobId: orders.aldata(listing, quantity, sale).id });
   }

@@ -219,11 +219,11 @@ export const StandSheet = memo(function StandSheet({
 
   onRemove: (listing: StandListing) => Promise<void>;
 
-  onBuyALData: (listing: ALDataListing, buyQuantity: number) => Promise<void>;
+  onBuyALData: (listing: ALDataListing, buyQuantity: number, check?: boolean) => Promise<void>;
 
   onBuyPonty: (listing: PontyListing) => Promise<void>;
 
-  onSellALData: (order: ALDataBuyOrder, sellQuantity: number) => Promise<void>;
+  onSellALData: (order: ALDataBuyOrder, sellQuantity: number, check?: boolean) => Promise<void>;
 
   onBid: (
 
@@ -310,6 +310,8 @@ export const StandSheet = memo(function StandSheet({
 
     quantity: number;
 
+    check?: boolean;
+
   } | null>(null);
 
   const [saleConfirmation, setSaleConfirmation] = useState<{
@@ -317,6 +319,8 @@ export const StandSheet = memo(function StandSheet({
     order: ALDataBuyOrder;
 
     quantity: number;
+
+    check?: boolean;
 
   } | null>(null);
 
@@ -360,6 +364,7 @@ export const StandSheet = memo(function StandSheet({
 
   const [hideUnaffordable, setHideUnaffordable] = useState(false);
   const [hideUnowned, setHideUnowned] = useState(false);
+  const [hideStaleWTB, setHideStaleWTB] = useState(false);
 
   const [hideBlacklisted, setHideBlacklisted] = useState(true);
 
@@ -725,8 +730,11 @@ export const StandSheet = memo(function StandSheet({
 
   });
 
+  const wtbFresh = (order: ALDataBuyOrder) => order.seenAt >= marketCutoff - 120000;
+  const wtbOwned = (order: ALDataBuyOrder) => (bankOwned.get(ownedKey(order.item)) || 0) > 0;
   const filteredBuyOrders = allBuyOrders
-    .filter((order) => !hideUnowned || (bankOwned.get(ownedKey(order.item)) || 0) > 0)
+    .filter((order) => !hideUnowned || wtbOwned(order))
+    .filter((order) => !hideStaleWTB || wtbFresh(order))
 
     .filter((order) =>
 
@@ -741,10 +749,11 @@ export const StandSheet = memo(function StandSheet({
     .sort(
 
       (a, b) =>
+        // Offers you can actually fulfill right now sort to the top, ahead of freshness (#34).
+        Number(wtbOwned(b)) - Number(wtbOwned(a)) ||
+        Number(wtbFresh(b)) -
 
-        Number(b.seenAt >= marketCutoff - 120000) -
-
-          Number(a.seenAt >= marketCutoff - 120000) || b.price - a.price,
+          Number(wtbFresh(a)) || b.price - a.price,
 
     );
 
@@ -1536,21 +1545,34 @@ export const StandSheet = memo(function StandSheet({
 
           ) : (
 
-            <Button
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={buying === key}
+                onClick={() =>
+                  setPurchaseConfirmation({ listing: entry, quantity: entry.quantity, check: true })
+                }
+                className="border-cyan-600 bg-black text-cyan-100 hover:bg-cyan-950 hover:text-white"
+              >
+                Check
+              </Button>
+              <Button
 
-              size="sm"
+                size="sm"
 
-              variant="outline"
+                variant="outline"
 
-              onClick={() => makeWTB(entry)}
+                onClick={() => makeWTB(entry)}
 
-              className="border-violet-600 bg-black text-violet-200 hover:bg-violet-950 hover:text-white"
+                className="border-violet-600 bg-black text-violet-200 hover:bg-violet-950 hover:text-white"
 
-            >
+              >
 
-              Make WTB
+                Make WTB
 
-            </Button>
+              </Button>
+            </>
 
           )}
 
@@ -1740,6 +1762,51 @@ export const StandSheet = memo(function StandSheet({
 
               </Button>
 
+            </>
+
+          ) : !fresh && maximum > 0 ? (
+
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={selling === key}
+                onClick={() => setSaleConfirmation({ order, quantity: maximum, check: true })}
+                className="border-cyan-600 bg-black text-cyan-100 hover:bg-cyan-950 hover:text-white"
+              >
+                Check
+              </Button>
+              {source && (
+                <Button
+
+                  size="sm"
+
+                  variant="outline"
+
+                  onClick={() =>
+
+                    onListForWTB(
+
+                      source.entry,
+
+                      source.bankPack,
+
+                      order.price,
+
+                      maximum,
+
+                    )
+
+                  }
+
+                  className="border-amber-600 bg-black text-amber-100 hover:bg-amber-950 hover:text-white"
+
+                >
+
+                  List
+
+                </Button>
+              )}
             </>
 
           ) : !fresh && source ? (
@@ -2743,10 +2810,16 @@ export const StandSheet = memo(function StandSheet({
 
               ) : null}
               {marketTab === 'wtb' ? (
-                <label className="flex shrink-0 items-center gap-2 rounded border border-emerald-700 bg-black px-3 py-2 text-sm text-emerald-100">
-                  <Checkbox checked={hideUnowned} onCheckedChange={(checked) => setHideUnowned(checked === true)} />
-                  Hide unowned
-                </label>
+                <>
+                  <label className="flex shrink-0 items-center gap-2 rounded border border-emerald-700 bg-black px-3 py-2 text-sm text-emerald-100">
+                    <Checkbox checked={hideUnowned} onCheckedChange={(checked) => setHideUnowned(checked === true)} />
+                    Hide unowned
+                  </label>
+                  <label className="flex shrink-0 items-center gap-2 rounded border border-slate-600 bg-black px-3 py-2 text-sm text-slate-100">
+                    <Checkbox checked={hideStaleWTB} onCheckedChange={(checked) => setHideStaleWTB(checked === true)} />
+                    Hide stale
+                  </label>
+                </>
               ) : null}
 
             </div>
@@ -3381,13 +3454,15 @@ export const StandSheet = memo(function StandSheet({
 
           <DialogHeader>
 
-            <DialogTitle>Confirm marketplace purchase</DialogTitle>
+            <DialogTitle>{purchaseConfirmation?.check ? 'Check stale listing' : 'Confirm marketplace purchase'}</DialogTitle>
 
             <DialogDescription className="text-emerald-100/65">
 
               {purchaseConfirmation
 
-                ? `Really buy ${purchaseConfirmation.quantity.toLocaleString()} ${catalogById.get(purchaseConfirmation.listing.item.name)?.name || purchaseConfirmation.listing.item.name} for ${(purchaseConfirmation.quantity * purchaseConfirmation.listing.price).toLocaleString()}g?`
+                ? purchaseConfirmation.check
+                  ? `Send the merchant to check whether ${purchaseConfirmation.listing.seller}'s listing for ${catalogById.get(purchaseConfirmation.listing.item.name)?.name || purchaseConfirmation.listing.item.name} is still live, and buy up to ${purchaseConfirmation.quantity.toLocaleString()} for ${purchaseConfirmation.listing.price.toLocaleString()}g each if so? If the listing is gone, this fails safely and reports back in merchant activity.`
+                  : `Really buy ${purchaseConfirmation.quantity.toLocaleString()} ${catalogById.get(purchaseConfirmation.listing.item.name)?.name || purchaseConfirmation.listing.item.name} for ${(purchaseConfirmation.quantity * purchaseConfirmation.listing.price).toLocaleString()}g?`
 
                 : ''}
 
@@ -3425,7 +3500,7 @@ export const StandSheet = memo(function StandSheet({
 
                 if (!purchaseConfirmation) return;
 
-                const { listing, quantity } = purchaseConfirmation;
+                const { listing, quantity, check } = purchaseConfirmation;
 
                 setBuying(listing.key);
 
@@ -3451,7 +3526,7 @@ export const StandSheet = memo(function StandSheet({
 
                     const purchasing = Math.min(remaining, available);
 
-                    await onBuyALData(physicalListing, purchasing);
+                    await onBuyALData(physicalListing, purchasing, check);
 
                     remaining -= purchasing;
 
@@ -3505,13 +3580,15 @@ export const StandSheet = memo(function StandSheet({
 
           <DialogHeader>
 
-            <DialogTitle>Confirm marketplace sale</DialogTitle>
+            <DialogTitle>{saleConfirmation?.check ? 'Check stale WTB listing' : 'Confirm marketplace sale'}</DialogTitle>
 
             <DialogDescription className="text-emerald-100/65">
 
               {saleConfirmation
 
-                ? `Really sell ${saleConfirmation.quantity.toLocaleString()} ${catalogById.get(saleConfirmation.order.item.name)?.name || saleConfirmation.order.item.name} to ${saleConfirmation.order.buyer} for ${(saleConfirmation.quantity * saleConfirmation.order.price).toLocaleString()}g?`
+                ? saleConfirmation.check
+                  ? `Send the merchant to check whether ${saleConfirmation.order.buyer}'s WTB listing for ${catalogById.get(saleConfirmation.order.item.name)?.name || saleConfirmation.order.item.name} is still live, and sell up to ${saleConfirmation.quantity.toLocaleString()} for ${saleConfirmation.order.price.toLocaleString()}g each if so? If the listing is gone, this fails safely and reports back in merchant activity.`
+                  : `Really sell ${saleConfirmation.quantity.toLocaleString()} ${catalogById.get(saleConfirmation.order.item.name)?.name || saleConfirmation.order.item.name} to ${saleConfirmation.order.buyer} for ${(saleConfirmation.quantity * saleConfirmation.order.price).toLocaleString()}g?`
 
                 : ''}
 
@@ -3549,13 +3626,13 @@ export const StandSheet = memo(function StandSheet({
 
                 if (!saleConfirmation) return;
 
-                const { order, quantity } = saleConfirmation;
+                const { order, quantity, check } = saleConfirmation;
 
                 setSelling(order.key);
 
                 try {
 
-                  await onSellALData(order, quantity);
+                  await onSellALData(order, quantity, check);
 
                   setSaleConfirmation(null);
 

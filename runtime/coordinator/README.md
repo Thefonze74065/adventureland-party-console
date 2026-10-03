@@ -1556,6 +1556,24 @@ Confirmed offers that disappear still require purchase/removal evidence rather t
 silently counting a fill. Validate the declared historical unconfirmed-reservation
 native E2E and the market editor layout journey. Coordinator-only restart suffices.
 
+## Live WTB tab: owned-first sort, hide stale, check a stale listing
+
+The dashboard's Live WTB tab (other merchants' ALData buy orders, as opposed to the native WTB
+section above) now sorts offers you currently hold a matching item for to the top, ahead of the
+existing freshness/price ordering, and "Hide stale" filters out anything not seen within the
+existing 120-second freshness window, mirroring Live WTS's filter row. A listing past that window
+still shows "List" (put the item on your own stand); when you hold a matching item it now also
+offers "Check", which queues the same `ALData marketplace sales` job as a live "Sell" — the
+character travels and attempts the trade regardless of the cached snapshot's age, and if the
+buyer or matching offer is gone it fails safely and reports through normal merchant activity
+("ALData marketplace sale failed") exactly like any other race against a live listing, rather than
+being rejected before it's even tried. The Live WTS tab's stale ALData listings get the same
+"Check" action alongside "Make WTB", queuing the same `ALData marketplace order` job as a live
+"Buy" with identical fail-safe behavior. `check: true` on `POST /party-api/merchant/aldata-sale`
+and `POST /party-api/merchant/aldata-order` is the only thing that bypasses either route's
+existing freshness gate; the normal "Sell"/"Buy" paths are unaffected (#34). Coordinator-only
+restart activates the route change; dashboard-only restart activates the UI.
+
 Cave encounter votes open an automatic dashboard dialog; resolved encounters remain reviewable. Dungeon ownership suppresses mainland farm reunion, and manual destinations clear stale travel errors. Generated map definitions are shared across participant streams so follower maps and reconnects retain geometry. These character and coordinator changes require the full restart workflow above; building does not update an existing debug session.
 
 ## Event boss realm chase
