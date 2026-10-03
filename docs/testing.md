@@ -1,5 +1,17 @@
 # Testing
 
+Designated tank (issue #39) uses
+`npm test -- -- --project=live --grep "designated tank persists through restart"`.
+The live journey sets a ranger (a ranged class, so the melee override is unmistakable)
+as the designated tank via `/formation`, confirms the dashboard panel renders the
+selection, confirms `designatedTank` survives a coordinator restart, then sends the
+ranger into real combat and confirms it reports `tank-holding` and closes to near-melee
+distance against a live target instead of holding at its own long weapon range. It does
+not cover the taunt/absorb aggro-gating or the kill-time luck swap live; those were
+verified by code review against the skill engine and `porcupine-equipment.ts`'s
+established swap/restore pattern. Retain the `tank-dashboard-before-restart` screenshot
+and `tank-melee-override` evidence, then run `npm run test:e2e:verify`.
+
 Merchant stand setup uses
 `npm test -- -- --project=live --grep "merchant stand location is valid"`.
 The native journey checks randomized, geometry-valid first setup, wall rejection,
