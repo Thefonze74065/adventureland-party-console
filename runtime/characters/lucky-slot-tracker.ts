@@ -64,6 +64,16 @@ export function createLuckySlotTracker(ports: Ports) {
     select: () => {
       try { return luckySlotSearch(aggregateSlotTracking(streams, state)).nextSlot; }
       catch { return null; } // Missing/corrupt discovery data must not block ordinary upgrades.
+    },
+    // A deleted-and-recreated character reporting under the same name must not
+    // keep replaying this stream's old evidence back onto the coordinator's
+    // cleared record (#52): abandon the stream id, not just its slot counts.
+    reset: () => {
+      state.slots = {};
+      state.streamId = ports.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+      streams = {};
+      last = null;
+      save();
     } };
 }
 (globalThis as unknown as { createPartyLuckySlotTracker: typeof createLuckySlotTracker }).createPartyLuckySlotTracker = createLuckySlotTracker;

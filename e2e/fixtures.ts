@@ -56,12 +56,13 @@ async function ready(process: ChildProcess, url: string, log: string) {
   }
   throw new Error(`E2E service failed readiness at ${url}\n${existsSync(log) ? readFileSync(log, 'utf8').slice(-12000) : 'No output'}`);
 }
-type App = { url: string; restartCoordinator(): Promise<void>; state(): Promise<any> };
+type App = { url: string; directory: string; restartCoordinator(): Promise<void>; state(): Promise<any> };
 
-export const test = base.extend<{ app: App; merchantDialogs: boolean; merchantConnected: boolean; playerInventory: boolean }, { dashboard: { port: number; log: string } }>({
+export const test = base.extend<{ app: App; merchantDialogs: boolean; merchantConnected: boolean; playerInventory: boolean; statusIntervalMs: number | null }, { dashboard: { port: number; log: string } }>({
   merchantDialogs: [false, {option:true}],
   merchantConnected: [true, {option:true}],
   playerInventory: [false, {option:true}],
+  statusIntervalMs: [null, {option:true}],
   dashboard: [async ({}, use) => {
     const directory = path.join(root, '.build/e2e', `dashboard-${randomUUID()}`);
     mkdirSync(directory, { recursive: true });
@@ -78,14 +79,14 @@ export const test = base.extend<{ app: App; merchantDialogs: boolean; merchantCo
       await use({ port, log });
     } finally { await stop(process); }
   }, { scope: 'worker', timeout: 120_000 }],
-  app: async ({ dashboard, merchantDialogs, merchantConnected, playerInventory }, use, testInfo) => {
+  app: async ({ dashboard, merchantDialogs, merchantConnected, playerInventory, statusIntervalMs }, use, testInfo) => {
     const directory = path.join(root, '.build/e2e', `scenario-${randomUUID()}`);
     mkdirSync(directory, { recursive: true });
     const port = await unusedPort(), log = path.join(directory, 'coordinator.log');
     let coordinator: ChildProcess | undefined;
     async function start() {
       coordinator = child(path.join(root, 'e2e/coordinator.cjs'), [], root,
-        environment({ E2E_COORDINATOR_PORT: String(port), E2E_DATA_DIR: directory, E2E_MERCHANT_DIALOGS: String(merchantDialogs), E2E_MERCHANT_CONNECTED: String(merchantConnected), E2E_PLAYER_INVENTORY: String(playerInventory) }), log);
+        environment({ E2E_COORDINATOR_PORT: String(port), E2E_DATA_DIR: directory, E2E_MERCHANT_DIALOGS: String(merchantDialogs), E2E_MERCHANT_CONNECTED: String(merchantConnected), E2E_PLAYER_INVENTORY: String(playerInventory), ...(statusIntervalMs ? { E2E_STATUS_INTERVAL_MS: String(statusIntervalMs) } : {}) }), log);
       const started = coordinator;
       await new Promise<void>((resolve, reject) => {
         const output = () => existsSync(log) ? readFileSync(log, 'utf8') : 'No coordinator output';
@@ -114,6 +115,7 @@ export const test = base.extend<{ app: App; merchantDialogs: boolean; merchantCo
       const url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
       app = {
         url,
+        directory,
         async restartCoordinator() { await stop(coordinator!, true); await start(); },
         async state() {
           const response = await fetch(`${url}/party-api/state`, { signal: AbortSignal.timeout(10_000) });

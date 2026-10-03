@@ -73,8 +73,11 @@
     }
     return approach(target);
   }
+  function ownsAggroPull() {
+    return sharedRoutine.hasDesignatedTank?.() ? !!sharedRoutine.isTank?.() : !!sharedRoutine.isLeader?.();
+  }
   function mayTaunt(target) {
-    if (!sharedRoutine.isLeader?.()) return false;
+    if (!ownsAggroPull()) return false;
     if (character.level < (G.skills.taunt?.level || 0)) return false;
     target = get_entity(target.id) || target;
     return tauntTarget(target) && tauntReady(target);
@@ -389,6 +392,270 @@
       twoHanded: (item) => !!definition()?.doublehand?.[data.items[item.name]?.wtype || ""],
       equip: (index, slot) => Promise.resolve(equip(index, slot)),
       unequip: (slot) => Promise.resolve(unequip(slot)),
+      report(message) {
+        if (root.partyCombatState) {
+          root.partyCombatState.error = message;
+          root.partyCombatState.errorAt = Date.now();
+        }
+      }
+    }, memory);
+  }
+
+  // runtime/characters/roles/kill-luck-swap.ts
+  var LUCK_SWAP_SLOTS = [
+    "chest",
+    "pants",
+    "helmet",
+    "gloves",
+    "shoes",
+    "cape",
+    "belt",
+    "orb",
+    "amulet",
+    "ring1",
+    "ring2",
+    "earring1",
+    "earring2"
+  ];
+  var LUCK_SLOT_ITEM_TYPE = {
+    chest: "chest",
+    pants: "pants",
+    helmet: "helmet",
+    gloves: "gloves",
+    shoes: "shoes",
+    cape: "cape",
+    belt: "belt",
+    orb: "orb",
+    amulet: "amulet",
+    ring1: "ring",
+    ring2: "ring",
+    earring1: "earring",
+    earring2: "earring"
+  };
+  function createKillLuckSwap(ports, memory = {}) {
+    let active = true;
+    const copyLoadout = () => {
+      const loadout = {};
+      for (const slot of LUCK_SWAP_SLOTS) loadout[slot] = ports.fingerprint(ports.equipped(slot));
+      return loadout;
+    };
+    const matches = (loadout) => Object.keys(loadout).every((slot) => ports.same(ports.equipped(slot), loadout[slot] ?? null));
+    function relinquish() {
+      delete memory.session;
+    }
+    function owned(session) {
+      if (!active || memory.session !== session) return false;
+      if (matches(session.expected)) return true;
+      relinquish();
+      return false;
+    }
+    function find(item) {
+      const index = ports.items().findIndex((candidate) => ports.same(candidate, item));
+      if (index < 0) throw new Error("Saved luck-swap item is missing from inventory: " + item.name);
+      return index;
+    }
+    async function equipSlot(item, slot, session) {
+      if (!owned(session)) return;
+      await ports.equip(find(item), slot);
+      session.expected = { ...session.expected, [slot]: ports.fingerprint(item) };
+      if (!ports.same(ports.equipped(slot), item)) throw new Error("Game did not equip " + item.name);
+    }
+    function planApplied(session) {
+      return Object.keys(session.plan).every((slot) => ports.same(ports.equipped(slot), session.plan[slot]));
+    }
+    async function swap(session) {
+      for (const slot of Object.keys(session.plan)) {
+        if (!owned(session) || session.restoring) return;
+        const wanted = session.plan[slot];
+        if (!ports.same(ports.equipped(slot), wanted)) await equipSlot(wanted, slot, session);
+      }
+    }
+    async function restore(session) {
+      for (const slot of Object.keys(session.original)) {
+        if (!owned(session)) return;
+        const original = session.original[slot] ?? null;
+        if (original && !ports.same(ports.equipped(slot), original)) await equipSlot(original, slot, session);
+      }
+      if (owned(session) && matches(session.original)) delete memory.session;
+    }
+    function run(operation) {
+      if (!active || memory.pending || ports.now() < (memory.retryAt || 0)) return;
+      const pending = operation().catch((error) => {
+        memory.retryAt = ports.now() + 2e3;
+        ports.report(String(error instanceof Error ? error.message : error));
+      }).finally(() => {
+        if (memory.pending === pending) delete memory.pending;
+      });
+      memory.pending = pending;
+    }
+    function bestCarried(carried, type, exclude) {
+      return carried.filter((item) => ports.itemType(item) === type && !exclude(item)).reduce((top, item) => {
+        const luck = ports.luckValue(item);
+        return !top || luck > top.luck ? { item, luck } : top;
+      }, null);
+    }
+    function planStandalone(carried) {
+      const plan = {};
+      const luck = {};
+      for (const slot of LUCK_SWAP_SLOTS) {
+        const currentLuck = ports.luckValue(ports.equipped(slot));
+        luck[slot] = currentLuck;
+        const best = bestCarried(carried, LUCK_SLOT_ITEM_TYPE[slot], (item) => ports.luckValue(item) <= currentLuck);
+        if (best) {
+          plan[slot] = ports.fingerprint(best.item);
+          luck[slot] = best.luck;
+        }
+      }
+      return { plan, luck };
+    }
+    function applySetBonuses(carried, plan, luck) {
+      const counts = { ...ports.fixedSetCounts() };
+      for (const slot of LUCK_SWAP_SLOTS) {
+        const set = ports.itemSet(ports.equipped(slot));
+        if (set) counts[set] = (counts[set] || 0) + 1;
+      }
+      const candidatesBySet = /* @__PURE__ */ new Map();
+      for (const slot of LUCK_SWAP_SLOTS) {
+        const bySet = /* @__PURE__ */ new Map();
+        for (const item of carried) {
+          if (ports.itemType(item) !== LUCK_SLOT_ITEM_TYPE[slot] || ports.same(ports.equipped(slot), item)) continue;
+          const set = ports.itemSet(item);
+          if (!set) continue;
+          const value = ports.luckValue(item);
+          const existing = bySet.get(set);
+          if (!existing || value > existing.luck) bySet.set(set, { item, luck: value });
+        }
+        for (const [set, { item }] of bySet) {
+          const list = candidatesBySet.get(set) ?? [];
+          list.push({ slot, item });
+          candidatesBySet.set(set, list);
+        }
+      }
+      for (const [set, candidates] of candidatesBySet) {
+        const bonusGain = ports.setBonusLuck(set, (counts[set] || 0) + candidates.length) - ports.setBonusLuck(set, counts[set] || 0);
+        if (bonusGain <= 0) continue;
+        const displacedLuck = candidates.reduce((sum, { slot, item }) => sum + luck[slot] - ports.luckValue(item), 0);
+        if (bonusGain > displacedLuck) for (const { slot, item } of candidates) plan[slot] = ports.fingerprint(item);
+      }
+    }
+    function planSwap() {
+      const carried = ports.items().filter((item) => !!item);
+      const { plan, luck } = planStandalone(carried);
+      applySetBonuses(carried, plan, luck);
+      return plan;
+    }
+    function beginSwap() {
+      const plan = planSwap();
+      if (!Object.keys(plan).length) {
+        memory.retryAt = ports.now() + 2e3;
+        return;
+      }
+      const next = { original: copyLoadout(), expected: copyLoadout(), plan, restoring: false };
+      memory.session = next;
+      memory.swappedInAt = ports.now();
+      run(() => swap(next));
+    }
+    function trackHpTrend(target) {
+      const trend = memory.hpTrend?.id === target.id ? memory.hpTrend : { id: target.id, samples: [] };
+      trend.samples = trend.samples.filter((sample) => ports.now() - sample.t <= 2e3).concat({ t: ports.now(), hp: target.hp });
+      memory.hpTrend = trend;
+    }
+    function estimatedSecondsToDeath() {
+      const samples = memory.hpTrend?.samples || [];
+      const oldest = samples[0], newest = samples[samples.length - 1];
+      if (!oldest || !newest || oldest === newest) return Infinity;
+      const elapsedSeconds = (newest.t - oldest.t) / 1e3;
+      const dps = elapsedSeconds > 0 ? (oldest.hp - newest.hp) / elapsedSeconds : 0;
+      return dps > 0 ? newest.hp / dps : Infinity;
+    }
+    function shouldSwapIn(target) {
+      if (!target || !ports.isTank() || ports.otherSwapBusy()) return false;
+      trackHpTrend(target);
+      if (ports.lethalBasicAttack(target)) return true;
+      return ports.holdsAggro(target) && estimatedSecondsToDeath() <= 3;
+    }
+    function shouldRestore(target) {
+      if (!ports.isTank()) return true;
+      if (!target || target.dead || target.rip) return true;
+      if (ports.endangered()) return true;
+      if (ports.now() - (memory.swappedInAt || 0) > 1e4) return true;
+      return false;
+    }
+    function continueSession(session, target) {
+      if (!owned(session)) return;
+      if (!session.restoring && shouldRestore(target)) session.restoring = true;
+      if (session.restoring) {
+        run(() => restore(session));
+        return;
+      }
+      if (!planApplied(session)) run(() => swap(session));
+    }
+    return {
+      tick(target) {
+        if (!active || memory.pending) return;
+        const session = memory.session;
+        if (session) {
+          continueSession(session, target);
+          return;
+        }
+        if (ports.otherSwapBusy()) return;
+        if (shouldSwapIn(target)) beginSwap();
+      },
+      depart() {
+        if (!memory.session) return;
+        memory.session.restoring = true;
+        memory.retryAt = 0;
+        run(() => restore(memory.session));
+      },
+      async manual() {
+        relinquish();
+        await memory.pending;
+      },
+      busy: () => !!memory.pending,
+      stop() {
+        active = false;
+      }
+    };
+  }
+
+  // runtime/characters/roles/kill-luck-swap-runtime.ts
+  function installKillLuckSwap(root, skills, equipment2) {
+    const host = parent;
+    const memory = host.__partyKillLuckSwap ??= {};
+    const data = G;
+    const itemSet = (item) => item ? data.items[item.name]?.set : void 0;
+    const fingerprint = (item) => {
+      if (!item) return null;
+      const result = { name: item.name };
+      for (const key of ["level", "p", "stat_type", "data", "rid", "b", "m", "l", "v"])
+        if (item[key] !== void 0) result[key] = item[key];
+      return result;
+    };
+    root.partyKillLuckSwap?.stop();
+    return root.partyKillLuckSwap = createKillLuckSwap({
+      now: Date.now,
+      isTank: () => !!sharedRoutine.isTank?.(),
+      equipped: (slot) => character.slots[slot],
+      items: () => character.items,
+      itemType: (item) => data.items[item.name]?.type,
+      luckValue: (item) => item ? Number(data.items[item.name]?.luck) || 0 : 0,
+      itemSet,
+      setBonusLuck: (set, count) => Number(data.sets[set]?.[count]?.luck) || 0,
+      fixedSetCounts: () => {
+        const counts = {};
+        for (const slot of ["mainhand", "offhand"]) {
+          const set = itemSet(character.slots[slot]);
+          if (set) counts[set] = (counts[set] || 0) + 1;
+        }
+        return counts;
+      },
+      fingerprint,
+      same: (item, wanted) => JSON.stringify(fingerprint(item)) === JSON.stringify(fingerprint(wanted)),
+      equip: (index, slot) => Promise.resolve(equip(index, slot)),
+      lethalBasicAttack: (target) => skills.lethalBasicAttack(target),
+      holdsAggro: (target) => target.target === character.name,
+      endangered: () => skills.endangeredSelf(),
+      otherSwapBusy: () => !!equipment2?.busy(),
       report(message) {
         if (root.partyCombatState) {
           root.partyCombatState.error = message;
@@ -945,7 +1212,7 @@
     const c = w.actor.ctype;
     if (c === "paladin") return Math.max(w.actor.max_mp * 0.3, 2 * availableCost("selfheal") + availableCost("guardians_oath"));
     if (c === "priest") return Math.max(w.actor.max_mp * 0.35, 2 * cost(w, "heal") + availableCost("partyheal"));
-    if (c === "warrior") return (w.context.leader === w.actor.name ? availableCost("taunt") : 0) + Math.max(availableCost("stomp"), availableCost("hardshell"));
+    if (c === "warrior") return ((w.context.tank || w.context.leader) === w.actor.name ? availableCost("taunt") : 0) + Math.max(availableCost("stomp"), availableCost("hardshell"));
     return w.actor.max_mp * 0.2;
   }
   function targetBlock(w, d) {
@@ -978,7 +1245,7 @@
     return manaBlock(w, d, pending) || targetBlock(w, d);
   }
   function ownsAggro(w, d) {
-    return !["absorb", "taunt", "agitate"].includes(d.skill) || w.context.leader === w.actor.name;
+    return !["absorb", "taunt", "agitate"].includes(d.skill) || (w.context.tank || w.context.leader) === w.actor.name;
   }
   function manaBlock(w, d, pending) {
     const remaining = w.actor.mp - pending - cost(w, d.skill);
@@ -1039,7 +1306,8 @@
 
   // runtime/characters/skills/protection.ts
   function absorbDecision(w) {
-    if (w.actor.ctype !== "priest" || w.context.leader !== w.actor.name) return null;
+    const aggroOwner = w.context.tank || w.context.leader;
+    if (w.actor.ctype !== "priest" || aggroOwner !== w.actor.name) return null;
     if (w.actor.mp - cost(w, "absorb") < cost(w, "heal")) return null;
     const ally = w.context.allies.filter((a) => a.name !== w.actor.name && w.context.monsters.some((m) => m.target === a.name) && safeTransfer(w, a)).sort((a, b) => health(a) - health(b) || a.name.localeCompare(b.name)).find((a) => w.range(a, "absorb"));
     return ally ? decision("absorb", [ally], "survival", "leader aggro rescue") : null;
@@ -1317,6 +1585,7 @@
       const actor = character;
       const context = shared.combatContext?.() || {
         leader: "",
+        tank: null,
         allies: [],
         monsters: [],
         mode: "blocked",
@@ -1393,6 +1662,13 @@
     host.socket?.on?.("hit", hit);
     return {
       ...engine,
+      // A basic attack that would drop the target below zero right now. Used to decide
+      // whether a kill-time gear swap (e.g. the designated tank's luck swap) needs to
+      // happen before this tick's attack, for a target with no HP-decline history yet.
+      lethalBasicAttack: (target) => damage(world(), "attack", target, true) >= target.hp,
+      // Used by the designated tank's kill-time luck swap to bail out of weaker gear
+      // immediately if it starts taking dangerous damage rather than finish a swap.
+      endangeredSelf: () => endangered(world(), world().actor),
       reset() {
         engine.reset();
         projectiles.clear();
@@ -2580,6 +2856,7 @@
     root.partyMerchantAnniversaryControl = merchantAnniversaryControl;
     root.partyRoleRunner?.stop();
     let equipment2 = null;
+    let luckSwap = null;
     function resolvedRole() {
       return { ...defaultRole, ...classRole };
     }
@@ -2616,7 +2893,7 @@
       passing: (target) => target.id !== currentTarget()?.id && target.id === passingTarget()?.id,
       preparePassing: (target) => queueClient?.preparePassing(target) ?? false,
       state: () => root.partyCombatState,
-      equipmentBusy: () => !!equipment2?.busy(),
+      equipmentBusy: () => !!equipment2?.busy() || !!luckSwap?.busy(),
       skillAttack: (target) => skills?.attack(target) ?? null,
       skillBusy: () => skills?.busy() ?? false,
       report: reportError
@@ -2745,6 +3022,7 @@
       const actor = character;
       const target = sharedRoutine.equipmentTarget ? sharedRoutine.equipmentTarget() : currentTarget();
       equipment2?.tick(target, actor.damage_type, Number(character.range), combatAllowed());
+      luckSwap?.tick(combatAllowed() ? currentTarget() : null);
     }
     function frankyMovement() {
       if (!sharedRoutine.frankyCombatActive?.()) return false;
@@ -2893,6 +3171,10 @@
         if (timer) return;
         skills = installSkillRuntime(root);
         equipment2 = installPorcupineEquipment(root);
+        luckSwap = installKillLuckSwap(root, {
+          lethalBasicAttack: (target) => skills?.lethalBasicAttack(target) ?? false,
+          endangeredSelf: () => skills?.endangeredSelf() ?? false
+        }, equipment2);
         game_log(character.name + " loaded generic " + resolvedRole().name + " behavior", "#51D2E1");
         active = true;
         root.partyCombatState = { at: Date.now(), stage: "start", error: null };

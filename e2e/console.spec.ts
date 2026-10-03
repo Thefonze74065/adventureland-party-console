@@ -2,11 +2,14 @@ import { test, expect } from './fixtures';
 import { createServer } from 'node:http';
 import { mkdirSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { gateway } from '../tools/hosting/gateway';
 import { Access } from '../tools/hosting/access';
 import { startupRealms } from '../tools/hosting/realms';
 import { accountConfig, sessionValue } from '../tools/hosting/account';
+
+const require = createRequire(import.meta.url);
 
 test.describe('marked withdrawal scheduling', () => {
   test.use({ merchantDialogs: true });
@@ -677,6 +680,64 @@ test('inventory context menu and upgrade preview stay readable without queueing 
   await expect(rootMenu).not.toBeVisible();
 });
 
+test.describe('lucky-slot tracking reset', () => {
+  // The fixture's ambient per-character heartbeat otherwise races this test's own
+  // check of a one-shot command delivery; widen it so only this test's explicit
+  // requests can observe it.
+  test.use({ statusIntervalMs: 20000 });
+  test('resetting lucky-slot tracking discards stale evidence a recreated merchant must not inherit', async ({ page, app }, info) => {
+    // Failure modes: luckySlotTracking/luckyUpgradeSlots are keyed only by character
+    // name, so deleting a merchant and recreating it with the same name would
+    // otherwise silently inherit the deleted character's discovery evidence; the
+    // dashboard control could fail to clear it, the clear could fail to persist,
+    // or the connected client's own independently-tracked copy could replay the
+    // cleared evidence right back on its next heartbeat.
+    const { createGameFixture } = require('./game-fixture.cjs');
+    const merchantReport = createGameFixture(app.directory).reports(false).find((report: any) => report.name === 'M');
+    expect(merchantReport, 'the fixture must report the merchant').toBeTruthy();
+    const seeded = {
+      ...merchantReport,
+      luckySlotTracking: { version: 1, streamId: 'e2e-seed-0123456789', slots: { 5: { totalRolls: 10, sumRolls: 3, rollsAbove96_3: 1, perfectRolls: 0 } } },
+    };
+    const seed = await page.request.post(`${app.url}/party-api/status`, { headers: { Origin: app.url }, data: seeded });
+    expect(seed.ok(), await seed.text()).toBe(true);
+    await expect.poll(async () => (await app.state()).luckySlotTracking?.M?.['e2e-seed-0123456789']?.slots?.['5']?.totalRolls).toBe(10);
+    await page.goto('/');
+    const merchant = page.locator('article').filter({ has: page.getByRole('heading', { name: 'M', exact: true }) });
+    // With only ten rolls recorded in slot 5 and zero elsewhere, rotation (not
+    // inference) picks the least-sampled slot, which is slot 0 — the sword.
+    await merchant.getByText('sword', { exact: true }).click();
+    const menu = page.getByRole('menu', { name: 'Lucky slot options', exact: true });
+    await menu.getByRole('menuitem', { name: 'Show lucky slot data', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Lucky slots · M', exact: true });
+    await expect(dialog).toContainText('10 recorded upgrade rolls');
+    await info.attach('lucky-slot-tracking-before-reset', { body: await page.screenshot(), contentType: 'image/png' });
+    page.once('dialog', native => native.accept());
+    const command = page.waitForResponse(response => new URL(response.url()).pathname.endsWith('/command') && response.request().method() === 'POST');
+    await dialog.getByRole('button', { name: 'Reset tracking', exact: true }).click();
+    const response = await command;
+    expect(response.ok(), await response.text()).toBe(true);
+    // The merchant's own connected client independently tracks this evidence in its
+    // own browser storage and would otherwise replay it on its very next heartbeat,
+    // reviving what the dashboard just cleared. The coordinator must deliver a
+    // companion command telling that client to discard its local copy too.
+    const heartbeat = await page.request.post(`${app.url}/party-api/status`, { headers: { Origin: app.url }, data: merchantReport });
+    expect(heartbeat.ok(), await heartbeat.text()).toBe(true);
+    const delivered = await heartbeat.json();
+    expect(delivered.command).toMatchObject({ type: 'reset-lucky-slot-tracking' });
+    const acknowledged = await page.request.post(`${app.url}/party-api/status`, { headers: { Origin: app.url }, data: merchantReport });
+    expect((await acknowledged.json()).command?.type, 'the one-shot command must not be redelivered').not.toBe('reset-lucky-slot-tracking');
+    await expect(dialog).toContainText('No evidence yet. Testing starts at slot 0.');
+    await expect(dialog.getByRole('button', { name: 'Reset tracking', exact: true })).toBeDisabled();
+    expect((await app.state()).luckySlotTracking?.M).toBeUndefined();
+    await info.attach('lucky-slot-tracking-reset', { body: await page.screenshot(), contentType: 'image/png' });
+    await info.attach('lucky-slot-tracking-command-delivery', { body: JSON.stringify({ delivered }), contentType: 'application/json' });
+    await page.keyboard.press('Escape');
+    await app.restartCoordinator();
+    expect((await app.state()).luckySlotTracking?.M, 'the clear must persist across a restart, not just the live session').toBeUndefined();
+    await info.attach('lucky-slot-tracking-reset-state', { body: JSON.stringify(await app.state()), contentType: 'application/json' });
+  });
+});
 
 test.describe('configured merchant dialog names', () => {
   test.use({merchantDialogs:true});

@@ -43,6 +43,16 @@ export interface LuckSwapPorts {
   items(): (GearItem | null)[];
   itemType(item: GearItem): string | undefined;
   luckValue(item: GearItem | null): number;
+  /** Set key an item belongs to (e.g. "wanderers"), or undefined for an unset item. */
+  itemSet(item: GearItem | null): string | undefined;
+  /**
+   * Cumulative luck granted by wearing `count` pieces of `set` (upstream `G.sets[set][count].luck`,
+   * already summed across lower tiers — `node/server_functions.js` folds each tier into the next).
+   * 0 for a count with no tier, an unset/unknown set, or a set whose tiers carry no luck at all.
+   */
+  setBonusLuck(set: string, count: number): number;
+  /** Set-member counts already locked in by slots this module never swaps (mainhand/offhand). */
+  fixedSetCounts(): Partial<Record<string, number>>;
   fingerprint(item: GearItem | null): GearItem | null;
   same(a: GearItem | null, b: GearItem | null): boolean;
   equip(index: number, slot: LuckSlot): Promise<unknown>;
@@ -125,19 +135,72 @@ export function createKillLuckSwap(ports: LuckSwapPorts, memory: LuckSwapMemory 
     }).finally(() => { if (memory.pending === pending) delete memory.pending; });
     memory.pending = pending;
   }
-  function planSwap(): Partial<Record<LuckSlot, GearItem>> {
+  function bestCarried(carried: GearItem[], type: string, exclude: (item: GearItem) => boolean) {
+    return carried
+      .filter(item => ports.itemType(item) === type && !exclude(item))
+      .reduce<{ item: GearItem; luck: number } | null>((top, item) => {
+        const luck = ports.luckValue(item);
+        return !top || luck > top.luck ? { item, luck } : top;
+      }, null);
+  }
+  /**
+   * Per-slot standalone comparison: whichever carried item of the right type has the highest
+   * intrinsic luck, if it beats what's already equipped there.
+   */
+  function planStandalone(carried: GearItem[]): { plan: Partial<Record<LuckSlot, GearItem>>; luck: Record<LuckSlot, number> } {
     const plan: Partial<Record<LuckSlot, GearItem>> = {};
-    const carried = ports.items().filter((item): item is GearItem => !!item);
+    const luck = {} as Record<LuckSlot, number>;
     for (const slot of LUCK_SWAP_SLOTS) {
       const currentLuck = ports.luckValue(ports.equipped(slot));
-      const best = carried
-        .filter(item => ports.itemType(item) === LUCK_SLOT_ITEM_TYPE[slot])
-        .reduce<{ item: GearItem; luck: number } | null>((top, item) => {
-          const luck = ports.luckValue(item);
-          return luck > currentLuck && (!top || luck > top.luck) ? { item, luck } : top;
-        }, null);
-      if (best) plan[slot] = ports.fingerprint(best.item)!;
+      luck[slot] = currentLuck;
+      const best = bestCarried(carried, LUCK_SLOT_ITEM_TYPE[slot], item => ports.luckValue(item) <= currentLuck);
+      if (best) { plan[slot] = ports.fingerprint(best.item)!; luck[slot] = best.luck; }
     }
+    return { plan, luck };
+  }
+  /**
+   * A set member can be worth equipping with zero (or merely lower) intrinsic luck of its own,
+   * once enough of a set's pieces are worn to unlock a luck bonus tier — something the per-slot
+   * standalone comparison can never discover, since it only ever compares one slot's items against
+   * each other. For each set with a carried, not-yet-equipped piece, this checks whether committing
+   * every available piece (displacing whatever the standalone pass chose for those slots) raises
+   * total luck enough to outweigh what's displaced. Two different candidate sets wanting the same
+   * slot type at once is not resolved jointly; the later one in iteration order wins that slot.
+   */
+  function applySetBonuses(carried: GearItem[], plan: Partial<Record<LuckSlot, GearItem>>, luck: Record<LuckSlot, number>): void {
+    const counts: Partial<Record<string, number>> = { ...ports.fixedSetCounts() };
+    for (const slot of LUCK_SWAP_SLOTS) {
+      const set = ports.itemSet(ports.equipped(slot));
+      if (set) counts[set] = (counts[set] || 0) + 1;
+    }
+    const candidatesBySet = new Map<string, { slot: LuckSlot; item: GearItem }[]>();
+    for (const slot of LUCK_SWAP_SLOTS) {
+      const bySet = new Map<string, { item: GearItem; luck: number }>();
+      for (const item of carried) {
+        if (ports.itemType(item) !== LUCK_SLOT_ITEM_TYPE[slot] || ports.same(ports.equipped(slot), item)) continue;
+        const set = ports.itemSet(item);
+        if (!set) continue;
+        const value = ports.luckValue(item);
+        const existing = bySet.get(set);
+        if (!existing || value > existing.luck) bySet.set(set, { item, luck: value });
+      }
+      for (const [set, { item }] of bySet) {
+        const list = candidatesBySet.get(set) ?? [];
+        list.push({ slot, item });
+        candidatesBySet.set(set, list);
+      }
+    }
+    for (const [set, candidates] of candidatesBySet) {
+      const bonusGain = ports.setBonusLuck(set, (counts[set] || 0) + candidates.length) - ports.setBonusLuck(set, counts[set] || 0);
+      if (bonusGain <= 0) continue;
+      const displacedLuck = candidates.reduce((sum, { slot, item }) => sum + luck[slot] - ports.luckValue(item), 0);
+      if (bonusGain > displacedLuck) for (const { slot, item } of candidates) plan[slot] = ports.fingerprint(item)!;
+    }
+  }
+  function planSwap(): Partial<Record<LuckSlot, GearItem>> {
+    const carried = ports.items().filter((item): item is GearItem => !!item);
+    const { plan, luck } = planStandalone(carried);
+    applySetBonuses(carried, plan, luck);
     return plan;
   }
   function beginSwap(): void {

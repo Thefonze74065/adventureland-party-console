@@ -26,14 +26,29 @@ export function LuckySlotStatistics({ tracking, verified }: { tracking?: LuckySl
     </div>
   </div>;
 }
-export function LuckySlotDialog({character, tracking, verified, open, onOpenChange}: {
+export function LuckySlotDialog({character, tracking, verified, open, onOpenChange, onReset}: {
   character: string; tracking?: LuckySlotTracking; verified?: number | null; open: boolean; onOpenChange(open: boolean): void;
+  onReset?: () => void | Promise<void>;
 }) {
+  const hasData = !!tracking?.streamId || Object.keys(tracking?.slots || {}).length > 0 || validLuckySlot(verified);
   return <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent showCloseButton={false} className="max-h-[90vh] overflow-y-auto border-zinc-500 bg-zinc-950 text-zinc-100 sm:max-w-3xl">
         <DialogHeader><DialogTitle>Lucky slots · {character}</DialogTitle><DialogDescription className="text-zinc-300">Upgrade evidence saved per character in coordinator state, with a local copy for reconnects.</DialogDescription></DialogHeader>
         <LuckySlotStatistics tracking={tracking} verified={verified} />
-        <Button variant="outline" onClick={() => onOpenChange(false)} className="border-zinc-500 bg-zinc-900 text-zinc-100 hover:border-zinc-400 hover:bg-zinc-800 hover:text-white">Close</Button>
+        <div className="flex justify-between gap-2">
+          <Button
+            variant="outline"
+            disabled={!hasData || !onReset}
+            onClick={() => {
+              if (!confirm(`Discard all lucky-slot evidence and the verified slot for ${character}? Use this after deleting and recreating the character, since a new character rolls its own lucky slot.`)) return;
+              onReset?.();
+            }}
+            className="border-rose-500 bg-rose-950 text-rose-100 hover:border-rose-400 hover:bg-rose-900 hover:text-white disabled:border-zinc-600 disabled:bg-zinc-900 disabled:text-zinc-500"
+          >
+            Reset tracking
+          </Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} className="border-zinc-500 bg-zinc-900 text-zinc-100 hover:border-zinc-400 hover:bg-zinc-800 hover:text-white">Close</Button>
+        </div>
       </DialogContent>
     </Dialog>;
 }

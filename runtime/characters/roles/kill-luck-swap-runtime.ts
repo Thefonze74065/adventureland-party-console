@@ -18,7 +18,11 @@ export function installKillLuckSwap(
 ) {
   const host = parent as unknown as { __partyKillLuckSwap?: LuckSwapMemory };
   const memory = host.__partyKillLuckSwap ??= {};
-  const data = G as unknown as { items: Record<string, { type?: string; luck?: number } | undefined> };
+  const data = G as unknown as {
+    items: Record<string, { type?: string; luck?: number; set?: string } | undefined>;
+    sets: Record<string, Record<number, { luck?: number } | undefined> | undefined>;
+  };
+  const itemSet = (item: GearItem | null): string | undefined => item ? data.items[item.name]?.set : undefined;
   const fingerprint = (item: GearItem | null): GearItem | null => {
     if (!item) return null;
     const result: GearItem = { name: item.name };
@@ -34,6 +38,16 @@ export function installKillLuckSwap(
     items: () => character.items as (GearItem | null)[],
     itemType: item => data.items[item.name]?.type,
     luckValue: item => item ? Number(data.items[item.name]?.luck) || 0 : 0,
+    itemSet,
+    setBonusLuck: (set, count) => Number(data.sets[set]?.[count]?.luck) || 0,
+    fixedSetCounts: () => {
+      const counts: Partial<Record<string, number>> = {};
+      for (const slot of ["mainhand", "offhand"] as const) {
+        const set = itemSet(character.slots[slot] as GearItem | null);
+        if (set) counts[set] = (counts[set] || 0) + 1;
+      }
+      return counts;
+    },
     fingerprint,
     same: (item, wanted) => JSON.stringify(fingerprint(item)) === JSON.stringify(fingerprint(wanted)),
     equip: (index, slot) => Promise.resolve(equip(index, slot)),

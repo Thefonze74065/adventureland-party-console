@@ -119,11 +119,15 @@ async function main() {
   }
   await heartbeat(true);
   // Serial recurring reports avoid overlapping samples while retaining real coordinator timers.
+  // A scenario that must observe one specific heartbeat's response (e.g. a
+  // one-shot command delivery) can widen this via E2E_STATUS_INTERVAL_MS so
+  // this ambient loop cannot win that race.
+  const statusIntervalMs = Number(process.env.E2E_STATUS_INTERVAL_MS) || 1000;
   async function refresh() {
-    try { await heartbeat(); setTimeout(refresh, 1000).unref(); }
+    try { await heartbeat(); setTimeout(refresh, statusIntervalMs).unref(); }
     catch (error) { console.error(error); process.exit(1); }
   }
-  setTimeout(refresh, 1000).unref();
+  setTimeout(refresh, statusIntervalMs).unref();
   console.log(JSON.stringify({ event: 'e2e-coordinator-ready', port, directory, simulated: ['account', 'game'] }));
   if (process.send) process.send({ type: 'ready', port });
 }

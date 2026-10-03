@@ -8,6 +8,7 @@ import { createMarkCommands } from "../inventory/mark-commands.ts";
 import { createMerchantItemCommands } from "../inventory/merchant-item-commands.ts";
 import { createStatScrollCommands } from "../inventory/stat-scroll-commands.ts";
 import { createClearItemMarks } from "../inventory/clear-item-marks.ts";
+import { createResetLuckySlotTracking } from "../inventory/reset-lucky-slot-tracking.ts";
 import type { Item } from "../contracts/item.ts";
 import type { CommandOutcome } from "../navigation/manual-commands.ts";
 import { replaceAutomaticAction, type AutomaticAction } from '../inventory/automatic-action.ts';
@@ -15,6 +16,7 @@ import { automaticCommerceRuleKey } from '../inventory/item-identity.ts';
 
 type CommandState = FocusState & Parameters<typeof createOfferingCommands>[0] & Parameters<typeof createCharacterCommandRoute>[0] &
   Parameters<typeof createClearItemMarks>[0] &
+  Parameters<typeof createResetLuckySlotTracking>[0] &
   Parameters<typeof createUpgradeCommands>[0] &
   Parameters<typeof createCompoundCommands>[0] &
   Parameters<typeof createTransferCommands>[0] &
@@ -110,6 +112,7 @@ export function createCoordinatorCharacterCommands(
     handlers: [
       createOfferingCommands(state, ports.persist),
       createClearItemMarks(state, { persist: ports.persist, persistBank: ports.persistBank, changed: () => ports.marksCleared?.() }),
+      createResetLuckySlotTracking(state, { persist: ports.persist, log: ports.log, nextCommand: () => state.nextCommandId++ }),
       ports.navigation,
       upgrades.handle,
       stats.handle,
@@ -126,5 +129,5 @@ function merchantRuleSelection(state: CommandState, name: unknown, body?: Record
   // Bank intents and shared rules can be recorded while the configured merchant
   // is offline; their handlers validate the selected source before mutation.
   if (typeof body?.pack === 'string' && ['withdraw', 'clear-item-marks'].includes(String(body.type))) return true;
-  return typeof body?.type === 'string' && ['auto-item-mark', 'auto-exchange', 'auto-upgrade-mark', 'auto-compound-mark'].includes(body.type);
+  return typeof body?.type === 'string' && ['auto-item-mark', 'auto-exchange', 'auto-upgrade-mark', 'auto-compound-mark', 'reset-lucky-slot-tracking'].includes(body.type);
 }

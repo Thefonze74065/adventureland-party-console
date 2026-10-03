@@ -50,10 +50,10 @@ test(`${implementation} coordinator handles first and repeated heartbeats withou
  const report=()=>({name:'P',ctype:'priest',map:'main',x:0,y:0,server:'USII',gold:0,items:Array(42).fill(null),hp:100,max_hp:100});
  status({body:report()},res);assert.ok(response);assert.equal(response.partyPositions[0].name,'P');
  assert.equal(Object.hasOwn(response.anniversary,'blacklist'),false);
- assert.deepEqual(stableResponse(response),{...contracts[0],luckyUpgradeSlots:{},luckySlotTracking:{},huntCombatTarget:null,travelCombat:null,combatRecovery:null,combatResetByCharacter:{},eventTrip:null,partyTownCycleId:null,returnProgress:null,merchantVisibility:null,dailyDungeon:{owned:false,movementReady:true}});
+ assert.deepEqual(stableResponse(response),{...contracts[0],luckyUpgradeSlots:{},luckySlotTracking:{},designatedTank:null,huntCombatTarget:null,travelCombat:null,combatRecovery:null,combatResetByCharacter:{},eventTrip:null,partyTownCycleId:null,returnProgress:null,merchantVisibility:null,dailyDungeon:{owned:false,movementReady:true}});
  status({body:{...report(),oneShotMonsterTypes:['goo'],oneShotEpoch:response.scatterEpoch}},res);
  assert.equal(response.partyFarmingMonsterType,'goo');assert.ok(response.scatterMonsterTypes.includes('goo'));
- assert.deepEqual(stableResponse(response),{...contracts[1],luckyUpgradeSlots:{},luckySlotTracking:{},huntCombatTarget:null,travelCombat:null,combatRecovery:null,combatResetByCharacter:{},eventTrip:null,partyTownCycleId:null,returnProgress:null,merchantVisibility:null,dailyDungeon:{owned:false,movementReady:true}});
+ assert.deepEqual(stableResponse(response),{...contracts[1],luckyUpgradeSlots:{},luckySlotTracking:{},designatedTank:null,huntCombatTarget:null,travelCombat:null,combatRecovery:null,combatResetByCharacter:{},eventTrip:null,partyTownCycleId:null,returnProgress:null,merchantVisibility:null,dailyDungeon:{owned:false,movementReady:true}});
 });
 
 test(`${implementation} application propagates explicit no-merchant configuration into heartbeat responses`,async()=>{

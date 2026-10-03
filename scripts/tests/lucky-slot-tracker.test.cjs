@@ -70,6 +70,30 @@ test('durable coordinator evidence survives replay, restart, and native/headless
  createCoordinatorPersistence({...restored,aldata:{}},{set:(key,value)=>writes.set(key,JSON.parse(value))}).settings();
  assert.deepEqual(writes.get('party_dashboard_settings_state_v1').luckySlotTracking,restored.luckySlotTracking);
 });
+test('resetting coordinator-side lucky-slot state clears both discovery evidence and a verified slot, scoped to one character',()=>{
+ const {receiveLuckySlotTracking,resetLuckySlotTracking}=require('../../runtime/coordinator/status/lucky-slot-tracking.ts');
+ const state={luckyUpgradeSlots:{M:30,Other:12}};const a=fixture();a.tracker.observe(event(7));
+ receiveLuckySlotTracking(state,'M',a.tracker.report());receiveLuckySlotTracking(state,'Other',a.tracker.report());
+ assert.equal(resetLuckySlotTracking(state,'M'),true);
+ assert.equal(state.luckySlotTracking.M,undefined);assert.equal(state.luckyUpgradeSlots.M,undefined);
+ assert.ok(state.luckySlotTracking.Other);assert.equal(state.luckyUpgradeSlots.Other,12);
+ assert.equal(resetLuckySlotTracking(state,'M'),false);
+});
+test('reset abandons the stream id so a coordinator-cleared history cannot be replayed back',()=>{
+ const f=fixture();f.tracker.observe(event(7));
+ const before=f.tracker.report();
+ f.tracker.reset();
+ const after=f.tracker.report();
+ assert.deepEqual(after.slots,{});
+ assert.notEqual(after.streamId,before.streamId);
+ assert.deepEqual(f.saved.slots,{});
+ assert.equal(f.tracker.select(),0);
+ // Simulates the coordinator handing back the old stream's history (e.g. a stale
+ // heartbeat response still in flight): keyed under the abandoned stream id, it
+ // must not be merged onto the tracker's new, reset stream.
+ f.tracker.sync({[before.streamId]:before});
+ assert.deepEqual(f.tracker.report().slots,{});
+});
 test('a high roll moves exploration to an untested slot without waiting for a verified slot',()=>{
  const f=fixture();assert.equal(f.tracker.select(),0);f.tracker.observe(event(7,[9,9,9,9]));assert.equal(f.tracker.select(),0);
 });

@@ -9340,6 +9340,16 @@
     }
     // Stand return can travel safely before checking inventory recovery. Its
     // own guard runs before any listing, consolidation, or tidy mutation.
+    if (command.type === "reset-lucky-slot-tracking") {
+      // Companion to the coordinator clearing its own luckySlotTracking/
+      // luckyUpgradeSlots record: this character's own browser storage holds
+      // an independent copy and replays it on the next heartbeat otherwise,
+      // reviving the data the dashboard just cleared.
+      lastCommand = command.id; root.__partyLastCommand = lastCommand;
+      luckySlotTracking().reset();
+      game_log("Cleared local lucky-slot tracking", "#F0B742");
+      return;
+    }
     if (command.type === "merchant-clear-lucky-journal" && character.ctype === "merchant") {
       // Operator escape hatch: handled before the lucky-slot gate below, which would only retry
       // the same failing recovery. Items stay where they are; only the blocking journal goes.

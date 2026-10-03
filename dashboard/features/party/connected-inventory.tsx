@@ -53,6 +53,7 @@ export const ConnectedInventory = memo(function ConnectedInventory({
     [state.luckySlotTracking, name, char?.luckySlotTracking],
   );
   const onLuckySlot = useCallback(() => setLuckySlotOpen(true), []);
+  const onLuckySlotReset = useCallback(() => command(name, "reset-lucky-slot-tracking", undefined), [command, name]);
   const deconstructionMarks = state.deconstructionMarks || emptyArray();
   const standListings = state.standListings || emptyArray();
   const npcSaleMarks = state.npcSaleMarks || emptyArray();
@@ -219,7 +220,7 @@ export const ConnectedInventory = memo(function ConnectedInventory({
       onCommand={command}
       onTravel={onTravel}
     />
-    <LuckySlotDialog character={name} tracking={luckyTracking} verified={state.luckyUpgradeSlots?.[name]} open={luckySlotOpen} onOpenChange={setLuckySlotOpen} />
+    <LuckySlotDialog character={name} tracking={luckyTracking} verified={state.luckyUpgradeSlots?.[name]} open={luckySlotOpen} onOpenChange={setLuckySlotOpen} onReset={onLuckySlotReset} />
     {char.name === state.merchantCharacter && <SharedRuleConflicts state={state} onResolve={(id, owner) => post("/merchant/rule-conflict", {id,owner})} />}
     <DeconstructionConfirmation selection={deconstructionSelection} catalog={state.deconstructionCatalog || emptyRecord()}
       items={state.merchantCatalog?.allItems || emptyArray()} onClose={() => setDeconstructionSelection(null)}

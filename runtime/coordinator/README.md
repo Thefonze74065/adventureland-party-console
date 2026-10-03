@@ -190,7 +190,14 @@ barred from *stealing* aggro via taunt/absorb.
 The designated tank also gets a kill-time luck swap: `runtime/characters/roles/
 kill-luck-swap.ts` (mirroring `porcupine-equipment.ts`'s swap/verify/restore/bail-out
 shape) auto-detects, per equip slot, whichever carried item has more `G.items[name].
-luck` than what's equipped, and swaps in right before a kill. Upstream `node/server.js`'s
+luck` than what's equipped, and swaps in right before a kill. It also accounts for
+set bonuses (`G.sets[set][count].luck`, upstream `design/items.js`): a set member can
+be worth equipping with little or no intrinsic luck of its own — e.g. the "wanderers"
+set's five pieces have none individually but grant +16 luck only once all five are
+worn — once completing it (using carried pieces, counting whatever's already locked
+into mainhand/offhand too) raises total luck enough to outweigh whatever it would
+displace from those slots. Two different candidate sets wanting the same slot type at
+once isn't resolved jointly. Upstream `node/server.js`'s
 `issue_monster_award()` rolls an ordinary (non-cooperative) monster's drop using only
 `players[name_to_id[monster.target]]` — whoever it was attacking at the instant it
 died — not a per-contributor share, and not the rest of the party at all; whoever
@@ -921,6 +928,33 @@ once it has at least 100 rolls there and a 99.9% chance of being ordinary, and t
 the dialog's "Ruled out" row/count) skip it. Elimination is never sticky — it is recomputed from
 the current evidence on every call, so a slot resumes collecting as soon as the leading candidate
 weakens enough to put it back in play (#23).
+
+Both `luckySlotTracking` and `luckyUpgradeSlots` are keyed purely by character name,
+with no link to the underlying game-server character record. Deleting a character
+and creating a new one with the same name rolls a fresh, independent lucky slot
+server-side (`node/server_functions.js`'s `player.p.item_num` is assigned once per
+character document, the first time it is read), but the coordinator still has the
+old name's evidence/verified slot on hand and will offer it to the new character as
+if it were already established. The Lucky slots dialog's "Reset tracking" button
+(`POST /party-api/command` with `type: "reset-lucky-slot-tracking"`,
+`runtime/coordinator/inventory/reset-lucky-slot-tracking.ts`) discards both fields
+for that character name so discovery restarts from zero. It is a dashboard-driven,
+opt-in action — nothing clears this automatically on roster changes, since the
+coordinator cannot distinguish a renamed-but-same character from a deleted and
+recreated one (#52).
+
+The connected character's own client independently tracks this same evidence in
+its own browser storage (`party-lucky-slot-tracking:<owner>:<name>`, keyed the
+same way — by name, not by any stable character id) and reports it on every
+heartbeat (`characters/shared.js`'s `luckySlotTracking().report()`). Clearing
+only the coordinator's copy is not enough: the character's next heartbeat would
+replay its untouched local copy right back. The reset action therefore also
+queues a one-shot `reset-lucky-slot-tracking` command for that character
+(delivered and consumed the same way as `merchant-clear-lucky-journal`), which
+the character's CODE handles by calling `luckySlotTracking().reset()`
+(`runtime/characters/lucky-slot-tracker.ts`) to abandon its local stream id and
+start collecting fresh evidence, rather than merely clearing its slot counts.
+
 Validate lucky-slot tracking/UI, lucky-upgrade recovery, heartbeat and persistence
 tests. Publish character and coordinator assets together with the full restart.
 
