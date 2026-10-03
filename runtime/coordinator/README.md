@@ -187,6 +187,25 @@ non-leader priest tank via `absorb`, per the issue's own example. No hold-back i
 added for non-tank characters; they keep today's approach/attack timing and are only
 barred from *stealing* aggro via taunt/absorb.
 
+The designated tank also gets a kill-time luck swap: `runtime/characters/roles/
+kill-luck-swap.ts` (mirroring `porcupine-equipment.ts`'s swap/verify/restore/bail-out
+shape) auto-detects, per equip slot, whichever carried item has more `G.items[name].
+luck` than what's equipped, and swaps in right before a kill. Upstream `node/server.js`'s
+`issue_monster_award()` rolls an ordinary (non-cooperative) monster's drop using only
+`players[name_to_id[monster.target]]` — whoever it was attacking at the instant it
+died — not a per-contributor share, and not the rest of the party at all; whoever
+physically opens the resulting chest doesn't matter either. So the swap only triggers
+from the HP-trend prediction while the tank already holds that monster's aggro
+(`holdsAggro`), with one exception: a lethal attack from this character sets its own
+aggro as part of landing that same kill, so the one-shot fast path (for an immediately
+lethal basic attack) doesn't need to already hold it. The trend trigger is a
+scale-agnostic time-to-death estimate from the target's observed HP (not a fixed HP
+percentage, which breaks for both one-shot trash kills and slow external-party boss
+fights). It restores combat gear on confirmed death, a 10s safety timeout, or if the
+tank becomes endangered while under-geared — and defers entirely to
+`porcupine-equipment` if that module is already mid-swap, since both touch
+equip slots. mainhand/offhand and elixir are deliberately excluded from the swap.
+
 Validate `live-designated-tank.spec.ts`. The role/route/broadcast plumbing activates
 with the supported coordinator-only restart; the movement, taunt-gating and luck-swap
 behavior are character-asset changes and require the full supported restart.

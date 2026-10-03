@@ -9812,6 +9812,7 @@
     if (command.type === "equip") {
       if (!isDashboardEquipment(command.item)) throw new Error("item is not equipment; use its explicit Use action instead");
       if (root.partyPorcupineEquipment) await root.partyPorcupineEquipment.manual();
+      if (root.partyKillLuckSwap) await root.partyKillLuckSwap.manual();
       if (character.ctype === "merchant") await closeMerchantStandForTravel();
       var slot = findItem(command.item);
       if (slot >= 0) await equip(slot);
@@ -9825,6 +9826,7 @@
     }
     if (command.type === "unequip") {
       if (root.partyPorcupineEquipment) await root.partyPorcupineEquipment.manual();
+      if (root.partyKillLuckSwap) await root.partyKillLuckSwap.manual();
       if (character.ctype === "merchant") await closeMerchantStandForTravel();
       if (typeof command.slot !== "string" || !sameItem(character.slots[command.slot], command.item))
         throw new Error("equipped item no longer matches that slot");
@@ -14050,6 +14052,7 @@
         if(!signal.immediateDeparture && now-convoy.scheduledAt>1500)throw new Error("Missed convoy departure window");
         released=true;convoy.departedAt=now;phase("travelling");
         if (root.partyPorcupineEquipment) root.partyPorcupineEquipment.depart(command.purpose);
+        if (root.partyKillLuckSwap) root.partyKillLuckSwap.depart();
         return walk();
       } catch(error){freeze();convoy.fail(error.message||String(error));}
       finally {smart.use_town=nativeTown;}
@@ -14192,6 +14195,7 @@
           convoy.departedAt = now;
           phase("travelling");
           if (root.partyPorcupineEquipment) root.partyPorcupineEquipment.depart(command.purpose);
+          if (root.partyKillLuckSwap) root.partyKillLuckSwap.depart();
           return gate.original();
         } catch (error) { convoy.fail(error.message || String(error)); }
         finally { smart.use_town = nativeTown; }

@@ -131,6 +131,7 @@ export interface RoleRunner {
 }
 export interface CombatRoot {
   partyPorcupineEquipment?: ReturnType<typeof import("./porcupine-equipment.ts").createPorcupineEquipment>;
+  partyKillLuckSwap?: ReturnType<typeof import("./kill-luck-swap.ts").createKillLuckSwap>;
   sharedRoutine: SharedCombat;
   partyRoleRunner?: RoleRunner;
   partyCombatState: CombatState;

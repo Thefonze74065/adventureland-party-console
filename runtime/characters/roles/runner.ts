@@ -2,6 +2,7 @@ import {passiveStopRequired} from '../../combat/passive-travel.ts';
 import {installCombatTrace} from "../../combat/trace.ts";
 import {createEntityRefresh} from "../../combat/entity-refresh.ts";
 import { installPorcupineEquipment } from "./porcupine-equipment-runtime.ts";
+import { installKillLuckSwap } from "./kill-luck-swap-runtime.ts";
 import { merchantAnniversaryControl } from "../../coordinator/merchant/anniversary-control.ts";
 import { createAttackController } from "./attack-controller.ts";
 import { installSkillRuntime } from '../skills/runtime.ts';
@@ -21,6 +22,7 @@ export function installRoleRunner(
   (root as any).partyMerchantAnniversaryControl = merchantAnniversaryControl;
   root.partyRoleRunner?.stop();
   let equipment: ReturnType<typeof installPorcupineEquipment> | null = null;
+  let luckSwap: ReturnType<typeof installKillLuckSwap> | null = null;
   function resolvedRole(): Role {
     return { ...defaultRole, ...classRole };
   }
@@ -57,7 +59,7 @@ export function installRoleRunner(
     active: () => active, allowed: () => combatAllowed() || !!passingTarget(),
     passing: target => target.id !== currentTarget()?.id && target.id === passingTarget()?.id,
     preparePassing: target => queueClient?.preparePassing(target) ?? false, state: () => root.partyCombatState,
-    equipmentBusy: () => !!equipment?.busy(),
+    equipmentBusy: () => !!equipment?.busy() || !!luckSwap?.busy(),
     skillAttack: target => skills?.attack(target) ?? null,
     skillBusy: () => skills?.busy() ?? false,
     report: reportError,
@@ -191,6 +193,7 @@ export function installRoleRunner(
     const actor = character as typeof character & { damage_type?: string };
     const target = sharedRoutine.equipmentTarget ? sharedRoutine.equipmentTarget() : currentTarget();
     equipment?.tick(target, actor.damage_type, Number(character.range), combatAllowed());
+    luckSwap?.tick(combatAllowed() ? currentTarget() : null);
   }
   function frankyMovement(): boolean {
     if (!sharedRoutine.frankyCombatActive?.()) return false;
@@ -313,6 +316,10 @@ export function installRoleRunner(
       if (timer) return;
       skills = installSkillRuntime(root);
       equipment = installPorcupineEquipment(root);
+      luckSwap = installKillLuckSwap(root, {
+        lethalBasicAttack: target => skills?.lethalBasicAttack(target) ?? false,
+        endangeredSelf: () => skills?.endangeredSelf() ?? false,
+      }, equipment);
       game_log(character.name + " loaded generic " + resolvedRole().name + " behavior", "#51D2E1");
       active = true;
       root.partyCombatState = { at: Date.now(), stage: "start", error: null };
