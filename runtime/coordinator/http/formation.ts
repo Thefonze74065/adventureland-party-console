@@ -39,6 +39,11 @@ export function createFormationRoute(state: FormationState, ports: FormationPort
     ];
     return null;
   }
+  function assignManaged(value: unknown): { name: string | null } | null {
+    if (value === null) return { name: null };
+    const name = requestText(value);
+    return ports.managed(name) ? { name } : null;
+  }
   function character(body: Record<string, unknown>): FormationError | null {
     const name = requestText(body.character);
     if (!ports.owned(name)) return { code: 400, error: "invalid character" };
@@ -56,14 +61,14 @@ export function createFormationRoute(state: FormationState, ports: FormationPort
     const previous = { leader: state.leader, followers: { ...state.followers } };
     const body = requestObject(req.body);
     if (body.leader !== undefined) {
-      if (body.leader !== null && !ports.managed(requestText(body.leader)))
-        return res.status(400).json({ error: "unknown leader" });
-      state.leader = body.leader === null ? null : requestText(body.leader);
+      const next = assignManaged(body.leader);
+      if (!next) return res.status(400).json({ error: "unknown leader" });
+      state.leader = next.name;
     }
     if (body.tank !== undefined) {
-      if (body.tank !== null && !ports.managed(requestText(body.tank)))
-        return res.status(400).json({ error: "unknown tank" });
-      state.designatedTank = body.tank === null ? null : requestText(body.tank);
+      const next = assignManaged(body.tank);
+      if (!next) return res.status(400).json({ error: "unknown tank" });
+      state.designatedTank = next.name;
     }
     const error = body.character !== undefined ? character(body) : null;
     if (error) return res.status(error.code).json({ error: error.error });
