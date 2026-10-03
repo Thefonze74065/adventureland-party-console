@@ -20,6 +20,7 @@ export function initialPartySelection(saved: SavedPartySelection) {
   return {
     location: saved.location || null,
     leader: saved.leader || null,
+    designatedTank: saved.designatedTank || null,
     followers: saved.followers || {},
     eventsByCharacter: saved.eventsByCharacter || {},
     eventSelectionsByCharacter: saved.eventSelectionsByCharacter || {},

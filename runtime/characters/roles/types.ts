@@ -27,6 +27,8 @@ export interface SharedCombat {
   combatSkillReady?(id: import('../skills/types.ts').SkillId, target: Target, category: import('../skills/types.ts').Spending): boolean;
   castCombatSkill?(id: import('../skills/types.ts').SkillId, target: Target, category: import('../skills/types.ts').Spending): Promise<boolean>;
   isLeader?(): boolean;
+  hasDesignatedTank?(): boolean;
+  isTank?(): boolean;
   queueEvidence?(target: Target, state: 'pending' | 'engaged' | 'rejected', action?: string): string | null;
   equipmentTarget?(): { id: string; mtype?: string } | null;
   getRareTarget?: TargetGetter;

@@ -18,6 +18,7 @@ import { PartyCreateCharacter } from "./party-create-character";
 import { PartyMerchantCommerceDialog } from "./party-merchant-commerce-dialog";
 import { PartySendMailDialog } from "./party-send-mail-dialog";
 
+import { PartyRolesSettings } from "./party-roles-settings";
 import { ConnectedCharacterCard } from "./connected-character-card";
 import { useCharacterCardModels } from './character-card-model';
 import { PendingCharacterCards, pendingCharacters } from './pending-character-cards';
@@ -41,10 +42,16 @@ export function PartyWorkspace({ model }: { model: PartyConsoleModel }) {
             {model.coordinatorLoading ? 'Party Console is loading…' : model.coordinatorUnavailable ? 'Reconnecting to Party Console…' : <p>No characters connected yet. Load a character or <button type="button" className="rounded border border-cyan-700 bg-[#071315] px-2 text-cyan-200 hover:bg-cyan-950 hover:text-cyan-100" onClick={() => window.location.assign('/setup')}>open setup</button> to link Steam.</p>}
           </div>
         ) : (
+          <>
+          <PartyRolesSettings
+            tank={state.designatedTank || null}
+            characters={chars.map((char) => char.name)}
+            onSelectTank={(tank) => formation({ tank })}
+          />
           <RadioGroup
             value={state.leader || ""}
             onValueChange={(value) => formation({ leader: value })}
-            className="grid items-start gap-4 @3xl:grid-cols-2 @7xl:grid-cols-4"
+            className="mt-4 grid items-start gap-4 @3xl:grid-cols-2 @7xl:grid-cols-4"
           >
             {chars.filter(char => !pending.some(entry => entry.name === char.name)).map(char => <ConnectedCharacterCard key={char.name} name={char.name} model={cardModels.card} inventoryModel={cardModels.inventory} />)}
             <PendingCharacterCards model={model} />
@@ -75,6 +82,7 @@ export function PartyWorkspace({ model }: { model: PartyConsoleModel }) {
             </Button>
             <EscapeControl />
           </RadioGroup>
+          </>
         )}
         <PartyItemDetails model={model} />
         {huntSetup !== null && (

@@ -3,7 +3,8 @@ import { cost, reserve, unlocked } from './eligibility.ts';
 import { endangered, incomingDps, safeTransfer } from './damage.ts';
 
 export function absorbDecision(w: SkillWorld): SkillDecision | null {
-  if (w.actor.ctype !== 'priest' || w.context.leader !== w.actor.name) return null;
+  const aggroOwner = w.context.tank || w.context.leader;
+  if (w.actor.ctype !== 'priest' || aggroOwner !== w.actor.name) return null;
   if (w.actor.mp - cost(w, 'absorb') < cost(w, 'heal')) return null;
   const ally = w.context.allies.filter(a => a.name !== w.actor.name &&
     w.context.monsters.some(m => m.target === a.name) && safeTransfer(w, a))

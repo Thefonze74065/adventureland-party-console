@@ -2,6 +2,7 @@ import { requestObject, requestText, type HttpRequest, type HttpResponse } from 
 
 interface FormationState {
   leader: string | null;
+  designatedTank: string | null;
   merchantCharacter: string | null;
   followers: Record<string, boolean>;
   eventsByCharacter: Record<string, boolean>;
@@ -59,6 +60,11 @@ export function createFormationRoute(state: FormationState, ports: FormationPort
         return res.status(400).json({ error: "unknown leader" });
       state.leader = body.leader === null ? null : requestText(body.leader);
     }
+    if (body.tank !== undefined) {
+      if (body.tank !== null && !ports.managed(requestText(body.tank)))
+        return res.status(400).json({ error: "unknown tank" });
+      state.designatedTank = body.tank === null ? null : requestText(body.tank);
+    }
     const error = body.character !== undefined ? character(body) : null;
     if (error) return res.status(error.code).json({ error: error.error });
     ports.changed?.(previous);
@@ -66,6 +72,7 @@ export function createFormationRoute(state: FormationState, ports: FormationPort
     return res.json({
       ok: true,
       leader: state.leader,
+      tank: state.designatedTank,
       followers: state.followers,
       eventsByCharacter: state.eventsByCharacter,
       eventSelectionsByCharacter: state.eventSelectionsByCharacter,

@@ -36,7 +36,7 @@ export function reserve(w: SkillWorld): number {
   const c = w.actor.ctype;
   if (c === 'paladin') return Math.max(w.actor.max_mp * .3, 2 * availableCost('selfheal') + availableCost('guardians_oath'));
   if (c === 'priest') return Math.max(w.actor.max_mp * .35, 2 * cost(w, 'heal') + availableCost('partyheal'));
-  if (c === 'warrior') return (w.context.leader === w.actor.name ? availableCost('taunt') : 0) +
+  if (c === 'warrior') return ((w.context.tank || w.context.leader) === w.actor.name ? availableCost('taunt') : 0) +
     Math.max(availableCost('stomp'), availableCost('hardshell'));
   return w.actor.max_mp * .2;
 }
@@ -70,7 +70,7 @@ export function blocked(w: SkillWorld, d: SkillDecision, pending = 0): string | 
   return manaBlock(w, d, pending) || targetBlock(w, d);
 }
 function ownsAggro(w: SkillWorld, d: SkillDecision): boolean {
-  return !['absorb', 'taunt', 'agitate'].includes(d.skill) || w.context.leader === w.actor.name;
+  return !['absorb', 'taunt', 'agitate'].includes(d.skill) || (w.context.tank || w.context.leader) === w.actor.name;
 }
 function manaBlock(w: SkillWorld, d: SkillDecision, pending: number): string | null {
   const remaining = w.actor.mp - pending - cost(w, d.skill);

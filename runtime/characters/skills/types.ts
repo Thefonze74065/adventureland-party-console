@@ -23,6 +23,7 @@ export type Actor = Omit<Character, 's'> & { s: Conditions; damage_type?: Damage
 export type Spending = 'survival' | 'maintenance' | 'damage';
 export interface CombatContext {
   leader: string;
+  tank: string | null;
   allies: Combatant[];
   monsters: Combatant[];
   mode: 'grouped' | 'scatter' | 'event' | 'blocked';

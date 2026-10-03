@@ -354,6 +354,7 @@
   var lastCommand = Number(root.__partyLastCommand) || 0;
   var partyLocation = null;
   var leader = null;
+  var tank = null;
   var followLeader = false;
   var desiredPartyMembers = [];
   var partySyncBusy = false;
@@ -10097,6 +10098,7 @@
       farmTravelPaused = !!state.farmTravelPaused;
       bankQueued = !!state.bankQueued;
       leader = state.leader || null;
+      tank = state.designatedTank || null;
       var followedBeforeRefresh = followLeader;
       followLeader = !!state.followLeader;
       partyTownActive = character.ctype !== "merchant" && !!state.partyTownActive;
@@ -15707,8 +15709,36 @@
     return false;
   }
 
+  // Generalizes Franky's off-tank "stack tight" clamp (see the stackRange branch in
+  // frankyMovementTick) to normal grouped combat: the designated tank holds near-melee
+  // range regardless of its own weapon range, so a ranged class can be assigned to tank.
+  function tankMovementTick(target) {
+    if (!target || target.dead) return false;
+    var stackRange = Math.min(desiredCombatRange(), 30);
+    if (combatDistance(target) <= stackRange + 5) {
+      resetCombatMovement();
+      root.partyCombatPosition = { at: Date.now(), mode: "tank-holding", movementOwner: "combat",
+        target: target.id, reason: "Holding melee range as the designated tank" };
+      return true;
+    }
+    var destination = combatApproachPoint(target, stackRange);
+    var dx = destination.x - character.x, dy = destination.y - character.y;
+    var step = Math.min(Math.hypot(dx, dy), Math.max(1, Number(character.speed || 40) * 0.6));
+    var angle = Math.atan2(dy, dx);
+    for (var offsets = [0, 0.4, -0.4, 0.8, -0.8], i = 0; i < offsets.length; i++) {
+      var point = { x: character.x + Math.cos(angle + offsets[i]) * step,
+        y: character.y + Math.sin(angle + offsets[i]) * step };
+      if (safeCombatPoint(point, target)) return sendCombatMove(target, point, "tank-approaching");
+    }
+    resetCombatMovement();
+    root.partyCombatPosition = { at: Date.now(), mode: "blocked", movementOwner: "combat",
+      target: target.id, reason: "No terrain-clear approach for the designated tank" };
+    return true;
+  }
+
   async function approachCombatTarget(target) {
     if (typeof frankyCombatActive === "function" && frankyCombatActive()) return frankyMovementTick(target);
+    if (tank && tank === character.name) return tankMovementTick(target);
     return engageMovementTick(target);
   }
 
@@ -16078,6 +16108,8 @@
       return !!(leaderStatus && leaderStatus.team === eventTeam(character));
     },
     isLeader: function () { return (leader || character.name) === character.name; },
+    hasDesignatedTank: function () { return !!tank; },
+    isTank: function () { return !!tank && tank === character.name; },
     combatContext: function () {
       var event = character.cave ? { name: "cave", types: [] } : activeCombatEvent();
       var roster = currentPartyList();
@@ -16096,7 +16128,7 @@
       var eventCombat = !!character.cave || event && (joinedEvent === event.name ||
         G.maps[character.map] && G.maps[character.map].event === event.name ||
         monsters.some(function(m){return event.types.indexOf(m.mtype) >= 0;}));
-      return { leader: leader || character.name, allies: allies, monsters: monsters,
+      return { leader: leader || character.name, tank: tank || null, allies: allies, monsters: monsters,
         event: eventCombat ? event.name : null,
         mode: root.sharedRoutine.isOccupied() || isLiveAbtesting() ? "blocked" : eventCombat ? "event" : !character.cave && farmingMode === "scatter" ? "scatter" : "grouped",
         observedAt: parent.socket && parent.socket.connected ? Date.now() : 0 };

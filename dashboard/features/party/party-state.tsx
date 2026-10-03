@@ -110,6 +110,7 @@ export type PartyState = {
   goldTargets?: Record<string, number>;
   withdrawals?: Record<string, Withdrawal[]>;
   leader?: string | null;
+  designatedTank?: string | null;
   followers?: Record<string, boolean>;
   eventsByCharacter?: Record<string, boolean>;
   eventSelectionsByCharacter?: Record<string, string[]>;

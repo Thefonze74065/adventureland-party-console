@@ -172,6 +172,25 @@ Validate `live-merchant-config.spec.ts` plus merchant dialog console journeys.
 Coordinator/dashboard changes can use the supported coordinator-only restart;
 a full restart also publishes the current character assets.
 
+## Designated tank
+
+A per-party `POST /party-api/formation` field, `tank: string | null`, names one
+character (any class) to hold melee range and own aggro-pulling for normal grouped
+combat, addressing issue #39. `approachCombatTarget()` routes the designated tank
+through `tankMovementTick()` — a class-agnostic adaptation of Franky's off-tank
+"stack tight" clamp (`Math.min(desiredCombatRange(), 30)`) — instead of each class's
+own weapon-range `engageMovementTick()`; every other character's positioning is
+unchanged. `mayTaunt()` and the skill engine's `absorb`/`agitate` aggro-ownership
+checks (`CombatContext.tank`) are gated on the designated tank when one exists,
+falling back to the existing leader-only rule when none is set — this also lets a
+non-leader priest tank via `absorb`, per the issue's own example. No hold-back is
+added for non-tank characters; they keep today's approach/attack timing and are only
+barred from *stealing* aggro via taunt/absorb.
+
+Validate `live-designated-tank.spec.ts`. The role/route/broadcast plumbing activates
+with the supported coordinator-only restart; the movement, taunt-gating and luck-swap
+behavior are character-asset changes and require the full supported restart.
+
 A stop-required rare encountered during Hunt travel retains its convoy loot owner.
 The native passive-Goo journey exposed two competing loot barriers: the convoy
 finished its leader loot pass and resumed, but rare hunting kept waiting for a

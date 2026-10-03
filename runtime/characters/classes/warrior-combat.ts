@@ -27,8 +27,11 @@ export async function scatterAttack(target: Target): Promise<boolean> {
   }
   return approach(target);
 }
+function ownsAggroPull(): boolean {
+  return sharedRoutine.hasDesignatedTank?.() ? !!sharedRoutine.isTank?.() : !!sharedRoutine.isLeader?.();
+}
 export function mayTaunt(target: Target): boolean {
-  if (!sharedRoutine.isLeader?.()) return false;
+  if (!ownsAggroPull()) return false;
   if (character.level < (G.skills.taunt?.level || 0)) return false;
   target = get_entity(target.id) || target;
   return tauntTarget(target) && tauntReady(target);

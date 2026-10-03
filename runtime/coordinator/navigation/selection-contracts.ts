@@ -12,6 +12,7 @@ export interface SavedPartySelection {
   navigationIntents?: Record<string, NavigationIntent | undefined> | null;
   location?: ReturnLocation | null;
   leader?: string | null;
+  designatedTank?: string | null;
   followers?: Record<string, boolean> | null;
   eventsByCharacter?: Record<string, boolean> | null;
   eventSelectionsByCharacter?: Record<string, string[]> | null;
