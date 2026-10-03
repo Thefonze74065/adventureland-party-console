@@ -1629,6 +1629,11 @@ dashboard live fields. When recovery keeps failing, the merchant card offers "Cl
 lucky-slot journal" (`POST /party-api/merchant/clear-lucky-journal`): the character drops the
 journal, refusing while an upgrade is in flight, and leaves every item where it is. Character changes
 require the full restart workflow; the discard ships in the staged character generation.
+`/party-api/town-party` assigns travel commands directly rather than going through the merchant
+queue, so it bypasses that hold; it now leaves the merchant out of the travel batch while
+`upgradeInventoryBusy` is set, reporting `merchantHeld: true`, instead of being the thing that
+interrupts the swap. `/party-api/bank-party` only queues merchant work and was already covered by
+the dispatcher hold. Coordinator-only restart activates both files.
 
 ## Stuck production journal review
 

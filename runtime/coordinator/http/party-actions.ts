@@ -9,7 +9,7 @@ interface PartyActionState {
   navigationIntents?: Record<string, { revision: number } | undefined>;
   leader: string | null;
   merchantCharacter: string | null;
-  statuses: Record<string, { seenAt: number; map: string; x: number; y: number } | undefined>;
+  statuses: Record<string, { seenAt: number; map: string; x: number; y: number; upgradeInventoryBusy?: boolean } | undefined>;
   location: ReturnLocation | null;
   commands: Record<string, unknown>;
   townCycle: { id: string; pending: string[]; startedAt: number; revisions?: Record<string, number> } | null;
@@ -100,7 +100,13 @@ export function createPartyActionRoutes(state: PartyActionState, ports: PartyAct
   function town(_req: HttpRequest, res: HttpResponse): unknown {
     if (exitDungeon(res)) return;
     ports.release();
-    const names = ports.members().filter((name) => ports.active().includes(name));
+    // Unlike /bank-party (which only queues merchant work the dispatcher already holds while
+    // upgradeInventoryBusy), this assigns travel commands directly, bypassing that hold. Leaving
+    // the merchant out while it's mid lucky-slot/production swap stops this from being the thing
+    // that interrupts it and strands a journal (#47).
+    const merchant = state.merchantCharacter;
+    const merchantHeld = !!merchant && !!state.statuses[merchant]?.upgradeInventoryBusy;
+    const names = ports.members().filter((name) => ports.active().includes(name) && !(merchantHeld && name === merchant));
     ports.invalidate(ports.members(), "manual Town", true);
     const cycleId = "town-" + ports.now() + "-" + ports.nextCommand();
     state.townCycle = names.length
@@ -110,7 +116,7 @@ export function createPartyActionRoutes(state: PartyActionState, ports: PartyAct
     for (const name of names)
       state.commands[name] = { id: ports.nextCommand(), type: "town-party", cycleId };
     ports.persist();
-    return res.json({ ok: true, queued: names });
+    return res.json({ ok: true, queued: names, ...(merchantHeld ? { merchantHeld: true } : {}) });
   }
   function upgrades(_req: HttpRequest, res: HttpResponse): unknown {
     const names = ports
