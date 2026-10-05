@@ -130,6 +130,12 @@ walked. Handoffs that must unequip marked gear still wait for combat.
 Validate `npm test -- -- --project=live --grep "full-bag cleanout transfers cargo"`
 and publish character assets through the ordinary full restart.
 
+Halloween attendance and its routines (`encounterModes.halloween`, deaths counted
+per encounter in `events/franky-auto-tank.ts`) are described in
+docs/events-and-anniversary.md. Failure inventory: `e2e/halloween-failures.md`.
+Validate `live-halloween.spec.ts` and the live Franky specs, and publish character
+assets through the ordinary full restart.
+
 Marked withdrawals create merchant jobs by default at priority 90. The checkbox
 in Merchant settings controls the separate Marked withdrawals routine. Merchant
 heartbeats queue one bank visit for pending plain withdrawal marks, including

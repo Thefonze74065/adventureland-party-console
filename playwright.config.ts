@@ -7,7 +7,7 @@ export default defineConfig({
   projects: [
     { name: 'debug', testMatch: ['**/debug-instance.spec.ts', '**/debug-container.spec.ts'] },
     { name: 'console', testMatch: ['**/console.spec.ts', '**/hunt.spec.ts'] },
-    { name: 'live', testMatch: ['**/live-cave.spec.ts', '**/live-game.spec.ts', '**/live-economy.spec.ts', '**/live-bankboi.spec.ts', '**/live-catalog.spec.ts', '**/live-franky.spec.ts', '**/live-franky-party.spec.ts', '**/live-franky-encounter-mode.spec.ts', '**/live-hunt-*.spec.ts', '**/live-solo-ranger.spec.ts', '**/live-merchant-config.spec.ts', '**/live-stale-merchant.spec.ts', '**/live-designated-tank.spec.ts', '**/live-phoenix-search.spec.ts'],
+    { name: 'live', testMatch: ['**/live-cave.spec.ts', '**/live-game.spec.ts', '**/live-economy.spec.ts', '**/live-bankboi.spec.ts', '**/live-catalog.spec.ts', '**/live-franky.spec.ts', '**/live-franky-party.spec.ts', '**/live-franky-encounter-mode.spec.ts', '**/live-hunt-*.spec.ts', '**/live-solo-ranger.spec.ts', '**/live-merchant-config.spec.ts', '**/live-stale-merchant.spec.ts', '**/live-designated-tank.spec.ts', '**/live-phoenix-search.spec.ts', '**/live-halloween.spec.ts'],
       use: { trace: { mode: 'on', snapshots: false, screenshots: false, sources: true } } },
   ],
   fullyParallel: false,

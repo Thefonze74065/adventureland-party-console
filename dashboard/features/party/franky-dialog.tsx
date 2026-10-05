@@ -9,6 +9,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { useEffect, useState } from "react";
 
+type Encounter = "franky" | "halloween";
+const encounterCopy: Record<Encounter, { title: string; boss: string; offtank: string; tank: string }> = {
+  franky: { title: "Franky routine", boss: "Franky", offtank: "Stack on whoever else has aggro; leave the room if Franky targets you",
+    tank: "Engage Franky directly and hold at weapon range, like normal combat" },
+  halloween: { title: "Halloween routine", boss: "the Halloween boss",
+    offtank: "Attack once someone else has held the boss for 5 seconds; step out of its range if it targets you",
+    tank: "Engage Mr. Pumpkin or Mr. Green directly and hold at weapon range" },
+};
 const frankyModes: { id: string; label: string; description: string; color: string }[] = [
   {
     id: "auto",
@@ -31,6 +39,7 @@ const frankyModes: { id: string; label: string; description: string; color: stri
 ];
 
 export function FrankyDialog({
+  encounter = "franky",
   open,
   onOpenChange,
   character,
@@ -41,6 +50,7 @@ export function FrankyDialog({
   autoDeaths,
   onAutoDeathLimitChange,
 }: {
+  encounter?: Encounter;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   character: string;
@@ -65,7 +75,7 @@ export function FrankyDialog({
     try {
       await onSelect(id);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save Franky routine");
+      setError(e instanceof Error ? e.message : "Could not save " + encounterCopy[encounter].title.toLowerCase());
     } finally {
       setBusy(null);
     }
@@ -90,9 +100,9 @@ export function FrankyDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="border-amber-800 bg-[#0b1110] text-emerald-50 sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-amber-200">Franky routine · {character}</DialogTitle>
+          <DialogTitle className="text-amber-200">{encounterCopy[encounter].title} · {character}</DialogTitle>
           <DialogDescription className="text-emerald-100/60">
-            Choose how this character reacts to Franky's aggro once he's live.
+            Choose how this character reacts to {encounterCopy[encounter].boss}&apos;s aggro once it&apos;s live.
           </DialogDescription>
         </DialogHeader>
         {inherited && <p className="text-xs text-cyan-100">Inherited from the leader.</p>}
@@ -109,7 +119,9 @@ export function FrankyDialog({
               }`}
             >
               <p className="font-mono text-xs uppercase">{busy === entry.id ? "Saving…" : entry.label}</p>
-              <p className="mt-0.5 text-xs font-normal opacity-90">{entry.description}</p>
+              <p className="mt-0.5 text-xs font-normal opacity-90">
+                {entry.id === "offtank" ? encounterCopy[encounter].offtank : entry.id === "tank" ? encounterCopy[encounter].tank : entry.description}
+              </p>
             </button>
           ))}
         </div>
@@ -121,7 +133,7 @@ export function FrankyDialog({
         <div className="rounded border border-slate-700 bg-black/30 p-3">
           <p className="text-xs text-emerald-100/80">
             In Auto mode, this character tries Tank first. After this many deaths to
-            Franky while auto-tanking, Auto switches to Off-tank for good. Set to 0 to
+            {" "}{encounterCopy[encounter].boss} while auto-tanking, Auto switches to Off-tank for good. Set to 0 to
             skip Tank entirely in Auto mode. Raising the limit later lets it try Tank again.
           </p>
           <div className="mt-2 flex items-center gap-2">

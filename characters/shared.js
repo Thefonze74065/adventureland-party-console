@@ -410,7 +410,7 @@
   var monsterSearchRadius = 400;
   var farmingMode = "default";
   var farmingPolicy = "auto";
-  var frankyRoutine = "auto";
+  var frankyRoutine = "auto", halloweenRoutine = "auto";
   var huntCombatTarget = null;
   var farmingModeResetUntil = 0;
   var scatterMonsterTypes = {};
@@ -10344,16 +10344,17 @@
       // (configurable, matching runtime/coordinator/events/franky-auto-tank.ts's
       // defaultFrankyAutoTankDeathLimit) it falls back to off-tank for good. A
       // death limit of 0 skips the tank attempt entirely.
-      var savedFrankyMode = state.encounterRoutines && typeof state.encounterRoutines.franky === "string"
-        ? state.encounterRoutines.franky : "auto";
-      if (savedFrankyMode === "auto") {
-        var frankyAutoDeathLimit = state.encounterAutoDeathLimits && typeof state.encounterAutoDeathLimits.franky === "number"
-          ? state.encounterAutoDeathLimits.franky : 3;
-        var frankyAutoDeaths = (state.encounterAutoDeaths && state.encounterAutoDeaths.franky) || 0;
-        frankyRoutine = frankyAutoDeathLimit > 0 && frankyAutoDeaths < frankyAutoDeathLimit ? "tank" : "offtank";
-      } else {
-        frankyRoutine = savedFrankyMode;
-      }
+      var encounterRoutine = function (encounter) {
+        var saved = state.encounterRoutines && typeof state.encounterRoutines[encounter] === "string"
+          ? state.encounterRoutines[encounter] : "auto";
+        if (saved !== "auto") return saved;
+        var limit = state.encounterAutoDeathLimits && typeof state.encounterAutoDeathLimits[encounter] === "number"
+          ? state.encounterAutoDeathLimits[encounter] : 3;
+        var deaths = (state.encounterAutoDeaths && state.encounterAutoDeaths[encounter]) || 0;
+        return limit > 0 && deaths < limit ? "tank" : "offtank";
+      };
+      frankyRoutine = encounterRoutine("franky");
+      halloweenRoutine = encounterRoutine("halloween");
       huntCombatTarget = state.huntCombatTarget || null;
       farmingMode = character.ctype !== "merchant" && state.partyFarmingMode === "scatter" ? "scatter" : "default";
       partyFarmingMonsterType = typeof state.partyFarmingMonsterType === "string" ? state.partyFarmingMonsterType : null;
@@ -10395,7 +10396,41 @@
     }
   }
 
+  // Halloween is a month-long season (`S.halloween === true`); what the party
+  // attends is whichever of its bosses is live. They are broadcast like Snowman.
+  function halloweenBosses() { return ["mrpumpkin", "mrgreen"]; }
+  function halloweenStatus(status) {
+    var live = halloweenBosses().map(function (boss) {
+      var state = status[boss];
+      return state && typeof state === "object" && state.live !== false && state.map &&
+        Number.isFinite(Number(state.x)) && Number.isFinite(Number(state.y)) ? Object.assign({ boss: boss }, state) : null;
+    }).filter(Boolean);
+    live.sort(function (a, b) {
+      return Number(b.map === character.map) - Number(a.map === character.map) ||
+        (Number(a.hp) / Number(a.max_hp) || 1) - (Number(b.hp) / Number(b.max_hp) || 1);
+    });
+    if (live.length) {
+      // The broadcast x/y follows the roaming boss, so clients reading it moments
+      // apart disagree and the coordinator cannot merge their party walk. Walk to
+      // the fixed spawn area instead; combat takes over once the boss is visible.
+      var spawn = ((G.maps && G.maps[live[0].map] && G.maps[live[0].map].monsters) || []).find(function (entry) {
+        return entry && entry.type === live[0].boss && Array.isArray(entry.boundary);
+      });
+      var anchor = spawn ? { x: (spawn.boundary[0] + spawn.boundary[2]) / 2, y: (spawn.boundary[1] + spawn.boundary[3]) / 2 } : {};
+      return Object.assign({}, live[0], anchor, { live: true, id: live[0].boss, bossX: live[0].x, bossY: live[0].y });
+    }
+    var spawn = null;
+    halloweenBosses().forEach(function (boss) {
+      var state = status[boss], at = state && state.live === false ? eventEpoch(state.spawn) : 0;
+      if (at && (!spawn || at < eventEpoch(spawn))) spawn = state.spawn;
+    });
+    return spawn ? { live: false, spawn: spawn } : { live: false };
+  }
   function eventStatus() {
+    var status = rawEventStatus();
+    return status.halloween ? Object.assign({}, status, { halloween: halloweenStatus(status) }) : status;
+  }
+  function rawEventStatus() {
     var raw = typeof server !== "undefined" && server && server.status || parent.server && parent.server.status || parent.S || {};
     if (!eventClockOffset) return raw;
     var corrected = {};
@@ -11584,6 +11619,7 @@
     // Goo Brawl starts with ordinary Brawl Goos and later spawns the Rainbow
     // Goo. Keep both eligible; nearestEventTarget applies its two-phase rule.
     if (eventName === "goobrawl") candidates = ["rgoo", "bgoo", "goo"].concat(candidates);
+    if (eventName === "halloween") candidates = halloweenBosses();
     return candidates.filter(function (type, index, all) {
       return type && G.monsters && G.monsters[type] && all.indexOf(type) === index;
     });
@@ -11596,7 +11632,7 @@
   function eventIsSupported(eventName) {
     // Snowman is a live, open-world boss. It appears in server.status like
     // instanced events do, but has no join action; travel to it normally.
-    return eventRequiresJoin(eventName) || eventName === "snowman";
+    return eventRequiresJoin(eventName) || eventName === "snowman" || eventName === "halloween";
   }
 
   function eventMapName(eventName) {
@@ -11711,6 +11747,33 @@
       (!target.map || target.map === character.map) && (target.in == null || target.in === character.in);
   }
 
+  // Halloween bosses are fought on open maps; attendance begins once event travel
+  // has joined the live boss (there is no event map) and follows Franky's guards.
+  function halloweenCombatActive() {
+    return eventSelected("halloween") && joinedEvent === "halloween" &&
+      !navigationIntent.cancelled && !escapeOwns() && !eventExitOwnsMovement() &&
+      !convoyTraveling && !townTraveling && !partyTownActive && !forceTraveling &&
+      !eventTraveling && !root.__partySharedWalking &&
+      !banking && !stocking && !upgrading && !anniversaryBusy && !anniversaryStaging;
+  }
+  function halloweenTargetAllowed(target) {
+    return !!target && target.type === "monster" && halloweenBosses().indexOf(target.mtype) >= 0 &&
+      target.visible !== false && !target.dead && target.hp !== 0 &&
+      (!target.map || target.map === character.map) && (target.in == null || target.in === character.in);
+  }
+  // Boss-only encounters (Franky, Halloween) share targeting, skill and hold policy.
+  function bossEncounter() {
+    if (typeof frankyCombatActive === "function" && frankyCombatActive()) return "franky";
+    if (typeof halloweenCombatActive === "function" && halloweenCombatActive()) return "halloween";
+    return null;
+  }
+  function bossCombatActive() { return !!bossEncounter(); }
+  function bossTargetAllowed(target) {
+    var encounter = bossEncounter();
+    return encounter === "franky" ? frankyTargetAllowed(target) : encounter === "halloween" ? halloweenTargetAllowed(target) : false;
+  }
+  function bossRoutine() { return bossEncounter() === "halloween" ? halloweenRoutine : frankyRoutine; }
+
   // Off-tank waits until another visible, living player has held Franky this long.
   var frankyHoldMinMs = 5000;
   var frankyHold = { id: null, holder: null, since: 0 };
@@ -11784,8 +11847,8 @@
 
   function nearestEventTarget() {
     if (joinedEvent && !eventSelected(joinedEvent) || travellingEventName && !eventSelected(travellingEventName)) return null;
-    if (typeof frankyCombatActive === "function" && frankyCombatActive()) {
-      var bosses = Object.values(parent.entities || {}).filter(frankyTargetAllowed);
+    if ((typeof bossCombatActive === "function" ? bossCombatActive() : typeof frankyCombatActive === "function" && frankyCombatActive())) {
+      var bosses = Object.values(parent.entities || {}).filter((typeof bossTargetAllowed === "function" ? bossTargetAllowed : frankyTargetAllowed));
       var retained = bosses.find(function (target) { return target.id === combatTargetId; });
       bosses.sort(function (a, b) {
         return Math.hypot(a.x - character.x, a.y - character.y) -
@@ -12677,7 +12740,7 @@
   }
 
   async function dashToward(target) {
-    if (typeof frankyCombatActive === "function" && frankyCombatActive()) return false;
+    if ((typeof bossCombatActive === "function" ? bossCombatActive() : typeof frankyCombatActive === "function" && frankyCombatActive())) return false;
     if (typeof groupedFarming === "function" && groupedFarming() && formationMembers().some(function (member) { return member.ctype === "priest"; })) return false;
     if (character.ctype !== "warrior" || !target || character.max_mp <= 0 ||
         character.mp / character.max_mp < 0.5 || character.mp < G.skills.dash.mp ||
@@ -13378,8 +13441,9 @@
     if (character.cave || typeof root !== "undefined" && root.__partyDungeonRuntime && root.__partyDungeonRuntime.owns()) return dungeonTargetAllowed(target);
     if(typeof returnCombatActive==='function' && returnCombatActive())return returnAttacker(target);
     function reject(reason) { if (diagnostic) diagnostic.reason = reason; return false; }
-    if (typeof frankyCombatActive === "function" && frankyCombatActive() && !frankyTargetAllowed(target))
-      return reject("Franky attendance only permits the Franky monster");
+    var bossActive = (typeof bossCombatActive === "function" ? bossCombatActive() : typeof frankyCombatActive === "function" && frankyCombatActive());
+    if (bossActive && !(typeof bossTargetAllowed === "function" ? bossTargetAllowed : frankyTargetAllowed)(target))
+      return reject(typeof bossEncounter === "function" && bossEncounter() === "halloween" ? "Halloween attendance only permits its bosses" : "Franky attendance only permits the Franky monster");
     var huntTravel = huntTravelCommand && huntTravelCommand.purpose === "monster-hunt" &&
       huntTravelCommand.combatHandoffAllowed === true && huntTravelCommand.huntTarget === (target && target.mtype);
     huntTravel = huntTravel || !!(huntTravelCommand && ['', 'party-travel', 'farm-relocation', 'manual-monster-override'].indexOf(huntTravelCommand.purpose || '')>=0 && huntTravelCommand.combatHandoffAllowed === true);
@@ -13394,13 +13458,18 @@
           return t.id===target.id && t.map===character.map && t.in===character.in && t.server===reunionRealm();
         }))) return reject("combat recovery owns target");
     if (typeof root !== "undefined" && root.partyRoleRunner && root.partyRoleRunner.isKnownDead && root.partyRoleRunner.isKnownDead(target.id)) return reject("confirmed death");
-    if (typeof frankyCombatActive === "function" && frankyCombatActive()) {
+    if (bossActive) {
       // Off-tank positioning alone doesn't stop ranged pulls; attacks and skills wait for a proven holder.
-      if (frankyRoutine === "offtank" && !frankyHeldByOther(target) && !frankyKeepaliveDue(target))
-        return reject("Off-tank waits for someone else to hold Franky for 5 seconds");
+      if ((typeof bossRoutine === "function" ? bossRoutine() : frankyRoutine) === "offtank" && !frankyHeldByOther(target) && !frankyKeepaliveDue(target))
+        return reject("Off-tank waits for someone else to hold the boss for 5 seconds");
       return true;
     }
     if (target.mtype === "fieldgen0") return reject("excluded monster");
+    if (target.mtype === "phoenix" && typeof rareSearchKind === "function") {
+      // Scattered searchers hold fire until the party gathers, unless it is already a fight.
+      if (rareSearchKind() && !target.target) return reject("Phoenix search holds fire until the party gathers");
+      if (rareActive() && rareControlState.kind === "engage" && rareTarget() && rareTarget().id === target.id) return true;
+    }
     // Acquisition nominates a new target; only actual combat requires the group selection lock.
     // An attack already pending or engaged must still finish before another hunt pull.
     if (huntTravel && typeof unfinishedFight === "function" && unfinishedFight()) return reject("unfinished group fight");
@@ -15101,7 +15170,7 @@
 
   var formationPerformance = { ticks: 0, totalMs: 0, maxMs: 0, candidates: 0, collisionChecks: 0 };
   function formationMove(target) {
-    if (typeof frankyCombatActive === "function" && frankyCombatActive()) return false;
+    if ((typeof bossCombatActive === "function" ? bossCombatActive() : typeof frankyCombatActive === "function" && frankyCombatActive())) return false;
     if(!character.cave && root.partyQueueClient && root.partyQueueClient.formation && root.partyQueueClient.formation.movement())return true;
     var context = [character.map, character.in, character.rip, joinedEvent, eventTraveling].join(":");
     if (formationState.mapContext !== context) {
@@ -15521,7 +15590,7 @@
     return best ? sendCombatMove(target, best, "event-kiting") : false;
   }
   async function kiteIfNeeded(target) {
-    if (typeof frankyCombatActive === "function" && frankyCombatActive()) return false;
+    if ((typeof bossCombatActive === "function" ? bossCombatActive() : typeof frankyCombatActive === "function" && frankyCombatActive())) return false;
     if(typeof returnCombatActive==='function' && returnCombatActive())return false;
     var attacker = target && target.target === character.name ? target : Object.keys(parent.entities || {})
       .map(function (id) { return parent.entities[id]; }).filter(function (enemy) {
@@ -15650,11 +15719,11 @@
   // cause a retreat or prevent closing on Franky, and once in range he is held
   // even when closer than the weapon range.
   function frankyTankMovementTick(target) {
-    if (!frankyTargetAllowed(target) || is_in_range(target)) {
+    if (!(typeof bossTargetAllowed === "function" ? bossTargetAllowed : frankyTargetAllowed)(target) || is_in_range(target)) {
       resetCombatMovement();
       root.partyCombatPosition = { at: Date.now(), mode: target ? "franky-holding" : "franky-waiting",
         movementOwner: "combat", target: target && target.id || null,
-        reason: target ? "Franky is in attack range" : "Waiting for Franky" };
+        reason: target ? "The boss is in attack range" : "Waiting for the boss" };
       return true;
     }
     var destination = combatApproachPoint(target);
@@ -15669,8 +15738,51 @@
     }
     resetCombatMovement();
     root.partyCombatPosition = { at: Date.now(), mode: "blocked", movementOwner: "combat",
-      target: target.id, reason: "No terrain-clear approach to Franky" };
+      target: target.id, reason: "No terrain-clear approach to the boss" };
     return true;
+  }
+  // Open-map off-tank: there are no doors to flee through, so a targeted off-tank
+  // steps out of the boss's own range and comes back once it holds someone else.
+  var halloweenRetreatMargin = 60, halloweenRetreat = { pending: false, attempt: 0 };
+  function halloweenMovementTick(target) {
+    // An off-tank's attack target is withheld until someone else holds the boss,
+    // so position against the live boss itself.
+    if (!halloweenTargetAllowed(target)) target = Object.values(parent.entities || {}).filter(halloweenTargetAllowed)
+      .sort(function (a, b) { return Math.hypot(a.x - character.x, a.y - character.y) - Math.hypot(b.x - character.x, b.y - character.y); })[0] || null;
+    if (halloweenRoutine === "tank" || !target || target.target !== character.name)
+      return frankyTankMovementTick(target);
+    var safe = (Number(target.range) || 0) + halloweenRetreatMargin;
+    var distance = Math.hypot(character.x - target.x, character.y - target.y);
+    if (distance >= safe) {
+      resetCombatMovement();
+      root.partyCombatPosition = { at: Date.now(), mode: "boss-retreated", movementOwner: "combat",
+        target: target.id, reason: "Off-tank waiting outside the boss's range for it to target someone else" };
+      return true;
+    }
+    // Short terrain-checked steps away from the boss, like the approach tick, rather
+    // than one long leg that walls usually block.
+    var away = Math.atan2(character.y - target.y, character.x - target.x);
+    var step = Math.min(safe - distance + 10, Math.max(1, Number(character.speed || 40) * 0.6));
+    for (var turns = [0, 0.5, -0.5, 1, -1, 1.5, -1.5], i = 0; i < turns.length; i++) {
+      var point = { x: character.x + Math.cos(away + turns[i]) * step, y: character.y + Math.sin(away + turns[i]) * step };
+      if (typeof can_move_to === "function" && can_move_to(point.x, point.y))
+        return sendCombatMove(target, point, "boss-retreating");
+    }
+    // Walled in: route with the native pathfinder to a point on the safe ring,
+    // trying the next angle around the boss whenever a route fails.
+    if (!halloweenRetreat.pending) {
+      var angle = away + [0, 0.8, -0.8, 1.6, -1.6, 2.4, -2.4, Math.PI][halloweenRetreat.attempt % 8];
+      var destination = { x: target.x + Math.cos(angle) * (safe + 20), y: target.y + Math.sin(angle) * (safe + 20) };
+      halloweenRetreat.pending = true;
+      Promise.resolve(xmove(destination.x, destination.y)).catch(function () { halloweenRetreat.attempt++; })
+        .finally(function () { halloweenRetreat.pending = false; });
+    }
+    root.partyCombatPosition = { at: Date.now(), mode: "boss-retreating", movementOwner: "combat",
+      target: target.id, reason: "Routing out of the boss's range" };
+    return true;
+  }
+  function bossMovementTick(target) {
+    return bossEncounter() === "halloween" ? halloweenMovementTick(target) : frankyMovementTick(target);
   }
   function frankyMovementTick(target) {
     if (!frankyCombatActive()) { frankyLastKnown = null; frankyFleeState.phase = "none"; frankyFleeState.since = 0; return false; }
@@ -15825,7 +15937,7 @@
   }
 
   async function approachCombatTarget(target) {
-    if (typeof frankyCombatActive === "function" && frankyCombatActive()) return frankyMovementTick(target);
+    if ((typeof bossCombatActive === "function" ? bossCombatActive() : typeof frankyCombatActive === "function" && frankyCombatActive())) return typeof bossMovementTick === "function" ? bossMovementTick(target) : frankyMovementTick(target);
     if (tank && tank === character.name) return tankMovementTick(target);
     return engageMovementTick(target);
   }
@@ -16226,7 +16338,7 @@
       if (!target || target.type !== "monster" || !isAllowedTarget(target) || root.sharedRoutine.isOccupied() || isLiveAbtesting()) return false;
       if(dungeonOwned()) return dungeonTargetAllowed(target);
       if(huntTravelDefense() && !isAttackingPartyMember(target) && !(convoyTraveling.defenseTargets||[]).some(function(t){return passingKey(t)===passingKey(target);}))return false;
-      if (typeof frankyCombatActive === "function" && frankyCombatActive()) return frankyTargetAllowed(target);
+      if ((typeof bossCombatActive === "function" ? bossCombatActive() : typeof frankyCombatActive === "function" && frankyCombatActive())) return (typeof bossTargetAllowed === "function" ? bossTargetAllowed : frankyTargetAllowed)(target);
       if (target.target && !isAttackingPartyMember(target)) return false;
       if (groupedAttackAllowed(target)) return true;
       return groupedFarming() && groupedFresh() && groupedCombat.committed &&
@@ -16430,6 +16542,9 @@
     getEventTarget: nearestEventTarget,
     frankyCombatActive: frankyCombatActive,
     frankyMovementTick: frankyMovementTick,
+    bossCombatActive: bossCombatActive,
+    bossTargetAllowed: bossTargetAllowed,
+    bossMovementTick: bossMovementTick,
     isAggressiveEventCombat: isAggressiveEventCombat,
     getMonsterFocus: function () { return monsterFocus.slice(); },
     getFarmingMode: function () {

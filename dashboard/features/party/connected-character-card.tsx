@@ -224,6 +224,16 @@ export const ConnectedCharacterCard = memo(function ConnectedCharacterCard({
   );
   const [frankyOpen, setFrankyOpen] = useState(false);
   const onFranky = useCallback(() => setFrankyOpen(true), [setFrankyOpen]);
+  const onSelectHalloweenRoutine = useCallback(
+    (mode: string) => setEncounterMode('halloween', mode, name),
+    [setEncounterMode, name],
+  );
+  const onHalloweenAutoDeathLimit = useCallback(
+    (deathLimit: number) => setEncounterAutoLimit('halloween', deathLimit, name),
+    [setEncounterAutoLimit, name],
+  );
+  const [halloweenOpen, setHalloweenOpen] = useState(false);
+  const onHalloween = useCallback(() => setHalloweenOpen(true), [setHalloweenOpen]);
   const collectionSettings = useMemo(
     () => ({
       thresholdError, itemCollectionThresholdError, onClearErrors: clearCollectionErrors,
@@ -340,6 +350,7 @@ export const ConnectedCharacterCard = memo(function ConnectedCharacterCard({
           </label>
           <EventSelectionControl onAnniversary={onAnniversary}
             onFranky={char.ctype !== 'merchant' ? onFranky : undefined}
+            onHalloween={char.ctype !== 'merchant' ? onHalloween : undefined}
             state={eventState}
             name={char.name}
             merchant={char.ctype === 'merchant'}
@@ -417,6 +428,20 @@ export const ConnectedCharacterCard = memo(function ConnectedCharacterCard({
             autoDeathLimit={farming.frankyAutoDeathLimit}
             autoDeaths={farming.frankyAutoDeaths}
             onAutoDeathLimitChange={onFrankyAutoDeathLimit}
+          />
+        ) : null}
+        {char.ctype !== 'merchant' ? (
+          <FrankyDialog
+            encounter="halloween"
+            open={halloweenOpen}
+            onOpenChange={setHalloweenOpen}
+            character={char.name}
+            mode={farming.halloweenRoutine}
+            inherited={!!farming.followingLeader}
+            onSelect={onSelectHalloweenRoutine}
+            autoDeathLimit={farming.halloweenAutoDeathLimit}
+            autoDeaths={farming.halloweenAutoDeaths}
+            onAutoDeathLimitChange={onHalloweenAutoDeathLimit}
           />
         ) : null}
         {char.name === state.merchantCharacter ? (

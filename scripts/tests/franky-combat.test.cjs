@@ -88,7 +88,7 @@ test('skill runtime restricts offensive and area casts but preserves friendly su
     global.character=r.actor;
     global.G={skills:r.w.skills,items:{bow:{wtype:'bow'},shield:{type:'shield'},knifebelt:{}},conditions:{}};
     const casts=[];global.parent={entities:{boss,add},use_skill:async(id,arg)=>{casts.push([id,arg]);return {};}};
-    const shared={frankyCombatActive:()=>true,combatContext:()=>r.w.context,
+    const shared={bossCombatActive:()=>true,bossTargetAllowed:t=>t.mtype==='franky',combatContext:()=>r.w.context,
       skillTargetAllowed:()=>true}; // Runtime must defend even against a permissive candidate source.
     engine=installSkillRuntime({sharedRoutine:shared,partyCombatState:{}});
     assert.equal(await engine.cast(decision('supershot',[add])),false);

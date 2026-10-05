@@ -6,7 +6,7 @@ interface EventFormation {
   eventSelectionsByCharacter?: Record<string, string[]>;
 }
 
-export const supportedEvents = ["anniversary", "abtesting", "goobrawl", "crabxx", "franky", "icegolem", "snowman"];
+export const supportedEvents = ["anniversary", "abtesting", "goobrawl", "crabxx", "franky", "icegolem", "snowman", "halloween"];
 
 export function selectedEvents(party: EventFormation, name: string): string[] {
   const source = eventPolicy(party, name).source;

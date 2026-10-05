@@ -551,7 +551,7 @@ test(ctype+' Franky attendance suppresses farming/passing targets and ordinary m
   const boss={...r.target,id:'boss',mtype:'franky',hp:100};let visible=true,active=true,movement=0,follow=0,stomps=0,dashes=0;
   r.c.get_entity=id=>id==='boss'?(visible?boss:null):r.target;
   Object.assign(r.routine,{
-    frankyCombatActive:()=>active,frankyMovementTick:t=>{movement++;assert.equal(t,visible?boss:null);return true;},
+    bossCombatActive:()=>active,bossMovementTick:t=>{movement++;assert.equal(t,visible?boss:null);return true;},
     merchantEventCombatActive:()=>true,getEventTarget:()=>visible?boss:null,
     allowsTarget:t=>!active || t.mtype==='franky',getPassingTarget:()=>r.target,
     monsterPriority:t=>t.id==='m'?100:0,getRareTarget:()=>r.target,

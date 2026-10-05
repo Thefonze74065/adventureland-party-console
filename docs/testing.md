@@ -1,5 +1,14 @@
 # Testing
 
+Halloween attendance uses `npm test -- -- --project=live --grep "Halloween"`. The
+declared fixture turns the native season on, lets the server's own timer spawn
+Mr. Pumpkin, and lowers only his HP and attack. One journey ticks the Halloween
+row in the real dashboard and requires both fighters to attend, kill him, and end
+attendance. The other picks Off-tank in the real routine dialog and requires the
+off-tank's first hit at least 4.5 s after the tank priest takes the boss, a
+natively targeted off-tank to leave the boss's range, and a native death in auto
+mode to count against Halloween and not Franky. Re-run the live Franky specs too.
+
 Phoenix split search uses
 `npm test -- -- --project=live --grep "Phoenix patrol splits"`. The declared
 fixture replaces the server's Phoenix with one created from the server's own

@@ -28,3 +28,21 @@ Deselecting Franky revokes voluntary boss targeting and installs the protected
 exit convoy immediately; departure does not require killing the boss first.
 The native evacuation journey verifies boss damage, deselection, both client
 exit owners, and actual Mainland arrival while Franky remains alive.
+
+Halloween attendance uses the native seasonal `halloween` row. While the season is
+on, the character's event status for `halloween` is whichever boss is live: Mr.
+Pumpkin (Halloween map) or Mr. Green (Spooky Forest), preferring one on the
+current map, then the one closest to death. The row shows LIVE while a boss is up
+and the earliest broadcast respawn otherwise. Attendance walks to the broadcast
+position (no join) and ends once no boss is live; respawns (54 / 94 minutes) are
+not waited for in place. Slenderman is not attended yet.
+
+Franky and Halloween share one boss-only combat layer (`bossCombatActive` in
+`characters/shared.js`): only the boss is targeted, passing attacks, area and
+movement skills, kiting, Dash and formation moves are suppressed, and an off-tank
+attacks only after another living player has held the boss for 5 seconds. The
+Halloween row's gear sets Auto / Off-tank / Tank and the auto death limit, saved
+per character under `encounterRoutines.halloween`. On open maps a targeted
+off-tank steps outside the boss's own range plus 60 and waits; Franky's door
+flee, 40-minute keepalive, exit convoy and priest heal spam remain Franky-only.
+Deaths while attending count against the encounter they happened in.
