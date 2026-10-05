@@ -31,7 +31,7 @@ async function main() {
   fs.mkdirSync(out, { recursive: true });
   fs.mkdirSync(path.join(runDir, "CODE"), { recursive: true });
   fs.mkdirSync(path.join(runDir, "localStorage"), { recursive: true });
-  fs.symlinkSync(path.join(root, "characters"), path.join(runDir, "CODE/adventure_land"));
+  codeDirectory(path.join(runDir, "CODE/adventure_land"));
   const gameCache = (version, G) => {
     // caracAL's flat game cache (./game_files/<version>/<file>), read directly by the coordinator's catalogs.
     const dir = path.join(runDir, "game_files", String(version));
@@ -202,6 +202,27 @@ async function main() {
     if (error) throw error;
     return value;
   }
+}
+
+/**
+ * The run's CODE: the working tree's character files, with class artifacts compiled from the working tree into a
+ * staged generation (tools/game/build.mts without --publish). The coordinator runs classes from the manifest, so
+ * linking characters/ would run whatever was last published there instead of the code under test, and publishing
+ * would also reload any live characters watching characters/manifest.json.
+ */
+function codeDirectory(dir) {
+  require("node:child_process").execFileSync(process.execPath, [path.join(root, "tools/game/build.mts")], { cwd: root, stdio: ["ignore", "ignore", "inherit"] });
+  const staged = path.join(root, ".build/game"), characters = path.join(root, "characters");
+  const manifest = JSON.parse(fs.readFileSync(path.join(staged, "manifest.json"), "utf8"));
+  fs.mkdirSync(dir, { recursive: true });
+  for (const name of fs.readdirSync(characters))
+    if (!["generated", "manifest.json", "build-history.json"].includes(name)) fs.symlinkSync(path.join(characters, name), path.join(dir, name));
+  // Copies, not links: a later build may clean old generations out of .build/game while this run uses them.
+  for (const { file } of Object.values(manifest.classes)) {
+    fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
+    fs.copyFileSync(path.join(staged, file), path.join(dir, file));
+  }
+  fs.writeFileSync(path.join(dir, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
 }
 
 /** XP earned across level-ups: the game resets xp at each level, and G.levels[level] is that level's total. */

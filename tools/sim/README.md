@@ -20,6 +20,11 @@ clock:
 - `host/caracal.cjs` replaces the caracAL modules the coordinator loads (config, account,
   game files, logging, constants). A simulation never reads the user's `.caracal` install,
   its config or its session.
+- Each run compiles CODE from the working tree into a staged generation
+  (`tools/game/build.mts` without `--publish`) and gives the run its own copy of that
+  manifest and its class artifacts. A run never reads or writes `characters/manifest.json`:
+  the coordinator runs classes from that manifest, and publishing to it reloads any live
+  characters.
 - `host/character.cjs` stands in for the process the coordinator forks per character
   (caracAL's `CharacterThread`): same IPC, but it logs a ChronAL client in and runs the
   CODE through the repository's own runner host (`runtime/lifecycle/runner-host.ts`).
