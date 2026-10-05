@@ -118,6 +118,18 @@ journey in `e2e/live-economy.spec.ts`, with conserved cargo and restart evidence
 Publish character and coordinator assets through the supported full restart;
 CoordinatorOnly does not activate the inventory change.
 
+Fighters no longer wait for combat to end before a merchant handoff (item
+collection and inventory cleanout). `merchantHandoff` in `characters/shared.js`
+runs while fighting: the fighter holds position while engaged and the merchant
+comes to it. Each `send_item`/`send_gold` waits for the merchant to be within
+300 units and for native call cost (`character.cc`) to be at most 120 of the
+200-per-4s disconnect limit. A send window that cannot be obtained within 30s
+ends the handoff early and reports what was sent; cleanout queues its usual
+follow-up. The post-handoff farm reunion only runs when the fighter actually
+walked. Handoffs that must unequip marked gear still wait for combat.
+Validate `npm test -- -- --project=live --grep "full-bag cleanout transfers cargo"`
+and publish character assets through the ordinary full restart.
+
 Marked withdrawals create merchant jobs by default at priority 90. The checkbox
 in Merchant settings controls the separate Marked withdrawals routine. Merchant
 heartbeats queue one bank visit for pending plain withdrawal marks, including

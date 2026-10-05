@@ -146,7 +146,9 @@ for (const outcome of ['success', 'failure', 'manual move', 'cleared focus', 'ne
     r.lastCommand = 10;
     r.afterCombat = async action => action();
     vm.runInContext(source.slice(source.indexOf('  async function withMerchantHandoffRecovery('), source.indexOf('  async function merchantHandoff(')), r);
-    const action = async () => {
+    // The fighter walked to the merchant, so a reunion owns its way back.
+    const action = async approach => {
+      if (approach) approach.approached = true;
       if (outcome === 'manual move') r.navigationIntent.revision++;
       if (outcome === 'cleared focus') r.partyLocation = null;
       if (outcome === 'new command') r.lastCommand++;

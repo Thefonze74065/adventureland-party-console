@@ -4777,8 +4777,9 @@
     }
   }
 
-  async function waitForPlayer(name, timeout) {
+  async function waitForPlayer(name, timeout, options) {
     if (character.ctype === "merchant") return pursueMerchantTarget(name, timeout || 45000);
+    var holdPosition = options && options.holdPosition;
     var deadline = Date.now() + (timeout || 45000), player, owner = lastCommand,
       revision = navigationIntent.revision, approachPending = false;
     while (Date.now() < deadline) {
@@ -4786,8 +4787,9 @@
       player = get_player(name);
       if (player && Math.hypot(Number(player.x) - Number(character.x),
           Number(player.y) - Number(character.y)) <= 300) return player;
-      if (player && !character.moving && !approachPending) {
+      if (player && !character.moving && !approachPending && !(holdPosition && holdPosition())) {
         approachPending = true;
+        if (options) options.approached = true;
         try {
           Promise.resolve(xmove(Number(player.x), Number(player.y))).catch(function () {}).finally(function () { approachPending = false; });
         } catch (_transferApproachError) { approachPending = false; }
@@ -5069,10 +5071,18 @@
 
   async function withMerchantHandoffRecovery(command, action) {
     var revision = navigationIntent.revision;
-    try { return await afterCombat(action, "merchant handoff"); }
+    // Bag-only handoffs run while fighting: the merchant comes to us and each
+    // send is throttled. Unequipping marked gear still waits for combat to end.
+    var interleaved = !(command.upgrades || []).some(function (mark) {
+      return mark.equipped && typeof mark.slot === "string" && sameItem(character.slots[mark.slot], mark.item);
+    });
+    var approach = { approached: false };
+    try { return interleaved ? await action(approach) : await afterCombat(action, "merchant handoff"); }
     finally {
       // A late handoff must never override a new manual move or cleared focus.
-      if (!command.convoyContinuation && runtimeCurrent() && lastCommand === command.id && navigationIntent.revision === revision &&
+      // An interleaved handoff that never walked off keeps its combat target.
+      if ((!interleaved || approach.approached) &&
+          !command.convoyContinuation && runtimeCurrent() && lastCommand === command.id && navigationIntent.revision === revision &&
           !navigationIntent.cancelled && partyLocation && character.ctype !== "merchant") {
         beginFarmReunion();
       }
@@ -5099,8 +5109,26 @@
     }
   }
 
-  async function merchantHandoff(command) {
-    var merchant = await waitForPlayer(command.merchant, 45000);
+  async function merchantHandoff(command, approach) {
+    // Native disconnect is 200 call cost per rolling 4s window (character.cc);
+    // sends interleaved with combat leave the combat loop the headroom.
+    // False ends the handoff early; what was already sent is still reported.
+    async function awaitHandoffSendWindow() {
+      var deadline = Date.now() + 30000;
+      while (Date.now() < deadline) {
+        assertMerchantContinuation(command);
+        // Returns at once within 300 units; combat movement can carry us out of native
+        // send range (400), and then the merchant re-approaches.
+        try { await waitForPlayer(command.merchant, Math.max(1, deadline - Date.now()), approach); }
+        catch (_unreachable) { return false; }
+        if (!(Number(character.cc) > 120)) return true;
+        await new Promise(function (resolve) { setTimeout(resolve, 100); });
+      }
+      return false;
+    }
+    approach = approach || {};
+    approach.holdPosition = function () { return typeof engagedMonster === "function" && !!engagedMonster(); };
+    var merchant = await waitForPlayer(command.merchant, 45000, approach);
     assertMerchantContinuation(command);
     var sent = [], banked = [], kept = [], cleaned = [], reserved = [];
     for (var equippedIndex = 0; equippedIndex < (command.upgrades || []).length; equippedIndex += 1) {
@@ -5213,6 +5241,13 @@
       var sendQuantity = Math.min(Number(requests[i].quantity) || itemQuantity(character.items[slot]),
         itemQuantity(character.items[slot]));
       if (requests[i].mark && (requests[i].mark.deconstructionId || requests[i].mark.npcSaleId) && (character.items[slot].l || character.items[slot].b)) continue;
+      if (!(await awaitHandoffSendWindow())) break;
+      // The throttle can yield to combat and looting; re-resolve the item afterwards.
+      if (!sameItem(character.items[slot], requests[i].item)) {
+        slot = findItem(requests[i].item);
+        if (slot < 0) continue;
+        sendQuantity = Math.min(sendQuantity, itemQuantity(character.items[slot]));
+      }
       var clearsSlot = sendQuantity >= itemQuantity(character.items[slot]);
       await send_item(command.merchant, slot, sendQuantity);
       if (clearsSlot) cleanoutFreeSlots += 1;
@@ -5225,8 +5260,8 @@
     // The threshold only decides when an automatic visit is queued. Once the
     // merchant is here—automatically or manually—the character hands over all
     // carried gold. Any requested walking balance is delivered after pickup.
-    var excess = Math.max(0, character.gold);
     assertMerchantContinuation(command);
+    var excess = character.gold > 0 && await awaitHandoffSendWindow() ? character.gold : 0;
     if (excess) await send_gold(command.merchant, excess);
     await request("/merchant/handoff-complete", { method: "POST", body: {
       jobId: command.jobId, commandId: command.id, character: character.name, sent: sent, banked: banked, kept: kept, cleaned: cleaned,
@@ -9570,7 +9605,7 @@
       command, "stand inventory sync", function () { return merchantStandSync(command); });
     if (command.type === "merchant-idle" && character.ctype === "merchant") return merchantIdle(command);
     if (command.type === "bankboi-service" && character.ctype === "merchant") return runBankboiService(command);
-    if (command.type === "merchant-handoff") return withMerchantHandoffRecovery(command, function () { return merchantHandoff(command); });
+    if (command.type === "merchant-handoff") return withMerchantHandoffRecovery(command, function (approach) { return merchantHandoff(command, approach); });
     if (command.type === "merchant-order-handoff") return afterCombat(function () {
       return merchantOrderHandoff(command);
     }, "merchant material handoff");
