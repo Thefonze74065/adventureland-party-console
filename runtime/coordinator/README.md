@@ -153,7 +153,13 @@ diagnostics stream. A CX jar's `data` names one cosmetic or emote; Open runs nat
 `equip(slot)`, which adds it to the collection and consumes the jar. Wear and
 Remove run native `equip_cx(slot, name)` / `equip_cx(slot)`; skins can be replaced
 but not removed, and emotes are shown as unlocked. Emotes use the game's
-name (`G.skills[id].name`); appearance pieces keep their ID, as in the game's own cosmetic info. The `cx-open-jar`, `cx-wear` and
+name (`G.skills[id].name`); appearance pieces keep their ID, as in the game's own cosmetic info.
+Every cosmetic shows a preview from the game sprite sheets (the appearance layer,
+or the emote's skill icon). Owned emotes can be used from the card: `cx-emote`
+runs native `use_skill`, offering self (where allowed) and visible players within
+the emote's range as targets; the server still requires a party, account or friend
+target except for I Kiss You. The character reports the last emote result, so
+refusals (cooldown, MP, ownership, target) show their reason. The `cx-open-jar`, `cx-wear` and
 `cx-remove` commands (`characters/cosmetic-commands.ts`) are checked against the
 latest report, refused while another command is pending, re-checked by the
 character, and never take over navigation or combat. Failure inventory:

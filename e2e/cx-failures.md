@@ -25,3 +25,20 @@ cosmetic in its slot (`character.cx`; body types may go to `skin`), and
    still has another pending command instead of overwriting it.
 6. **Stale display.** After opening, wearing or removing, the dashboard reflects
    the new native state from the next status report, not an optimistic guess.
+
+Emotes and previews (written before the change). An owned emote is a skill whose
+`emote` the server checks against `player.p.acx`; it costs MP, has a cooldown, and
+targeted emotes need a player in range, in the same instance, and (except I Kiss
+You) in the party, on the account, or a friend. I Kiss You and High Five refuse
+self. Success broadcasts `emote` and records `player.last[name]`.
+
+7. **Emote use reported without the server.** Success means the server recorded
+   the use (`player.last`), not that the button was clicked.
+8. **Silent refusals.** Cooldown, MP, range, unfriendly or missing targets are
+   refused natively; the character reports the last emote result so the
+   dashboard shows the reason instead of nothing.
+9. **Wrong target offered.** Targets come from players the character can see,
+   filtered to the emote's range; self is offered only where the emote allows it.
+10. **Previews of the wrong art.** Appearance previews use the cosmetic's own layer
+    in the game sprite sheets; emotes use their skill icon. A cosmetic without
+    art shows no preview rather than a wrong one.

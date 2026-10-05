@@ -21,7 +21,7 @@ interface Ports {
 const fail = (status: number, error: string) => ({ status, body: { error } });
 
 /**
- * Open a CX jar, wear an owned cosmetic, or remove a worn one. Each is checked
+ * Open a CX jar, wear an owned cosmetic, remove a worn one, or use an owned emote. Each is checked
  * against the character's latest report and re-checked by the character, which
  * runs it without taking over navigation or combat. A pending command is never
  * overwritten.
@@ -29,7 +29,7 @@ const fail = (status: number, error: string) => ({ status, body: { error } });
 export function createCosmeticCommands(state: State, ports: Ports) {
   return function cosmetic(body: Record<string, unknown>): CommandOutcome {
     const type = requestText(body.type);
-    if (!["cx-open-jar", "cx-wear", "cx-remove"].includes(type)) return undefined;
+    if (!["cx-open-jar", "cx-wear", "cx-remove", "cx-emote"].includes(type)) return undefined;
     const name = requestText(body.character);
     if (state.commands[name]) return fail(409, "This character is busy with another command; try again shortly");
     const report = state.statuses[name]?.cosmetics;
@@ -44,6 +44,12 @@ export function createCosmeticCommands(state: State, ports: Ports) {
       if (!owned || owned.kind !== "appearance" || !owned.slot || owned.slot !== body.slot)
         return fail(400, "Only an owned appearance cosmetic can be worn, in its own slot");
       command = { slot: owned.slot, name: owned.name };
+    } else if (type === "cx-emote") {
+      const owned = report.owned.find((entry) => entry.name === body.name);
+      if (!owned || owned.kind !== "emote") return fail(400, "Only an owned emote can be used");
+      const target = body.target === undefined || body.target === null ? null : requestText(body.target);
+      if (target !== null && (!target || target.length > 40)) return fail(400, "Invalid emote target");
+      command = { name: owned.name, target };
     } else {
       const slot = requestText(body.slot);
       if (slot === "skin" || !report.worn[slot]) return fail(400, "Nothing removable is worn in that slot");

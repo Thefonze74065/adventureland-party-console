@@ -14,12 +14,20 @@ import { SkillClass } from "./skill-class";
 import { Sprite } from "./sprite";
 
 /** Reported by characters/shared.js cosmeticsSnapshot(). */
-/** `label` is the game's display name for emotes and the ID for appearance pieces (absent from older reports). */
-export type CosmeticKind = { kind: "appearance" | "emote" | "unknown" | "empty"; type: string | null; slot: string | null; label?: string | null };
+/**
+ * `label` is the game's display name for emotes and the ID for appearance pieces;
+ * `sprite` previews the cosmetic's layer or the emote's skill icon. Emote fields come
+ * from the skill definition. Optional fields are absent from older reports.
+ */
+export type CosmeticKind = { kind: "appearance" | "emote" | "unknown" | "empty"; type: string | null; slot: string | null;
+  label?: string | null; sprite?: Sprite | null; explanation?: string | null; mp?: number; cooldownMs?: number;
+  range?: number | null; noSelf?: boolean; cooldownLeftMs?: number };
 export type CosmeticsReport = {
   jars: (CosmeticKind & { inventorySlot: number; data: string | null; locked: boolean; usable: boolean })[];
   owned: (CosmeticKind & { name: string; count: number })[];
   worn: Record<string, string>;
+  nearbyPlayers?: { name: string; distance: number }[];
+  lastEmote?: { name: string; target: string | null; at: number; ok: boolean; reason: string | null } | null;
 };
 export type Char = {
   luckySlotTracking?: LuckySlotTracking;
