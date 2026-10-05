@@ -1,5 +1,12 @@
 # Testing
 
+CX jars use `npm test -- -- --project=live --grep "CX jars"`. Setup places a
+usable jar holding the first native hat cosmetic, a locked jar and an empty jar
+in the warrior's bag. The journey requires Usable/Locked/Empty in the dashboard
+with Open only on the usable jar, then reads the server after each click: the
+jar leaves the bag and the hat's `acx` count rises, Wear sets the hat slot, and
+Remove clears it. The original jars, collection and worn cosmetics are restored.
+
 Halloween attendance uses `npm test -- -- --project=live --grep "Halloween"`. The
 declared fixture turns the native season on, lets the server's own timer spawn
 Mr. Pumpkin, and lowers only his HP and attack. One journey ticks the Halloween

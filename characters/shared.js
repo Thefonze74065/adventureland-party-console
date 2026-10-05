@@ -2111,6 +2111,52 @@
     return unresolved ? null : html;
   }
 
+  // CX jars carry one cosmetic (a sprite in the cosmetics table T) or an emote.
+  // Native equip(slot) opens a jar into character.acx; equip_cx(slot, name)
+  // wears an owned cosmetic and equip_cx(slot) removes it (skin is replaced).
+  function cosmeticDescription(name) {
+    var type = parent.T && parent.T[name], slot = type && parent.cxtype_to_slot && parent.cxtype_to_slot[type];
+    if (type) return { kind: "appearance", type: type, slot: slot || null };
+    if (G.skills && G.skills[name] && G.skills[name].emote) return { kind: "emote", type: null, slot: null };
+    return { kind: "unknown", type: null, slot: null };
+  }
+  function cosmeticsSnapshot() {
+    var owned = typeof parent.all_cx === "function" ? parent.all_cx(character) : (character.acx || {});
+    var jars = [];
+    (character.items || []).forEach(function (item, slot) {
+      if (!item || item.name !== "cxjar") return;
+      var described = item.data ? cosmeticDescription(item.data) : { kind: "empty", type: null, slot: null };
+      jars.push(Object.assign({ inventorySlot: slot, data: item.data || null, locked: !!item.l,
+        usable: !!item.data && !item.l && described.kind !== "unknown" }, described));
+    });
+    return {
+      jars: jars,
+      owned: Object.keys(owned || {}).sort().map(function (name) {
+        return Object.assign({ name: name, count: Number(owned[name]) || 1 }, cosmeticDescription(name));
+      }),
+      worn: Object.assign({}, character.cx || {}, character.skin ? { skin: character.skin } : {}),
+    };
+  }
+  async function runCosmeticCommand(command) {
+    if (command.type === "cx-open-jar") {
+      var jar = character.items[command.inventorySlot];
+      // Inventory may have shifted since the dashboard click: re-check the exact jar.
+      if (!jar || jar.name !== "cxjar" || !jar.data || jar.data !== command.data || jar.l)
+        throw new Error("That CX jar is no longer in slot " + command.inventorySlot);
+      await equip(command.inventorySlot);
+      game_log("Opened CX jar: " + jar.data, "#DB7AA9");
+    } else if (command.type === "cx-wear") {
+      var described = cosmeticDescription(command.name), owned = cosmeticsSnapshot().owned;
+      if (described.kind !== "appearance" || described.slot !== command.slot ||
+          !owned.some(function (entry) { return entry.name === command.name; }))
+        throw new Error(command.name + " is not an owned cosmetic for the " + command.slot + " slot");
+      await equip_cx(command.slot, command.name);
+    } else if (command.type === "cx-remove") {
+      if (command.slot === "skin") throw new Error("A skin can be replaced but not removed");
+      await equip_cx(command.slot);
+    }
+  }
+
   function characterDollHtml() {
     var renderSprite = typeof sprite === "function" ? sprite : parent && typeof parent.sprite === "function" ? parent.sprite : null;
     if (!renderSprite) return null;
@@ -2684,6 +2730,7 @@
       skin: character.skin,
       characterSprite: spriteDefinition(character.skin),
       characterDollHtml: characterDollHtml(),
+      cosmetics: typeof cosmeticsSnapshot === "function" ? cosmeticsSnapshot() : null,
       target: combatTarget && !combatTarget.dead ? { id: combatTarget.id, type: combatTarget.type,
         name: combatTarget.name || null, team: eventTeam(combatTarget), mtype: combatTarget.mtype,
         hp: combatTarget.hp, max_hp: combatTarget.max_hp, x: combatTarget.x, y: combatTarget.y } : null,
@@ -9414,6 +9461,13 @@
     }
     // Stand return can travel safely before checking inventory recovery. Its
     // own guard runs before any listing, consolidation, or tidy mutation.
+    if (["cx-open-jar", "cx-wear", "cx-remove"].indexOf(command.type) >= 0) {
+      // Cosmetics never take over navigation or combat.
+      lastCommand = command.id; root.__partyLastCommand = lastCommand;
+      try { await runCosmeticCommand(command); }
+      catch (error) { game_log("Cosmetics: " + (error && (error.reason || error.message) || error), "red"); }
+      return;
+    }
     if (command.type === "reset-lucky-slot-tracking") {
       // Companion to the coordinator clearing its own luckySlotTracking/
       // luckyUpgradeSlots record: this character's own browser storage holds
