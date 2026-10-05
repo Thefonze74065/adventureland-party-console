@@ -1667,7 +1667,10 @@ bosses: Mr. Pumpkin and Mr. Green (`halloween`), Dragold (`lunarnewyear`) and Gr
 (`holidayseason`). A boss is polled only while an active character has its event selected. Giga
 Crab usually dies well before Hop Sickness clears, so the lifetime gate below rarely lets it through.
 It acts only when enabled (Realm panel, `POST /party-api/realm/boss-chase`) and when
-no selected boss is live on the party's current realm. A candidate's remaining lifetime is
+no selected boss is being killed on the party's current realm. A local boss counts as stalled, and
+no longer holds the party, once its drain over at least 50 seconds shows no progress or projects
+more than 120 minutes to kill (an untouched 120M HP Franky on the home realm, say). A stalled local
+boss never triggers a respawn trip; only a live boss elsewhere that passes the gate below does. A candidate's remaining lifetime is
 estimated from its HP drain across polls (at least 50 seconds apart). The party moves only when
 that estimate meets `minEtaMinutes` (default 15), because Hop Sickness (12 minutes) must clear
 before the kill for full loot luck. The move uses the dashboard realm-switch route without
