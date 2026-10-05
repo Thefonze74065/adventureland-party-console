@@ -26,6 +26,7 @@ import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from 
 import { committedLiveRecord } from './live-metrics';
 import { useCharacterData } from './dashboard-live';
 import { ConnectedInventory } from './connected-inventory';
+import { CosmeticsPanel } from './cosmetics-panel';
 import { ConnectedCombatLog } from './connected-combat-log';
 import { emptyArray, emptyRecord } from './empty-values';
 import type { Char } from './char';
@@ -224,6 +225,16 @@ export const ConnectedCharacterCard = memo(function ConnectedCharacterCard({
   );
   const [frankyOpen, setFrankyOpen] = useState(false);
   const onFranky = useCallback(() => setFrankyOpen(true), [setFrankyOpen]);
+  const onSelectHalloweenRoutine = useCallback(
+    (mode: string) => setEncounterMode('halloween', mode, name),
+    [setEncounterMode, name],
+  );
+  const onHalloweenAutoDeathLimit = useCallback(
+    (deathLimit: number) => setEncounterAutoLimit('halloween', deathLimit, name),
+    [setEncounterAutoLimit, name],
+  );
+  const [halloweenOpen, setHalloweenOpen] = useState(false);
+  const onHalloween = useCallback(() => setHalloweenOpen(true), [setHalloweenOpen]);
   const collectionSettings = useMemo(
     () => ({
       thresholdError, itemCollectionThresholdError, onClearErrors: clearCollectionErrors,
@@ -340,6 +351,7 @@ export const ConnectedCharacterCard = memo(function ConnectedCharacterCard({
           </label>
           <EventSelectionControl onAnniversary={onAnniversary}
             onFranky={char.ctype !== 'merchant' ? onFranky : undefined}
+            onHalloween={char.ctype !== 'merchant' ? onHalloween : undefined}
             state={eventState}
             name={char.name}
             merchant={char.ctype === 'merchant'}
@@ -419,6 +431,20 @@ export const ConnectedCharacterCard = memo(function ConnectedCharacterCard({
             onAutoDeathLimitChange={onFrankyAutoDeathLimit}
           />
         ) : null}
+        {char.ctype !== 'merchant' ? (
+          <FrankyDialog
+            encounter="halloween"
+            open={halloweenOpen}
+            onOpenChange={setHalloweenOpen}
+            character={char.name}
+            mode={farming.halloweenRoutine}
+            inherited={!!farming.followingLeader}
+            onSelect={onSelectHalloweenRoutine}
+            autoDeathLimit={farming.halloweenAutoDeathLimit}
+            autoDeaths={farming.halloweenAutoDeaths}
+            onAutoDeathLimitChange={onHalloweenAutoDeathLimit}
+          />
+        ) : null}
         {char.name === state.merchantCharacter ? (
           <GoldTargetControl
             character={char.name}
@@ -478,6 +504,7 @@ export const ConnectedCharacterCard = memo(function ConnectedCharacterCard({
         value={state.restockPolicies?.[char.name]}
         onSave={saveRestock}
       />
+      <CosmeticsPanel name={char.name} cosmetics={char.cosmetics} post={post} />
       <ConnectedInventory name={char.name} model={inventoryModel} />
     </article>
   );

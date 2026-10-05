@@ -27,7 +27,7 @@ export const role: Partial<Role> = {
   name: "warrior",
   combat: true,
   beforeTarget: async function () {
-    if (!sharedRoutine.frankyCombatActive?.() && await sharedRoutine.emergencyWarriorStomp()) return true;
+    if (!sharedRoutine.bossCombatActive?.() && await sharedRoutine.emergencyWarriorStomp()) return true;
     return await sharedRoutine.skillSupport?.() ?? false;
   },
   chooseTarget: function () {
@@ -41,10 +41,10 @@ export const role: Partial<Role> = {
     return partyTarget();
   },
   beforeAttack: async function (target) {
-    // Franky movement belongs solely to approach-and-hold, including scatter mode.
-    if (sharedRoutine.frankyCombatActive?.()) {
-      // An off-tank (not currently Franky's target) mitigates his damage with
-      // Scare instead of contesting the human tank's aggro for the kill.
+    // Boss movement belongs solely to approach-and-hold, including scatter mode.
+    if (sharedRoutine.bossCombatActive?.()) {
+      // An off-tank (not currently the boss's target) mitigates its damage with
+      // Scare instead of contesting the tank's aggro for the kill.
       if (target.target !== character.name && scareReady(target)) {
         await scare(target);
         return true;

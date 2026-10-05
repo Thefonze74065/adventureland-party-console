@@ -50,13 +50,6 @@ test('new movement owner is not stopped by cancellation of the old rare path',()
   r.c.rareControlState=null;r.c.pollRareHunting();assert.equal(r.stops(),0);assert.equal(r.c.rarePath,null);
 });
 
-test('patrol control never starts independent smart movement, including short approaches',()=>{
- const r=fixture();r.c.character.name='W';
- r.c.rareControlState={id:'scan',kind:'patrol',revision:1,destination:{map:'main',x:80,y:0}};
- for(const active of [false,true,false]){r.c.partyConvoyActive=active;assert.equal(r.c.pollRareHunting(),true);}
- assert.equal(r.moves(),0);assert.equal(r.stops(),0);
-});
-
 test('fast encounter handoff releases only the patrol convoy and ignores older controls',()=>{
  const r=fixture();r.c.root={};let released=0;
  r.c.releaseConvoyCruise=()=>released++;

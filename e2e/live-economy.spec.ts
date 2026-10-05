@@ -1,6 +1,8 @@
 import { test, expect, type LiveGame } from './live-fixtures';
 import type { TestInfo } from '@playwright/test';
 import type { Item } from '../runtime/coordinator/contracts/item';
+import { spawnGoo } from './hunt-interruption-helpers';
+import { location } from './game/hunt-lifecycle';
 
 const merchant = 'E2EMerchant';
 
@@ -768,4 +770,73 @@ for (const kind of ['upgrade', 'compound']) test(`auto merchant collects twelve 
   await expect.poll(async()=>(await live.state()).characters[merchant]?.items?.some((e:any)=>e.item?.name===name&&e.item.level===1)).toBe(true);
   expect((await count()).length).toBe(kind==='upgrade'?12:10);
   await info.attach('auto-merchant-finite-processing-native',{body:JSON.stringify({kind,state:await live.state(),inventory:await economy(live),events:await live.clients[owner].events()}),contentType:'application/json'});
+});
+
+test('full-bag cleanout transfers cargo while the fighter keeps fighting a durable native target', async ({ live }, info) => {
+  test.setTimeout(480_000);
+  // Failure modes: e2e/live-economy-failure-modes.md, "Combat-interleaved merchant handoff".
+  const fighter='E2EWarrior', timeline:any[]=[];
+  let goo:any=null;
+  const gooHp=async()=>goo?live.admin(`output=(()=>{const m=Object.values(instances[${JSON.stringify(goo?.map)}].monsters).find(m=>m.id===${JSON.stringify(goo?.id)});return m&&!m.dead?m.hp:0})()`):null;
+  const sample=async()=>{
+    const [hp,client,state]=await Promise.all([gooHp(),live.clients[fighter].snapshot(),live.state()]);
+    const status=state.characters[fighter]||{};
+    const entry={at:Date.now(),gooHp:hp,feathers:quantity(client.items,'feather0'),connected:client.connected,
+      navigation:status.navigationState||null,target:status.target?{id:status.target.id,mtype:status.target.mtype}:null,
+      activeCombatTarget:status.activeCombatTarget||null,farming:status.farmingNavigationDebug||null,
+      job:state.merchantCurrent&&{reason:state.merchantCurrent.reason,status:state.merchantCurrent.status,target:state.merchantCurrent.target},
+      queue:(state.merchantQueue||[]).map((job:any)=>job.reason),
+      convoy:state.activeConvoy&&{purpose:state.activeConvoy.purpose,phase:state.activeConvoy.phase,participants:state.activeConvoy.participants,
+        pause:state.activeConvoy.merchantInterruption?.phase||null},
+      command:state.commands?.[fighter]&&{type:state.commands[fighter].type,purpose:state.commands[fighter].purpose},
+      fighterAt:[status.map,status.x,status.y],
+      merchantAt:[state.characters[merchant]?.map,state.characters[merchant]?.x,state.characters[merchant]?.y]};
+    timeline.push(entry);return entry;
+  };
+  try {
+    await live.post('/formation', { leader: fighter });
+    await live.post('/farming-mode', { character: fighter, mode: 'default' });
+    await live.post('/focus', { character: fighter, monsterFocus: ['goo'] });
+    await live.post('/travel', await location(live));
+    // A convoy defending against a monster refuses merchant pauses by design; this
+    // journey covers ordinary farming combat once the travel convoy has ended.
+    await expect.poll(async()=>{const entry=await sample();return !entry.convoy&&entry.target?.mtype==='goo';},
+      {timeout:240_000,intervals:[1000],message:'The fighter must be farming goos with no convoy'}).toBe(true);
+    // One introduced goo whose HP outlasts the whole journey; damage and death stay native.
+    goo=await spawnGoo(live,fighter,300);
+    // Farming target selection skips a goo this durable; it fights the fighter instead,
+    // through native targeting, so the fighter is under attack while the merchant collects.
+    await live.admin(`output=(()=>{const m=Object.values(instances[${JSON.stringify(goo.map)}].monsters).find(m=>m.id===${JSON.stringify(goo.id)});
+      target_player(m,get_player(${JSON.stringify(fighter)}));return m.target})()`);
+    await expect.poll(async()=>(await sample()).gooHp,{timeout:60_000,intervals:[1000],message:'The fighter must engage the durable goo'}).toBeLessThan(goo.hp);
+    const seeded=await live.admin(`output=(()=>{const w=get_player(${JSON.stringify(fighter)});
+      for(let i=0;i<w.isize-2;i++)if(!w.items[i])w.items[i]={name:'feather0',q:1};
+      cache_player_items(w);resend(w,'reopen+cid');return w.items;})()`);
+    await expect.poll(async()=>quantity((await live.clients[fighter].snapshot()).items,'feather0')).toBe(quantity(seeded,'feather0'));
+    const before=await economy(live);
+    const total=(value:Economy)=>bankQuantity(value,'feather0')+Object.values(value.characters).reduce((sum,c)=>sum+quantity(c.items,'feather0'),0);
+    await live.post('/merchant/routine-priorities', { priorities: {}, enabled: { 'inventory cleanout': true } });
+    await live.post('/merchant/cleanout', { character: fighter });
+    const requestedAt=timeline.length;
+    let first:any;
+    await expect.poll(async()=>{first=await sample();return first.feathers<quantity(seeded,'feather0');},
+      {timeout:240_000,intervals:[500],message:'Cargo must reach the merchant while the durable goo is still alive'}).toBe(true);
+    expect(first.gooHp).toBeGreaterThan(0);
+    await expect.poll(async()=>(await sample()).gooHp,{timeout:30_000,intervals:[500],
+      message:'Combat must continue after the first transfer'}).toBeLessThan(first.gooHp);
+    await jobFinished(live);
+    await sample();
+    const window=timeline.slice(requestedAt);
+    expect(window.every(entry=>entry.connected),'Interleaved sends must not trip the native call-cost disconnect').toBe(true);
+    expect(window.some(entry=>entry.navigation==='departing'),'The fighter must not pause combat for the handoff').toBe(false);
+    expect(total(await economy(live))).toBe(total(before));
+    await record(live,info,'combat-interleaved-cleanout',before,{goo,first,seeded});
+  } finally {
+    // The durable goo would keep attacking the fighter and hold later journeys in combat.
+    if(goo)await live.admin(`output=(()=>{const m=Object.values(instances[${JSON.stringify(goo.map)}].monsters).find(m=>m.id===${JSON.stringify(goo.id)});
+      if(m)remove_monster(m);return true})()`).catch(()=>undefined);
+    const events=async(name:string)=>(await live.clients[name].events()).slice(-80);
+    await info.attach('combat-interleaved-cleanout-timeline',{body:JSON.stringify({goo,timeline,
+      fighterEvents:await events(fighter),merchantEvents:await events(merchant)},null,2),contentType:'application/json'});
+  }
 });

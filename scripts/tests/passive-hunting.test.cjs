@@ -98,7 +98,7 @@ test('an unreserved monster attacking first stays a genuine defensive target',()
 
 test('Phoenix patrol permits in-range passing attacks but encounters and recovery still take precedence',()=>{
  const {c,bee}=fixture();
- c.rareControlState={kind:'patrol',revision:1};c.rareControlAt=Date.now();c.navigationIntent.revision=1;
+ c.rareControlState={kind:'search',revision:1};c.rareControlAt=Date.now();c.navigationIntent.revision=1;
  vm.runInContext(['rareControlCurrent','rareActive'].map(n=>namedFunction(source,n)).join('\n'),c);
  for(const mtype of ['bee','armadillo']) {
   bee.mtype=mtype;c.passiveHunting.rules[mtype]={enabled:true,keepMoving:true,priority:100};
@@ -106,7 +106,7 @@ test('Phoenix patrol permits in-range passing attacks but encounters and recover
   bee.x=101;assert.equal(c.passingTarget(),null);bee.x=20;
  }
  c.rareControlState.kind='encounter';assert.equal(c.passingTarget(),null);
- c.rareControlState.kind='patrol';c.combatRecoveryActive=()=>true;assert.equal(c.passingTarget(),null);
+ c.rareControlState.kind='search';c.combatRecoveryActive=()=>true;assert.equal(c.passingTarget(),null);
  c.combatRecoveryActive=()=>false;c.escapeOwns=()=>true;assert.equal(c.passingTarget(),null);
  c.escapeOwns=()=>false;c.unfinishedFight=()=>true;assert.equal(c.passingTarget(),null);
 });

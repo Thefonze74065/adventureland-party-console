@@ -1,5 +1,47 @@
 # Testing
 
+CX jars use `npm test -- -- --project=live --grep "CX jars"`. Setup places a
+usable jar holding the first native hat cosmetic, a locked jar, an empty jar and
+an "I Kiss You" emote jar in the warrior's bag; the emote row must show the
+server's own skill name. The journey requires Usable/Locked/Empty in the dashboard
+with Open only on the usable jar, then reads the server after each click: the
+jar leaves the bag and the hat's `acx` count rises, Wear sets the hat slot, and
+Remove clears it. The original jars, collection and worn cosmetics are restored.
+
+Halloween attendance uses `npm test -- -- --project=live --grep "Halloween"`. The
+declared fixture turns the native season on, lets the server's own timer spawn
+Mr. Pumpkin, and lowers only his HP and attack. One journey ticks the Halloween
+row in the real dashboard and requires both fighters to attend, kill him, and end
+attendance. The other picks Off-tank in the real routine dialog and requires the
+off-tank's first hit at least 4.5 s after the tank priest takes the boss, a
+natively targeted off-tank to leave the boss's range, and a native death in auto
+mode to count against Halloween and not Franky. Re-run the live Franky specs too.
+
+The realm-hop blacklist uses `npm test -- -- --project=live --grep "realm-hop
+blacklist"` for the real control, route validation, PVP locking and restart.
+Chase choices need live ALData, which the disposable server cannot reach, so
+`scripts/tests/realm-hop-blacklist.test.cjs` drives both chases with simulated
+payloads (retained isolated exception; failure inventory written first).
+
+Phoenix split search uses
+`npm test -- -- --project=live --grep "Phoenix patrol splits"`. The declared
+fixture replaces the server's Phoenix with one created from the server's own
+`randomrespawn` definition, pinned to Spooky Forest, with 12,000 HP, attack 1 and
+a guaranteed `gem0` drop. Its death uses the unmodified definition, so the respawn
+is native (random region, 160,000 HP). The journey requires the two fighters to
+take different regions, the first party hit to land after a gather with nobody
+missing, the drop to reach inventory, both fighters to head to different regions
+before the respawn deadline, and the native respawn to be found again. The passing
+run: first sighting after 74 s (priest in Spooky Forest, warrior on Mainland), a
+33 s cross-map converge, first hit 505 ms after the gather, and the respawn spotted
+in the priest's pre-positioned region. Retain `phoenix-hold-fire-until-gathered`,
+`phoenix-respawn-spread`, `phoenix-native-respawn-found` and
+`phoenix-search-timeline`, then run `npm run test:e2e:verify` (36 verified
+evidence files). The outsider-already-fighting rule has no live coverage: the
+harness has no player outside the party. The existing native Phoenix Hunt
+interruption journey still passes. Failure inventory:
+`e2e/phoenix-search-failures.md`. Activate with the ordinary full restart.
+
 Designated tank (issue #39) uses
 `npm test -- -- --project=live --grep "designated tank persists through restart"`.
 The live journey sets a ranger (a ranged class, so the melee override is unmistakable)

@@ -1,16 +1,5 @@
-import * as zones from "../../../dashboard/lib/farming-zones.ts";
-import type { Area, Checkpoint, Owner, Patrol, Point, Status } from "./rare-types.ts";
+import type { Area, Checkpoint, Owner, Patrol, Point, Searcher, Status } from "./rare-types.ts";
 
-export function samples(area: Area): Point[] {
-  const [x1, y1, x2, y2] = area.boundary!;
-  const nx = Math.max(1, Math.ceil((x2 - x1) / 60)),
-    ny = Math.max(1, Math.ceil((y2 - y1) / 60));
-  const result: Point[] = [];
-  for (let x = 0; x <= nx; x++)
-    for (let y = 0; y <= ny; y++)
-      result.push({ map: area.map, x: x1 + ((x2 - x1) * x) / nx, y: y1 + ((y2 - y1) * y) / ny });
-  return result;
-}
 const distance = (a: Point, b: Point) =>
   a.map === b.map ? Math.hypot(a.x - b.x, a.y - b.y) : Infinity;
 function axis(a: number, b: number, half: number, current: number): number[] {
@@ -19,6 +8,7 @@ function axis(a: number, b: number, half: number, current: number): number[] {
   const count = Math.ceil((b - a - half * 2) / (half * 1.7));
   return Array.from({ length: count + 1 }, (_, i) => a + half + ((b - a - half * 2) * i) / count);
 }
+/** Observation points whose conservative visibility footprints cover the spawn box. */
 export function scanPoints(area: Area, from: Point): Point[] {
   const [x1, y1, x2, y2] = area.boundary!;
   const origin = from.map === area.map ? from : area;
@@ -31,231 +21,190 @@ export function scanPoints(area: Area, from: Point): Point[] {
   return points;
 }
 export function newPatrol(owner: Owner, id: string): Patrol {
-  return {
-    ...owner,
-    id,
-    index: 0,
-    area: null,
-    readyAt: 0,
-    incomplete: [],
-    stage: "travel",
-    failures: {},
-    points: [],
-    remaining: [],
-    point: 0,
-    arrivedAt: 0,
-    fallbacks: 0,
-  };
+  return { ...owner, id, readyAt: 0, cycle: 0, covered: {}, incomplete: [], searchers: {}, stage: "searching" };
 }
-export function patrolCheckpoint(p: Patrol, order: string[]): Checkpoint {
-  return {
-    leader: p.leader,
-    realm: p.realm,
-    focus: p.focus,
-    policy: p.policy,
-    revisions: { ...p.revisions },
-    regionId: order[p.index],
-    readyAt: p.readyAt,
-  };
+export function patrolCheckpoint(p: Patrol): Checkpoint {
+  return { leader: p.leader, realm: p.realm, focus: p.focus, policy: p.policy, revisions: { ...p.revisions }, readyAt: p.readyAt };
 }
-interface Ports {
+export function searchControlId(p: Patrol, name: string): string | null {
+  const s = p.searchers[name];
+  return s ? `${p.id}-${p.cycle}-${name}-${s.regionId}-${s.point}` : null;
+}
+export function searchDestination(p: Patrol, name: string): Point | null {
+  const s = p.searchers[name];
+  return (s && s.points[s.point]) || null;
+}
+export interface SearchPorts {
   now: number;
-  leader: Status;
-  statuses: Status[];
+  clock(): number;
+  statuses: Record<string, Status>;
+  /** Fresh, living, unprotected fighters this tick may direct. */
+  searchers: string[];
+  /** Spawn regions in the saved order, which breaks route-distance ties. */
   areas: Area[];
-  order: string[];
-  convoy: { purpose?: string; phase: string; failureCode?: string } | null | undefined;
-  cancel(): void;
-  travel(destination: Point): void;
-  save(): void;
-  stop(reason: string): void;
+  routeDistance?(from: Point, to: Point): Promise<number>;
+  /** False once the patrol is stopped, replaced, or superseded by navigation. */
+  current(p: Patrol): boolean;
+  publish(): void;
 }
-export function patrolControlId(p: Patrol): string {
-  return `${p.id}-${p.index}-${p.point}-${p.retry || 0}`;
+
+/**
+ * Every fighter searches on its own. A free fighter takes the nearest region by
+ * planned route that nobody has checked this cycle and nobody else is heading to;
+ * regions are shared only when every unchecked one is already claimed.
+ */
+export function stepSearch(p: Patrol, ports: SearchPorts): void {
+  if (p.paused) return;
+  release(p, ports);
+  if (!nextCycle(p, ports)) return;
+  for (const name of ports.searchers) if (p.searchers[name]) advance(p, name, ports);
+  assignFree(p, ports);
+  describe(p, ports);
 }
-function enter(p: Patrol, ports: Ports): boolean {
-  if (p.area) return true;
-  p.area = ports.areas.find((a) => a.id === ports.order[p.index]) || null;
-  if (!p.area?.boundary) {
-    ports.stop("Phoenix spawn catalog changed; choose the route again");
-    return false;
+function assignFree(p: Patrol, ports: SearchPorts): void {
+  const free = ports.searchers.filter((name) => !p.searchers[name]);
+  // A planner call that never settles must not freeze assignment forever.
+  if (p.assigning && ports.now - (p.assigningAt || 0) > 20000) p.assigning = undefined;
+  if (free.length && !p.assigning && ports.now >= (p.assignAfter || 0)) void assign(p, ports, free);
+}
+/** Brief absences (a map change, a delivered item, a low-HP dip) keep the leg. */
+const ABSENCE_GRACE = 10000;
+function release(p: Patrol, ports: SearchPorts): void {
+  for (const [name, s] of Object.entries(p.searchers)) {
+    if (p.covered[s.regionId] || p.incomplete.includes(s.regionId)) delete p.searchers[name];
+    else if (ports.searchers.includes(name)) {
+      if (s.absentSince) restartWatchdog(s, ports.now);
+      s.absentSince = undefined;
+    } else if (ports.now - (s.absentSince ||= ports.now) > ABSENCE_GRACE) delete p.searchers[name];
   }
-  p.points = scanPoints(p.area, ports.leader);
-  p.remaining = samples(p.area);
-  p.point = 0;
-  p.arrivedAt = 0;
-  p.failures = {};
-  p.fallbacks = 0;
-  p.progressAt = ports.now;
-  p.progressPosition = undefined;
-  p.progressPoint = undefined;
-  p.retryReason = undefined;
-  return true;
 }
-function next(p: Patrol, ports: Ports, incomplete: boolean): void {
-  ports.cancel();
-  const id = p.area!.id!;
-  if (incomplete && !p.incomplete.includes(id)) p.incomplete.push(id);
-  if (!incomplete) p.incomplete = p.incomplete.filter((value) => value !== id);
-  if (p.incomplete.length === 5) {
+function restartWatchdog(s: Searcher, now: number): void {
+  s.arrivedAt = 0;
+  s.progressAt = now;
+  s.progressPosition = undefined;
+}
+/** A paused patrol keeps its assignments; movement watchdogs restart on resume. */
+export function pauseSearch(p: Patrol, now: number): void {
+  for (const s of Object.values(p.searchers)) restartWatchdog(s, now);
+}
+function nextCycle(p: Patrol, ports: SearchPorts): boolean {
+  if (p.incomplete.length >= ports.areas.length) {
     p.paused = true;
-    p.message = "All Phoenix regions unreachable; restart the route to retry";
-    ports.save();
-    return;
-  }
-  p.index = (p.index + 1) % 5;
-  p.area = null;
-  p.readyAt = 0;
-  p.waitingRegion = false;
-  ports.save();
-}
-function coverage(p: Patrol, ports: Ports): void {
-  if (ports.now < p.readyAt) return;
-  for (const s of ports.statuses) {
-    if (!observes(s, p, ports.now)) continue;
-    const observation = s.rareObservation!;
-    p.remaining = p.remaining.filter(
-      (point) => Math.abs(point.x - observation.x) > 570 || Math.abs(point.y - observation.y) > 370,
-    );
-  }
-}
-function observes(s: Status, p: Patrol, now: number): boolean {
-  if (!s || s.seenAt < now - 3000 || s.rip || s.hp === 0) return false;
-  return freshObservation(s,p,now);
-}
-function freshObservation(s: Status, p: Patrol, now: number): boolean {
-  const o = s.rareObservation;
-  if (!o || o.runtimeId !== s.combatSelection?.runtimeId || o.at < Math.max(now - 3000,p.readyAt) || o.at > now + 1000) return false;
-  return (
-    o.map === p.area!.map && o.in === p.area!.map &&
-    `${s.region || ""}:${o.server}` === p.realm
-  );
-}
-function stalled(p: Patrol, ports: Ports, destination: Point): boolean {
-  const id = patrolControlId(p),
-    position = p.progressPosition;
-  if (p.progressPoint !== id || !position || distance(position, ports.leader) >= 10) {
-    p.progressPoint = id;
-    p.progressPosition = { map: ports.leader.map, x: ports.leader.x, y: ports.leader.y };
-    p.progressAt = ports.now;
-  }
-  if (distance(ports.leader, destination) <= 40) {
-    p.progressAt = ports.now;
+    p.message = "All Phoenix regions unreachable; restart the patrol to retry";
     return false;
   }
-  return ports.now - (p.progressAt || ports.now) >= 30000;
-}
-function failure(p: Patrol, ports: Ports, destination: Point, reason: string): void {
-  ports.cancel();
-  p.retryReason = reason;
-  p.arrivedAt = 0;
-  const attempts = (p.failures[p.point] = (p.failures[p.point] || 0) + 1);
-  p.retry = (p.retry || 0) + 1;
-  p.progressAt = ports.now;
-  if (attempts <= 1) return;
-  if (p.fallbacks >= 4) {
-    next(p, ports, true);
-    return;
+  if (ports.areas.every((a) => p.covered[a.id!] || p.incomplete.includes(a.id!))) {
+    // Nothing was found anywhere. Another party may have killed it; search again.
+    p.cycle++;
+    p.covered = {};
+    p.incomplete = [];
+    p.searchers = {};
   }
-  const remaining = p.remaining[0] || destination;
-  const [dx, dy] = [
-    [-200, 0],
-    [200, 0],
-    [0, -200],
-    [0, 200],
-  ][p.fallbacks++];
-  const [x1,y1,x2,y2]=p.area!.boundary!;
-  p.points[++p.point] = { map: remaining.map,
-    x: Math.max(x1,Math.min(x2,remaining.x+dx)), y: Math.max(y1,Math.min(y2,remaining.y+dy)) };
-}
-function arrived(p: Patrol, ports: Ports): void {
-  if (ports.convoy?.purpose === "phoenix-patrol") return; // Let every member acknowledge this generation first.
-  ports.cancel();
-  // An observation before the respawn deadline cannot finish the post-respawn scan.
-  if (ports.now < p.readyAt) {
-    p.arrivedAt = 0;
-    return;
-  }
-  p.arrivedAt ||= ports.now;
-  if (ports.now - p.arrivedAt < 1000) return;
-  if (!p.remaining.length) {
-    next(p, ports, false);
-    return;
-  }
-  p.point++;
-  p.arrivedAt = 0;
-  if (p.point === p.points.length && p.fallbacks++ < 4) p.points.push({ ...p.remaining[0] });
-}
-export function stepPatrol(p: Patrol, ports: Ports): void {
-  if (!canScan(p, ports)) return;
-  const destination = p.points[p.point];
-  if (!destination) {
-    next(p, ports, p.remaining.length > 0);
-    return;
-  }
-  scanMessage(p, ports.now);
-  coverage(p, ports);
-  const reason = movementFailure(p, ports, destination);
-  if (reason) {
-    failure(p, ports, destination, reason);
-    return;
-  }
-  if (distance(ports.leader, destination) <= 40) {
-    arrived(p, ports);
-    return;
-  }
-  p.arrivedAt = 0;
-  // Every scan leg has one owner, including the final short approach.
-  if (!ports.convoy) ports.travel(destination);
-}
-function canScan(p: Patrol, ports: Ports): boolean {
-  return !p.paused && !p.choosing && enter(p,ports) && !reconnecting(p,ports);
-}
-function reconnecting(p: Patrol, ports: Ports): boolean {
-  const c=ports.convoy;
-  if (c?.purpose==='phoenix-patrol' && c.phase==='failed' && ['runtime-lost','unavailable'].includes(c.failureCode || '')) {
-    ports.cancel(); p.retryAt=ports.now+5000; p.retry=(p.retry || 0)+1;
-    p.progressPosition=undefined; p.retryReason='Party runtime reloaded; retrying the same scan point';
-  }
-  if (ports.now >= (p.retryAt || 0)) return false;
-  p.progressAt=ports.now; p.message='Waiting for party runtimes before resuming the scan';
   return true;
 }
-function movementFailure(p: Patrol, ports: Ports, destination: Point): string | null {
-  if (ports.convoy?.purpose === "phoenix-patrol" && ports.convoy.phase === "failed")
-    return "Scan convoy failed";
-  return stalled(p, ports, destination) ? "No scan movement progress for 30 seconds" : null;
+function advance(p: Patrol, name: string, ports: SearchPorts): void {
+  const s = p.searchers[name]!,
+    status = ports.statuses[name]!,
+    destination = s.points[s.point];
+  if (!destination) return finishRegion(p, name, s, ports.now);
+  const report = status.rareNavigation;
+  if (report?.failed && report.id === searchControlId(p, name)) return skip(p, name, s, ports.now, "route failed");
+  if (stalled(s, status, destination, ports.now)) return skip(p, name, s, ports.now, "no movement progress for 30 seconds");
+  if (distance(status, destination) > 40) s.arrivedAt = 0;
+  else if (observedPoint(p, s, status, destination, ports.now)) {
+    nextPoint(s, ports.now);
+    if (s.point >= s.points.length) finishRegion(p, name, s, ports.now);
+  }
+}
+/** Arrived: a point counts after a one-second dwell with a fresh post-respawn observation. */
+function observedPoint(p: Patrol, s: Searcher, status: Status, destination: Point, now: number): boolean {
+  // Pre-positioned before the respawn: hold here. Earlier observations cannot count.
+  if (now < p.readyAt) {
+    s.arrivedAt = 0;
+    return false;
+  }
+  s.arrivedAt ||= now;
+  return now - s.arrivedAt >= 1000 && observedSince(status, Math.max(s.arrivedAt, p.readyAt), destination, now);
+}
+function observedSince(s: Status, since: number, destination: Point, now: number): boolean {
+  const o = s.rareObservation;
+  return !!o && o.runtimeId === s.combatSelection?.runtimeId && o.at >= since && o.at <= now + 1000 &&
+    o.map === destination.map && o.in === destination.map;
+}
+function stalled(s: Searcher, status: Status, destination: Point, now: number): boolean {
+  const position = s.progressPosition;
+  if (!position || distance(position, status) >= 10) {
+    s.progressPosition = { map: status.map, x: status.x, y: status.y };
+    s.progressAt = now;
+  }
+  if (distance(status, destination) <= 40) s.progressAt = now;
+  return now - s.progressAt >= 30000;
+}
+function nextPoint(s: Searcher, now: number): void {
+  s.point++;
+  s.arrivedAt = 0;
+  s.progressAt = now;
+  s.progressPosition = undefined;
+}
+function skip(p: Patrol, name: string, s: Searcher, now: number, reason: string): void {
+  p.retryReason = `${name}: ${reason}; skipped one scan point`;
+  s.skipped++;
+  nextPoint(s, now);
+  if (s.point >= s.points.length) finishRegion(p, name, s, now);
+}
+function finishRegion(p: Patrol, name: string, s: Searcher, now: number): void {
+  if (s.skipped >= s.points.length) p.incomplete.push(s.regionId);
+  else p.covered[s.regionId] = now;
+  delete p.searchers[name];
 }
 
-/** Current region wins. Otherwise compare successful planner routes, preserving saved-order ties. */
-export async function waitingRegion(
-  areas: Area[],
-  from: Point,
-  routeDistance?: (from: Point, to: Point) => Promise<number>,
-): Promise<Area | null> {
-  const current = areas.find((a) => a.map === from.map && zones.contains(a, from, 0, 1));
-  if (current) return current;
-  if (!routeDistance) return null;
-  const scored = await Promise.all(
-    areas.map(async (area) => {
-      try {
-        return { area, distance: await routeDistance(from, scanPoints(area, from)[0]) };
-      } catch {
-        return { area, distance: Infinity };
-      }
-    }),
-  );
-  return (
-    scored.filter((s) => Number.isFinite(s.distance)).sort((a, b) => a.distance - b.distance)[0]
-      ?.area || null
-  );
+let assignments = 0;
+async function assign(p: Patrol, ports: SearchPorts, names: string[]): Promise<void> {
+  const open = ports.areas.filter((a) => !p.covered[a.id!] && !p.incomplete.includes(a.id!));
+  if (!open.length) return;
+  const token = (p.assigning = ++assignments), cycle = p.cycle;
+  p.assigningAt = ports.now;
+  const scored = await Promise.all(names.flatMap((name) => open.map(async (area) => {
+    const s = ports.statuses[name]!, from = { map: s.map, x: s.x, y: s.y };
+    return { name, area, order: ports.areas.indexOf(area), distance: await routeLength(ports, from, scanPoints(area, from)[0]!) };
+  })));
+  if (!ports.current(p) || p.assigning !== token) return;
+  p.assigning = undefined;
+  if (p.cycle !== cycle) return;
+  const claimed = new Set(Object.values(p.searchers).map((s) => s.regionId));
+  const pending = new Set(names.filter((name) => !p.searchers[name]));
+  let unassigned = false;
+  while (pending.size) {
+    const usable = scored.filter((c) => pending.has(c.name) && Number.isFinite(c.distance) &&
+      !p.covered[c.area.id!] && !p.incomplete.includes(c.area.id!));
+    if (!usable.length) { unassigned = true; break; }
+    const free = usable.filter((c) => !claimed.has(c.area.id!));
+    const best = (free.length ? free : usable).sort((a, b) => a.distance - b.distance || a.order - b.order)[0]!;
+    const status = ports.statuses[best.name]!;
+    p.searchers[best.name] = {
+      regionId: best.area.id!,
+      points: scanPoints(best.area, { map: status.map, x: status.x, y: status.y }),
+      point: 0, skipped: 0, arrivedAt: 0, retry: 0, progressAt: ports.clock(),
+    };
+    claimed.add(best.area.id!);
+    pending.delete(best.name);
+  }
+  // A fighter with no plannable route retries later instead of hammering the planner.
+  p.assignAfter = unassigned ? ports.clock() + 5000 : 0;
+  if (unassigned) p.retryReason = "No planned route to an unchecked Phoenix region; retrying";
+  ports.publish();
+}
+async function routeLength(ports: SearchPorts, from: Point, to: Point): Promise<number> {
+  if (!ports.routeDistance) return from.map === to.map ? distance(from, to) : 1_000_000;
+  try { return await ports.routeDistance(from, to); } catch { return Infinity; }
 }
 
-function scanMessage(p: Patrol, now: number) {
-  p.stage = now < p.readyAt ? "respawn" : "scanning";
-  const activity =
-    p.stage === "respawn"
-      ? `Waiting for respawn (${Math.ceil((p.readyAt - now) / 1000)}s)`
-      : "Scanning";
-  p.message = `${activity} · region ${p.index + 1}/5 · ${p.area!.map}`;
+function describe(p: Patrol, ports: SearchPorts): void {
+  p.stage = ports.now < p.readyAt ? "respawn" : "searching";
+  const activity = p.stage === "respawn"
+    ? `Waiting for respawn (${Math.ceil((p.readyAt - ports.now) / 1000)}s)`
+    : "Searching";
+  const legs = Object.entries(p.searchers).map(([name, s]) => `${name} → ${s.points[0]?.map ?? s.regionId}`);
+  p.message = `${activity} · ${Object.keys(p.covered).length}/${ports.areas.length} regions checked` +
+    (legs.length ? ` · ${legs.join(", ")}` : p.assigning ? " · planning routes" : "");
 }

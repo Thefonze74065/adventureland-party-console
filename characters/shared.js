@@ -410,7 +410,7 @@
   var monsterSearchRadius = 400;
   var farmingMode = "default";
   var farmingPolicy = "auto";
-  var frankyRoutine = "auto";
+  var frankyRoutine = "auto", halloweenRoutine = "auto";
   var huntCombatTarget = null;
   var farmingModeResetUntil = 0;
   var scatterMonsterTypes = {};
@@ -2111,6 +2111,54 @@
     return unresolved ? null : html;
   }
 
+  // CX jars carry one cosmetic (a sprite in the cosmetics table T) or an emote.
+  // Native equip(slot) opens a jar into character.acx; equip_cx(slot, name)
+  // wears an owned cosmetic and equip_cx(slot) removes it (skin is replaced).
+  function cosmeticDescription(name) {
+    var type = parent.T && parent.T[name], slot = type && parent.cxtype_to_slot && parent.cxtype_to_slot[type];
+    // The game names emotes; appearance pieces are shown by ID, as in its own cosmetic info.
+    if (type) return { kind: "appearance", type: type, slot: slot || null, label: name };
+    if (G.skills && G.skills[name] && G.skills[name].emote)
+      return { kind: "emote", type: null, slot: null, label: G.skills[name].name || name };
+    return { kind: "unknown", type: null, slot: null, label: name };
+  }
+  function cosmeticsSnapshot() {
+    var owned = typeof parent.all_cx === "function" ? parent.all_cx(character) : (character.acx || {});
+    var jars = [];
+    (character.items || []).forEach(function (item, slot) {
+      if (!item || item.name !== "cxjar") return;
+      var described = item.data ? cosmeticDescription(item.data) : { kind: "empty", type: null, slot: null, label: null };
+      jars.push(Object.assign({ inventorySlot: slot, data: item.data || null, locked: !!item.l,
+        usable: !!item.data && !item.l && described.kind !== "unknown" }, described));
+    });
+    return {
+      jars: jars,
+      owned: Object.keys(owned || {}).sort().map(function (name) {
+        return Object.assign({ name: name, count: Number(owned[name]) || 1 }, cosmeticDescription(name));
+      }),
+      worn: Object.assign({}, character.cx || {}, character.skin ? { skin: character.skin } : {}),
+    };
+  }
+  async function runCosmeticCommand(command) {
+    if (command.type === "cx-open-jar") {
+      var jar = character.items[command.inventorySlot];
+      // Inventory may have shifted since the dashboard click: re-check the exact jar.
+      if (!jar || jar.name !== "cxjar" || !jar.data || jar.data !== command.data || jar.l)
+        throw new Error("That CX jar is no longer in slot " + command.inventorySlot);
+      await equip(command.inventorySlot);
+      game_log("Opened CX jar: " + jar.data, "#DB7AA9");
+    } else if (command.type === "cx-wear") {
+      var described = cosmeticDescription(command.name), owned = cosmeticsSnapshot().owned;
+      if (described.kind !== "appearance" || described.slot !== command.slot ||
+          !owned.some(function (entry) { return entry.name === command.name; }))
+        throw new Error(command.name + " is not an owned cosmetic for the " + command.slot + " slot");
+      await equip_cx(command.slot, command.name);
+    } else if (command.type === "cx-remove") {
+      if (command.slot === "skin") throw new Error("A skin can be replaced but not removed");
+      await equip_cx(command.slot);
+    }
+  }
+
   function characterDollHtml() {
     var renderSprite = typeof sprite === "function" ? sprite : parent && typeof parent.sprite === "function" ? parent.sprite : null;
     if (!renderSprite) return null;
@@ -2684,6 +2732,7 @@
       skin: character.skin,
       characterSprite: spriteDefinition(character.skin),
       characterDollHtml: characterDollHtml(),
+      cosmetics: typeof cosmeticsSnapshot === "function" ? cosmeticsSnapshot() : null,
       target: combatTarget && !combatTarget.dead ? { id: combatTarget.id, type: combatTarget.type,
         name: combatTarget.name || null, team: eventTeam(combatTarget), mtype: combatTarget.mtype,
         hp: combatTarget.hp, max_hp: combatTarget.max_hp, x: combatTarget.x, y: combatTarget.y } : null,
@@ -3015,7 +3064,7 @@
     var returning = convoy && (convoy.continuousReturn === 1 || hunting);
     if (character.rip || Number(character.max_hp)>0 && character.hp/character.max_hp<0.35 || character.ctype === 'merchant' || navigationIntent.cancelled || escapeOwns() || combatRecoveryActive() ||
         partyTownActive || banking || stocking || upgrading || gatheringActive || forceTraveling || townTraveling || eventTraveling || joinedEvent || activeCombatEvent() ||
-        (rareActive() && rareControlState.kind !== "patrol") || !returning && unfinishedFight()) return null;
+        (rareActive() && rareControlState.kind !== "search") || !returning && unfinishedFight()) return null;
     var candidates = Object.values(parent.entities || {}).filter(function(e) {
       if(passiveTravelInterruptible() && passiveStopRequired(e))return false;
       if(control && control.primary && passingKey(e)!==passingKey(control.primary))return false;
@@ -3121,6 +3170,15 @@
       rareControlState.revision === navigationIntent.revision && !character.rip &&
       !partyTownActive && !eventTraveling && !joinedEvent && !escapeOwns());
   }
+  // Split Phoenix search: the coordinator owns this fighter's walking and it holds fire.
+  function rareSearchKind() {
+    return rareActive() && ["search", "converge"].indexOf(rareControlState.kind) >= 0;
+  }
+  function rareUnderAttack() {
+    return Object.values(parent.entities || {}).some(function (e) {
+      return e && e.type === "monster" && e.visible && !e.dead && e.target === character.name;
+    });
+  }
   function rareActive() {
     if (typeof unfinishedFight === "function" && unfinishedFight() &&
         !(rareControlState && rareControlState.kind === "encounter" && groupedCombat.target &&
@@ -3138,7 +3196,7 @@
     return e && e.visible && !e.dead && e.hp>0 && !isExternallyClaimedMonster(e) ? e : null;
   }
   function rareTarget() {
-    if (!rareActive() || rareControlState.kind !== "encounter") return ownedRareTarget();
+    if (!rareActive() || ["encounter", "engage"].indexOf(rareControlState.kind) < 0) return ownedRareTarget();
     var wanted = rareControlState.target;
     if (wanted.map !== character.map || String(wanted.in) !== String(character.in || character.map)) return null;
     var e = get_entity(wanted.id);
@@ -3158,10 +3216,50 @@
     rarePath.cancelled = true; rarePath = null;
     if (!replaced && typeof stop === "function") Promise.resolve(stop("smart")).catch(function () {});
   }
+  function startRarePath(id, destination) {
+    var path = rarePath = { id: id, at: Date.now(), cancelled: false,
+      map: destination.map, x: destination.x, y: destination.y };
+    rareNavigation = { id: id, failed: false };
+    Promise.resolve(smart_move({ map: destination.map, x: destination.x, y: destination.y }))
+      .catch(function (error) {
+        if (!path.cancelled && rarePath === path) rareNavigation = { id: path.id, failed: true, at: Date.now(),
+          reason: String(error && (error.reason || error.message) || error) };
+      }).finally(function () { if (rarePath === path) rarePath = null; });
+    path.onDone = typeof smart !== "undefined" && smart.on_done;
+  }
+  // Search, converge and engage legs walk independently. Cross-map trips can take
+  // minutes, so only the coordinator's no-progress watchdog ends them.
+  function pollRareSearch(control) {
+    if (rareUnderAttack()) { cancelRarePath(); return false; }
+    var wanted = control.target, phoenix = wanted && wanted.map === character.map &&
+      String(wanted.in) === String(character.in || character.map) ? get_entity(wanted.id) : null;
+    if (phoenix && (phoenix.dead || !phoenix.visible)) phoenix = null;
+    // Already being fought: the role loop approaches and attacks.
+    if (control.kind === "engage" && phoenix) { cancelRarePath(); return false; }
+    var destination = phoenix ? { map: character.map,
+      x: phoenix.real_x !== undefined ? phoenix.real_x : phoenix.x,
+      y: phoenix.real_y !== undefined ? phoenix.real_y : phoenix.y } : control.destination;
+    if (!destination || !Number.isFinite(destination.x) || !Number.isFinite(destination.y)) { cancelRarePath(); return true; }
+    // Shadowing stays outside the Phoenix's 120 attack range but well within sight.
+    var hold = control.kind === "search" ? 30 : phoenix ? 200 : 100;
+    if (destination.map === character.map && Math.hypot(character.x-destination.x, character.y-destination.y) <= hold) {
+      cancelRarePath(); return true;
+    }
+    if (rarePath && (rarePath.id !== control.id || rarePath.map !== destination.map ||
+        Math.hypot(rarePath.x-destination.x, rarePath.y-destination.y) > 100)) cancelRarePath();
+    if (convoyTraveling || partyConvoyActive || banking || stocking || upgrading || forceTraveling || townTraveling) return true;
+    if (rareNavigation && rareNavigation.id === control.id && rareNavigation.failed) {
+      // The coordinator skips a failed search point; converge routes retry.
+      if (control.kind === "search" || Date.now() - Number(rareNavigation.at || 0) < 5000) return true;
+      rareNavigation = null;
+    }
+    if (!rarePath) startRarePath(control.id, destination);
+    return true;
+  }
   function pollRareHunting() {
     if (!rareActive()) { cancelRarePath(); return false; }
     var control = rareControlState, target = rareTarget();
-    if (control.kind === "patrol") { cancelRarePath(); return true; }
+    if (["search", "converge", "engage"].indexOf(control.kind) >= 0) return pollRareSearch(control);
     if (groupedFarming() && control.kind === "encounter" && (control.deployer !== character.name ||
         !target || Math.hypot(character.x-target.x,character.y-target.y)>=200)) {
       cancelRarePath(); return false;
@@ -3171,7 +3269,6 @@
     if (convoyTraveling || partyConvoyActive || banking || stocking || upgrading || forceTraveling || townTraveling) return true;
     if (control.kind === "encounter" && target && control.deployer !== character.name) return false;
     var destination = control.destination;
-    if (control.kind === "patrol" && character.name !== leader) return false;
     if (control.kind === "encounter" && target && control.deployer === character.name) {
       destination = { map: character.map, x: target.x, y: target.y };
       if (Math.hypot(character.x-target.x, character.y-target.y) < 200) {
@@ -3195,20 +3292,11 @@
     if (destination.map === character.map && Math.hypot(character.x-destination.x, character.y-destination.y) <= 30) {
       cancelRarePath();
       if (control.kind === "loot") { pollRareLoot(control); return true; }
-      return control.kind === "patrol";
+      return false;
     }
     if (rareNavigation && rareNavigation.id === control.id && rareNavigation.failed) return true;
-    if (!rarePath) {
-      var path = rarePath = { id: control.id, at: Date.now(), cancelled: false,
-        map: destination.map, x: destination.x, y: destination.y };
-      rareNavigation = { id: control.id, failed: false };
-      Promise.resolve(smart_move({ map: destination.map, x: destination.x, y: destination.y }))
-        .catch(function (error) {
-          if (!path.cancelled && rarePath === path) rareNavigation = { id: path.id, failed: true,
-            reason: String(error && (error.reason || error.message) || error) };
-        }).finally(function () { if (rarePath === path) rarePath = null; });
-      path.onDone = typeof smart !== "undefined" && smart.on_done;
-    } else if (Date.now() - rarePath.at > 30000) {
+    if (!rarePath) startRarePath(control.id, destination);
+    else if (Date.now() - rarePath.at > 30000) {
       rareNavigation = { id: control.id, failed: true, reason: "Rare route timed out" }; cancelRarePath();
     }
     return true;
@@ -4738,8 +4826,9 @@
     }
   }
 
-  async function waitForPlayer(name, timeout) {
+  async function waitForPlayer(name, timeout, options) {
     if (character.ctype === "merchant") return pursueMerchantTarget(name, timeout || 45000);
+    var holdPosition = options && options.holdPosition;
     var deadline = Date.now() + (timeout || 45000), player, owner = lastCommand,
       revision = navigationIntent.revision, approachPending = false;
     while (Date.now() < deadline) {
@@ -4747,8 +4836,9 @@
       player = get_player(name);
       if (player && Math.hypot(Number(player.x) - Number(character.x),
           Number(player.y) - Number(character.y)) <= 300) return player;
-      if (player && !character.moving && !approachPending) {
+      if (player && !character.moving && !approachPending && !(holdPosition && holdPosition())) {
         approachPending = true;
+        if (options) options.approached = true;
         try {
           Promise.resolve(xmove(Number(player.x), Number(player.y))).catch(function () {}).finally(function () { approachPending = false; });
         } catch (_transferApproachError) { approachPending = false; }
@@ -5030,10 +5120,18 @@
 
   async function withMerchantHandoffRecovery(command, action) {
     var revision = navigationIntent.revision;
-    try { return await afterCombat(action, "merchant handoff"); }
+    // Bag-only handoffs run while fighting: the merchant comes to us and each
+    // send is throttled. Unequipping marked gear still waits for combat to end.
+    var interleaved = !(command.upgrades || []).some(function (mark) {
+      return mark.equipped && typeof mark.slot === "string" && sameItem(character.slots[mark.slot], mark.item);
+    });
+    var approach = { approached: false };
+    try { return interleaved ? await action(approach) : await afterCombat(action, "merchant handoff"); }
     finally {
       // A late handoff must never override a new manual move or cleared focus.
-      if (!command.convoyContinuation && runtimeCurrent() && lastCommand === command.id && navigationIntent.revision === revision &&
+      // An interleaved handoff that never walked off keeps its combat target.
+      if ((!interleaved || approach.approached) &&
+          !command.convoyContinuation && runtimeCurrent() && lastCommand === command.id && navigationIntent.revision === revision &&
           !navigationIntent.cancelled && partyLocation && character.ctype !== "merchant") {
         beginFarmReunion();
       }
@@ -5060,8 +5158,26 @@
     }
   }
 
-  async function merchantHandoff(command) {
-    var merchant = await waitForPlayer(command.merchant, 45000);
+  async function merchantHandoff(command, approach) {
+    // Native disconnect is 200 call cost per rolling 4s window (character.cc);
+    // sends interleaved with combat leave the combat loop the headroom.
+    // False ends the handoff early; what was already sent is still reported.
+    async function awaitHandoffSendWindow() {
+      var deadline = Date.now() + 30000;
+      while (Date.now() < deadline) {
+        assertMerchantContinuation(command);
+        // Returns at once within 300 units; combat movement can carry us out of native
+        // send range (400), and then the merchant re-approaches.
+        try { await waitForPlayer(command.merchant, Math.max(1, deadline - Date.now()), approach); }
+        catch (_unreachable) { return false; }
+        if (!(Number(character.cc) > 120)) return true;
+        await new Promise(function (resolve) { setTimeout(resolve, 100); });
+      }
+      return false;
+    }
+    approach = approach || {};
+    approach.holdPosition = function () { return typeof engagedMonster === "function" && !!engagedMonster(); };
+    var merchant = await waitForPlayer(command.merchant, 45000, approach);
     assertMerchantContinuation(command);
     var sent = [], banked = [], kept = [], cleaned = [], reserved = [];
     for (var equippedIndex = 0; equippedIndex < (command.upgrades || []).length; equippedIndex += 1) {
@@ -5174,6 +5290,13 @@
       var sendQuantity = Math.min(Number(requests[i].quantity) || itemQuantity(character.items[slot]),
         itemQuantity(character.items[slot]));
       if (requests[i].mark && (requests[i].mark.deconstructionId || requests[i].mark.npcSaleId) && (character.items[slot].l || character.items[slot].b)) continue;
+      if (!(await awaitHandoffSendWindow())) break;
+      // The throttle can yield to combat and looting; re-resolve the item afterwards.
+      if (!sameItem(character.items[slot], requests[i].item)) {
+        slot = findItem(requests[i].item);
+        if (slot < 0) continue;
+        sendQuantity = Math.min(sendQuantity, itemQuantity(character.items[slot]));
+      }
       var clearsSlot = sendQuantity >= itemQuantity(character.items[slot]);
       await send_item(command.merchant, slot, sendQuantity);
       if (clearsSlot) cleanoutFreeSlots += 1;
@@ -5186,8 +5309,8 @@
     // The threshold only decides when an automatic visit is queued. Once the
     // merchant is here—automatically or manually—the character hands over all
     // carried gold. Any requested walking balance is delivered after pickup.
-    var excess = Math.max(0, character.gold);
     assertMerchantContinuation(command);
+    var excess = character.gold > 0 && await awaitHandoffSendWindow() ? character.gold : 0;
     if (excess) await send_gold(command.merchant, excess);
     await request("/merchant/handoff-complete", { method: "POST", body: {
       jobId: command.jobId, commandId: command.id, character: character.name, sent: sent, banked: banked, kept: kept, cleaned: cleaned,
@@ -9340,6 +9463,13 @@
     }
     // Stand return can travel safely before checking inventory recovery. Its
     // own guard runs before any listing, consolidation, or tidy mutation.
+    if (["cx-open-jar", "cx-wear", "cx-remove"].indexOf(command.type) >= 0) {
+      // Cosmetics never take over navigation or combat.
+      lastCommand = command.id; root.__partyLastCommand = lastCommand;
+      try { await runCosmeticCommand(command); }
+      catch (error) { game_log("Cosmetics: " + (error && (error.reason || error.message) || error), "red"); }
+      return;
+    }
     if (command.type === "reset-lucky-slot-tracking") {
       // Companion to the coordinator clearing its own luckySlotTracking/
       // luckyUpgradeSlots record: this character's own browser storage holds
@@ -9531,7 +9661,7 @@
       command, "stand inventory sync", function () { return merchantStandSync(command); });
     if (command.type === "merchant-idle" && character.ctype === "merchant") return merchantIdle(command);
     if (command.type === "bankboi-service" && character.ctype === "merchant") return runBankboiService(command);
-    if (command.type === "merchant-handoff") return withMerchantHandoffRecovery(command, function () { return merchantHandoff(command); });
+    if (command.type === "merchant-handoff") return withMerchantHandoffRecovery(command, function (approach) { return merchantHandoff(command, approach); });
     if (command.type === "merchant-order-handoff") return afterCombat(function () {
       return merchantOrderHandoff(command);
     }, "merchant material handoff");
@@ -10270,16 +10400,17 @@
       // (configurable, matching runtime/coordinator/events/franky-auto-tank.ts's
       // defaultFrankyAutoTankDeathLimit) it falls back to off-tank for good. A
       // death limit of 0 skips the tank attempt entirely.
-      var savedFrankyMode = state.encounterRoutines && typeof state.encounterRoutines.franky === "string"
-        ? state.encounterRoutines.franky : "auto";
-      if (savedFrankyMode === "auto") {
-        var frankyAutoDeathLimit = state.encounterAutoDeathLimits && typeof state.encounterAutoDeathLimits.franky === "number"
-          ? state.encounterAutoDeathLimits.franky : 3;
-        var frankyAutoDeaths = (state.encounterAutoDeaths && state.encounterAutoDeaths.franky) || 0;
-        frankyRoutine = frankyAutoDeathLimit > 0 && frankyAutoDeaths < frankyAutoDeathLimit ? "tank" : "offtank";
-      } else {
-        frankyRoutine = savedFrankyMode;
-      }
+      var encounterRoutine = function (encounter) {
+        var saved = state.encounterRoutines && typeof state.encounterRoutines[encounter] === "string"
+          ? state.encounterRoutines[encounter] : "auto";
+        if (saved !== "auto") return saved;
+        var limit = state.encounterAutoDeathLimits && typeof state.encounterAutoDeathLimits[encounter] === "number"
+          ? state.encounterAutoDeathLimits[encounter] : 3;
+        var deaths = (state.encounterAutoDeaths && state.encounterAutoDeaths[encounter]) || 0;
+        return limit > 0 && deaths < limit ? "tank" : "offtank";
+      };
+      frankyRoutine = encounterRoutine("franky");
+      halloweenRoutine = encounterRoutine("halloween");
       huntCombatTarget = state.huntCombatTarget || null;
       farmingMode = character.ctype !== "merchant" && state.partyFarmingMode === "scatter" ? "scatter" : "default";
       partyFarmingMonsterType = typeof state.partyFarmingMonsterType === "string" ? state.partyFarmingMonsterType : null;
@@ -10321,7 +10452,41 @@
     }
   }
 
+  // Halloween is a month-long season (`S.halloween === true`); what the party
+  // attends is whichever of its bosses is live. They are broadcast like Snowman.
+  function halloweenBosses() { return ["mrpumpkin", "mrgreen"]; }
+  function halloweenStatus(status) {
+    var live = halloweenBosses().map(function (boss) {
+      var state = status[boss];
+      return state && typeof state === "object" && state.live !== false && state.map &&
+        Number.isFinite(Number(state.x)) && Number.isFinite(Number(state.y)) ? Object.assign({ boss: boss }, state) : null;
+    }).filter(Boolean);
+    live.sort(function (a, b) {
+      return Number(b.map === character.map) - Number(a.map === character.map) ||
+        (Number(a.hp) / Number(a.max_hp) || 1) - (Number(b.hp) / Number(b.max_hp) || 1);
+    });
+    if (live.length) {
+      // The broadcast x/y follows the roaming boss, so clients reading it moments
+      // apart disagree and the coordinator cannot merge their party walk. Walk to
+      // the fixed spawn area instead; combat takes over once the boss is visible.
+      var spawn = ((G.maps && G.maps[live[0].map] && G.maps[live[0].map].monsters) || []).find(function (entry) {
+        return entry && entry.type === live[0].boss && Array.isArray(entry.boundary);
+      });
+      var anchor = spawn ? { x: (spawn.boundary[0] + spawn.boundary[2]) / 2, y: (spawn.boundary[1] + spawn.boundary[3]) / 2 } : {};
+      return Object.assign({}, live[0], anchor, { live: true, id: live[0].boss, bossX: live[0].x, bossY: live[0].y });
+    }
+    var spawn = null;
+    halloweenBosses().forEach(function (boss) {
+      var state = status[boss], at = state && state.live === false ? eventEpoch(state.spawn) : 0;
+      if (at && (!spawn || at < eventEpoch(spawn))) spawn = state.spawn;
+    });
+    return spawn ? { live: false, spawn: spawn } : { live: false };
+  }
   function eventStatus() {
+    var status = rawEventStatus();
+    return status.halloween ? Object.assign({}, status, { halloween: halloweenStatus(status) }) : status;
+  }
+  function rawEventStatus() {
     var raw = typeof server !== "undefined" && server && server.status || parent.server && parent.server.status || parent.S || {};
     if (!eventClockOffset) return raw;
     var corrected = {};
@@ -11510,6 +11675,7 @@
     // Goo Brawl starts with ordinary Brawl Goos and later spawns the Rainbow
     // Goo. Keep both eligible; nearestEventTarget applies its two-phase rule.
     if (eventName === "goobrawl") candidates = ["rgoo", "bgoo", "goo"].concat(candidates);
+    if (eventName === "halloween") candidates = halloweenBosses();
     return candidates.filter(function (type, index, all) {
       return type && G.monsters && G.monsters[type] && all.indexOf(type) === index;
     });
@@ -11522,7 +11688,7 @@
   function eventIsSupported(eventName) {
     // Snowman is a live, open-world boss. It appears in server.status like
     // instanced events do, but has no join action; travel to it normally.
-    return eventRequiresJoin(eventName) || eventName === "snowman";
+    return eventRequiresJoin(eventName) || eventName === "snowman" || eventName === "halloween";
   }
 
   function eventMapName(eventName) {
@@ -11637,6 +11803,33 @@
       (!target.map || target.map === character.map) && (target.in == null || target.in === character.in);
   }
 
+  // Halloween bosses are fought on open maps; attendance begins once event travel
+  // has joined the live boss (there is no event map) and follows Franky's guards.
+  function halloweenCombatActive() {
+    return eventSelected("halloween") && joinedEvent === "halloween" &&
+      !navigationIntent.cancelled && !escapeOwns() && !eventExitOwnsMovement() &&
+      !convoyTraveling && !townTraveling && !partyTownActive && !forceTraveling &&
+      !eventTraveling && !root.__partySharedWalking &&
+      !banking && !stocking && !upgrading && !anniversaryBusy && !anniversaryStaging;
+  }
+  function halloweenTargetAllowed(target) {
+    return !!target && target.type === "monster" && halloweenBosses().indexOf(target.mtype) >= 0 &&
+      target.visible !== false && !target.dead && target.hp !== 0 &&
+      (!target.map || target.map === character.map) && (target.in == null || target.in === character.in);
+  }
+  // Boss-only encounters (Franky, Halloween) share targeting, skill and hold policy.
+  function bossEncounter() {
+    if (typeof frankyCombatActive === "function" && frankyCombatActive()) return "franky";
+    if (typeof halloweenCombatActive === "function" && halloweenCombatActive()) return "halloween";
+    return null;
+  }
+  function bossCombatActive() { return !!bossEncounter(); }
+  function bossTargetAllowed(target) {
+    var encounter = bossEncounter();
+    return encounter === "franky" ? frankyTargetAllowed(target) : encounter === "halloween" ? halloweenTargetAllowed(target) : false;
+  }
+  function bossRoutine() { return bossEncounter() === "halloween" ? halloweenRoutine : frankyRoutine; }
+
   // Off-tank waits until another visible, living player has held Franky this long.
   var frankyHoldMinMs = 5000;
   var frankyHold = { id: null, holder: null, since: 0 };
@@ -11710,8 +11903,8 @@
 
   function nearestEventTarget() {
     if (joinedEvent && !eventSelected(joinedEvent) || travellingEventName && !eventSelected(travellingEventName)) return null;
-    if (typeof frankyCombatActive === "function" && frankyCombatActive()) {
-      var bosses = Object.values(parent.entities || {}).filter(frankyTargetAllowed);
+    if ((typeof bossCombatActive === "function" ? bossCombatActive() : typeof frankyCombatActive === "function" && frankyCombatActive())) {
+      var bosses = Object.values(parent.entities || {}).filter((typeof bossTargetAllowed === "function" ? bossTargetAllowed : frankyTargetAllowed));
       var retained = bosses.find(function (target) { return target.id === combatTargetId; });
       bosses.sort(function (a, b) {
         return Math.hypot(a.x - character.x, a.y - character.y) -
@@ -12603,7 +12796,7 @@
   }
 
   async function dashToward(target) {
-    if (typeof frankyCombatActive === "function" && frankyCombatActive()) return false;
+    if ((typeof bossCombatActive === "function" ? bossCombatActive() : typeof frankyCombatActive === "function" && frankyCombatActive())) return false;
     if (typeof groupedFarming === "function" && groupedFarming() && formationMembers().some(function (member) { return member.ctype === "priest"; })) return false;
     if (character.ctype !== "warrior" || !target || character.max_mp <= 0 ||
         character.mp / character.max_mp < 0.5 || character.mp < G.skills.dash.mp ||
@@ -13304,8 +13497,9 @@
     if (character.cave || typeof root !== "undefined" && root.__partyDungeonRuntime && root.__partyDungeonRuntime.owns()) return dungeonTargetAllowed(target);
     if(typeof returnCombatActive==='function' && returnCombatActive())return returnAttacker(target);
     function reject(reason) { if (diagnostic) diagnostic.reason = reason; return false; }
-    if (typeof frankyCombatActive === "function" && frankyCombatActive() && !frankyTargetAllowed(target))
-      return reject("Franky attendance only permits the Franky monster");
+    var bossActive = (typeof bossCombatActive === "function" ? bossCombatActive() : typeof frankyCombatActive === "function" && frankyCombatActive());
+    if (bossActive && !(typeof bossTargetAllowed === "function" ? bossTargetAllowed : frankyTargetAllowed)(target))
+      return reject(typeof bossEncounter === "function" && bossEncounter() === "halloween" ? "Halloween attendance only permits its bosses" : "Franky attendance only permits the Franky monster");
     var huntTravel = huntTravelCommand && huntTravelCommand.purpose === "monster-hunt" &&
       huntTravelCommand.combatHandoffAllowed === true && huntTravelCommand.huntTarget === (target && target.mtype);
     huntTravel = huntTravel || !!(huntTravelCommand && ['', 'party-travel', 'farm-relocation', 'manual-monster-override'].indexOf(huntTravelCommand.purpose || '')>=0 && huntTravelCommand.combatHandoffAllowed === true);
@@ -13320,13 +13514,18 @@
           return t.id===target.id && t.map===character.map && t.in===character.in && t.server===reunionRealm();
         }))) return reject("combat recovery owns target");
     if (typeof root !== "undefined" && root.partyRoleRunner && root.partyRoleRunner.isKnownDead && root.partyRoleRunner.isKnownDead(target.id)) return reject("confirmed death");
-    if (typeof frankyCombatActive === "function" && frankyCombatActive()) {
+    if (bossActive) {
       // Off-tank positioning alone doesn't stop ranged pulls; attacks and skills wait for a proven holder.
-      if (frankyRoutine === "offtank" && !frankyHeldByOther(target) && !frankyKeepaliveDue(target))
-        return reject("Off-tank waits for someone else to hold Franky for 5 seconds");
+      if ((typeof bossRoutine === "function" ? bossRoutine() : frankyRoutine) === "offtank" && !frankyHeldByOther(target) && !frankyKeepaliveDue(target))
+        return reject("Off-tank waits for someone else to hold the boss for 5 seconds");
       return true;
     }
     if (target.mtype === "fieldgen0") return reject("excluded monster");
+    if (target.mtype === "phoenix" && typeof rareSearchKind === "function") {
+      // Scattered searchers hold fire until the party gathers, unless it is already a fight.
+      if (rareSearchKind() && !target.target) return reject("Phoenix search holds fire until the party gathers");
+      if (rareActive() && rareControlState.kind === "engage" && rareTarget() && rareTarget().id === target.id) return true;
+    }
     // Acquisition nominates a new target; only actual combat requires the group selection lock.
     // An attack already pending or engaged must still finish before another hunt pull.
     if (huntTravel && typeof unfinishedFight === "function" && unfinishedFight()) return reject("unfinished group fight");
@@ -15027,7 +15226,7 @@
 
   var formationPerformance = { ticks: 0, totalMs: 0, maxMs: 0, candidates: 0, collisionChecks: 0 };
   function formationMove(target) {
-    if (typeof frankyCombatActive === "function" && frankyCombatActive()) return false;
+    if ((typeof bossCombatActive === "function" ? bossCombatActive() : typeof frankyCombatActive === "function" && frankyCombatActive())) return false;
     if(!character.cave && root.partyQueueClient && root.partyQueueClient.formation && root.partyQueueClient.formation.movement())return true;
     var context = [character.map, character.in, character.rip, joinedEvent, eventTraveling].join(":");
     if (formationState.mapContext !== context) {
@@ -15447,7 +15646,7 @@
     return best ? sendCombatMove(target, best, "event-kiting") : false;
   }
   async function kiteIfNeeded(target) {
-    if (typeof frankyCombatActive === "function" && frankyCombatActive()) return false;
+    if ((typeof bossCombatActive === "function" ? bossCombatActive() : typeof frankyCombatActive === "function" && frankyCombatActive())) return false;
     if(typeof returnCombatActive==='function' && returnCombatActive())return false;
     var attacker = target && target.target === character.name ? target : Object.keys(parent.entities || {})
       .map(function (id) { return parent.entities[id]; }).filter(function (enemy) {
@@ -15576,11 +15775,11 @@
   // cause a retreat or prevent closing on Franky, and once in range he is held
   // even when closer than the weapon range.
   function frankyTankMovementTick(target) {
-    if (!frankyTargetAllowed(target) || is_in_range(target)) {
+    if (!(typeof bossTargetAllowed === "function" ? bossTargetAllowed : frankyTargetAllowed)(target) || is_in_range(target)) {
       resetCombatMovement();
       root.partyCombatPosition = { at: Date.now(), mode: target ? "franky-holding" : "franky-waiting",
         movementOwner: "combat", target: target && target.id || null,
-        reason: target ? "Franky is in attack range" : "Waiting for Franky" };
+        reason: target ? "The boss is in attack range" : "Waiting for the boss" };
       return true;
     }
     var destination = combatApproachPoint(target);
@@ -15595,8 +15794,51 @@
     }
     resetCombatMovement();
     root.partyCombatPosition = { at: Date.now(), mode: "blocked", movementOwner: "combat",
-      target: target.id, reason: "No terrain-clear approach to Franky" };
+      target: target.id, reason: "No terrain-clear approach to the boss" };
     return true;
+  }
+  // Open-map off-tank: there are no doors to flee through, so a targeted off-tank
+  // steps out of the boss's own range and comes back once it holds someone else.
+  var halloweenRetreatMargin = 60, halloweenRetreat = { pending: false, attempt: 0 };
+  function halloweenMovementTick(target) {
+    // An off-tank's attack target is withheld until someone else holds the boss,
+    // so position against the live boss itself.
+    if (!halloweenTargetAllowed(target)) target = Object.values(parent.entities || {}).filter(halloweenTargetAllowed)
+      .sort(function (a, b) { return Math.hypot(a.x - character.x, a.y - character.y) - Math.hypot(b.x - character.x, b.y - character.y); })[0] || null;
+    if (halloweenRoutine === "tank" || !target || target.target !== character.name)
+      return frankyTankMovementTick(target);
+    var safe = (Number(target.range) || 0) + halloweenRetreatMargin;
+    var distance = Math.hypot(character.x - target.x, character.y - target.y);
+    if (distance >= safe) {
+      resetCombatMovement();
+      root.partyCombatPosition = { at: Date.now(), mode: "boss-retreated", movementOwner: "combat",
+        target: target.id, reason: "Off-tank waiting outside the boss's range for it to target someone else" };
+      return true;
+    }
+    // Short terrain-checked steps away from the boss, like the approach tick, rather
+    // than one long leg that walls usually block.
+    var away = Math.atan2(character.y - target.y, character.x - target.x);
+    var step = Math.min(safe - distance + 10, Math.max(1, Number(character.speed || 40) * 0.6));
+    for (var turns = [0, 0.5, -0.5, 1, -1, 1.5, -1.5], i = 0; i < turns.length; i++) {
+      var point = { x: character.x + Math.cos(away + turns[i]) * step, y: character.y + Math.sin(away + turns[i]) * step };
+      if (typeof can_move_to === "function" && can_move_to(point.x, point.y))
+        return sendCombatMove(target, point, "boss-retreating");
+    }
+    // Walled in: route with the native pathfinder to a point on the safe ring,
+    // trying the next angle around the boss whenever a route fails.
+    if (!halloweenRetreat.pending) {
+      var angle = away + [0, 0.8, -0.8, 1.6, -1.6, 2.4, -2.4, Math.PI][halloweenRetreat.attempt % 8];
+      var destination = { x: target.x + Math.cos(angle) * (safe + 20), y: target.y + Math.sin(angle) * (safe + 20) };
+      halloweenRetreat.pending = true;
+      Promise.resolve(xmove(destination.x, destination.y)).catch(function () { halloweenRetreat.attempt++; })
+        .finally(function () { halloweenRetreat.pending = false; });
+    }
+    root.partyCombatPosition = { at: Date.now(), mode: "boss-retreating", movementOwner: "combat",
+      target: target.id, reason: "Routing out of the boss's range" };
+    return true;
+  }
+  function bossMovementTick(target) {
+    return bossEncounter() === "halloween" ? halloweenMovementTick(target) : frankyMovementTick(target);
   }
   function frankyMovementTick(target) {
     if (!frankyCombatActive()) { frankyLastKnown = null; frankyFleeState.phase = "none"; frankyFleeState.since = 0; return false; }
@@ -15611,6 +15853,10 @@
     // A flee sequence runs to completion once started, since Franky's aggro
     // isn't observable while briefly off on the adjacent map.
     if (frankyFleeState.phase !== "none") return frankyFleeTick();
+    // An off-tank's attack target is withheld until someone else holds Franky,
+    // including while he targets us, so read his aggro from the live entity.
+    if (!frankyTargetAllowed(target)) target = Object.values(parent.entities || {}).filter(frankyTargetAllowed)
+      .sort(function (a, b) { return Math.hypot(a.x - character.x, a.y - character.y) - Math.hypot(b.x - character.x, b.y - character.y); })[0] || null;
     if (frankyTargetAllowed(target)) frankyLastKnown = { x: target.x, y: target.y, at: Date.now() };
     var safeSpot = frankySafeCorner();
     if (!frankyTargetAllowed(target)) {
@@ -15751,7 +15997,7 @@
   }
 
   async function approachCombatTarget(target) {
-    if (typeof frankyCombatActive === "function" && frankyCombatActive()) return frankyMovementTick(target);
+    if ((typeof bossCombatActive === "function" ? bossCombatActive() : typeof frankyCombatActive === "function" && frankyCombatActive())) return typeof bossMovementTick === "function" ? bossMovementTick(target) : frankyMovementTick(target);
     if (tank && tank === character.name) return tankMovementTick(target);
     return engageMovementTick(target);
   }
@@ -15932,7 +16178,7 @@
       }))interruptConvoyForDefense();
       if (combatRecoveryActive() && root.__partyCombatRecovery.phase!=='finishing') return true;
       if (escapeOwns()) return true;
-      if (typeof rareActive === "function" && rareActive() && (rareControlState.kind === "patrol" || rareControlState.kind === "loot" || rarePath ||
+      if (typeof rareActive === "function" && rareActive() && (rareSearchKind() && !rareUnderAttack() || rareControlState.kind === "loot" || rarePath ||
           !groupedFarming() && rareControlState.deployer === character.name)) return true;
       // A convoy owns movement completely. Releasing the role loop for a
       // passing threat lets kiting/follow movement replace smart_move, which
@@ -16152,7 +16398,7 @@
       if (!target || target.type !== "monster" || !isAllowedTarget(target) || root.sharedRoutine.isOccupied() || isLiveAbtesting()) return false;
       if(dungeonOwned()) return dungeonTargetAllowed(target);
       if(huntTravelDefense() && !isAttackingPartyMember(target) && !(convoyTraveling.defenseTargets||[]).some(function(t){return passingKey(t)===passingKey(target);}))return false;
-      if (typeof frankyCombatActive === "function" && frankyCombatActive()) return frankyTargetAllowed(target);
+      if ((typeof bossCombatActive === "function" ? bossCombatActive() : typeof frankyCombatActive === "function" && frankyCombatActive())) return (typeof bossTargetAllowed === "function" ? bossTargetAllowed : frankyTargetAllowed)(target);
       if (target.target && !isAttackingPartyMember(target)) return false;
       if (groupedAttackAllowed(target)) return true;
       return groupedFarming() && groupedFresh() && groupedCombat.committed &&
@@ -16356,6 +16602,9 @@
     getEventTarget: nearestEventTarget,
     frankyCombatActive: frankyCombatActive,
     frankyMovementTick: frankyMovementTick,
+    bossCombatActive: bossCombatActive,
+    bossTargetAllowed: bossTargetAllowed,
+    bossMovementTick: bossMovementTick,
     isAggressiveEventCombat: isAggressiveEventCombat,
     getMonsterFocus: function () { return monsterFocus.slice(); },
     getFarmingMode: function () {
@@ -16403,7 +16652,8 @@
     usesLeaderTarget: function () { return groupedFarming(); },
     clearCombatSelection: function () { publishCombatSelection(null, true); },
     getGroupedTarget: function () {
-      if (!groupedFarming() && typeof rareTarget === "function" && rareTarget()) return rareTarget();
+      if (typeof rareTarget === "function" && rareTarget() &&
+          (!groupedFarming() || rareControlState.kind === "engage")) return rareTarget();
       var lock = groupedCombat && groupedCombat.protocol === 4 ? groupedCombat.target : leaderCombatSelection;
       var target = lock && lock.id && get_entity(lock.id);
       if (target && target.visible && !target.dead && isAllowedTarget(target) &&

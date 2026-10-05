@@ -14,6 +14,7 @@ import { migrateSharedRules, installSharedRuleRoutes, sharedMember } from "./inv
 import { loadCoordinatorGeometry } from './navigation/planner-geometry.ts';
 import { initializeStandLocation, standLocationRoute } from './merchant/stand-location.ts';
 import { createRareRouteDistance } from './navigation/rare-route-distance.ts';
+import { createRealmHopBlacklistRoute, realmHopAllowed } from './navigation/realm-hop-blacklist.ts';
 export function startCoordinatorApplication(
   platform: CoordinatorApplicationPlatform,
 ): Promise<void> {
@@ -1075,6 +1076,7 @@ export function startCoordinatorApplication(
       homeRealm: accountHomeRealm,
       realmSwitchBusy: () =>
         !!party.realmSwitch && ["switching", "setting-home"].includes(party.realmSwitch.phase),
+      hopAllowed: (realm: string) => realmHopAllowed(party.realmHopBlacklist, realm),
       selected: (event: string) =>
         realmParticipants().some((name) => {
           const selected = party.eventSelectionsByCharacter[name];
@@ -2211,6 +2213,11 @@ export function startCoordinatorApplication(
               realmRoutes,
               bossChaseRoute: bossChase.update,
               dailyChaseRoute: dailyChase.update,
+              realmHopBlacklistRoute: createRealmHopBlacklistRoute(party, {
+                realmExists: (realm) => !!my_acc.resolve_realm(realm),
+                log: (message, level) => merchantLog(message, level as Parameters<typeof merchantLog>[1]),
+                persist: persistSettings,
+              }),
               statusIngestion,
               monsterSelectionRoutes,
               focusRoute: scopedRoute(focusRoute, service => service.focusRoute),

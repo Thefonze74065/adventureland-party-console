@@ -13,6 +13,14 @@ import { PlayerStandListing } from "./player-stand-listing";
 import { SkillClass } from "./skill-class";
 import { Sprite } from "./sprite";
 
+/** Reported by characters/shared.js cosmeticsSnapshot(). */
+/** `label` is the game's display name for emotes and the ID for appearance pieces (absent from older reports). */
+export type CosmeticKind = { kind: "appearance" | "emote" | "unknown" | "empty"; type: string | null; slot: string | null; label?: string | null };
+export type CosmeticsReport = {
+  jars: (CosmeticKind & { inventorySlot: number; data: string | null; locked: boolean; usable: boolean })[];
+  owned: (CosmeticKind & { name: string; count: number })[];
+  worn: Record<string, string>;
+};
 export type Char = {
   luckySlotTracking?: LuckySlotTracking;
   tracktrix?: { active: boolean; bonuses: Record<string, number> | null; sprite?: Sprite | null };
@@ -94,6 +102,7 @@ export type Char = {
   skin?: string;
   characterSprite?: Sprite | null;
   characterDollHtml?: string | null;
+  cosmetics?: CosmeticsReport | null;
   donationXpPerGold?: number;
   gatheringCooldowns?: { fishing?: number; mining?: number };
   nearbyStandListings?: (PlayerStandListing & { meta?: ItemMeta | null })[];

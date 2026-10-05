@@ -47,7 +47,7 @@ export function installSkillRuntime(root: CombatRoot) {
     return result;
   }
   function authorized(w: SkillWorld, t: Combatant, id: SkillId): boolean {
-    if(returnTargetBlocked(t,id) || frankySkillBlocked(id, [t]))return false;
+    if(returnTargetBlocked(t,id) || bossSkillBlocked(id, [t]))return false;
     const type = w.skills[id]?.damage_type || 'physical';
     if (id !== 'taunt' && monsterAttackBlock(t.mtype, type, w.actor.range)) return false;
     if (!targetAuthorized(t, id)) return false;
@@ -67,17 +67,17 @@ export function installSkillRuntime(root: CombatRoot) {
     if(returnExcluded.has(d.skill))return true;
     return !!world().skills[d.skill]?.hostile && d.targets.some(t=>!shared.returnAttacker?.(t as Target));
   }
-  // Area effects and movement skills cannot honor strict boss-only, hold-position combat.
-  // Scare stays allowed: warrior.ts casts it directly (it's untargeted) as how
-  // an off-tank mitigates Franky's damage without contesting the tank's aggro.
-  const frankyExcluded = new Set<string>(['agitate','charge','dash','blink','stomp','cleave','fanofknives']);
-  function frankySkillBlocked(id: SkillId, targets: Combatant[]): boolean {
-    if (!shared.frankyCombatActive?.()) return false;
-    return frankyExcluded.has(id) || !!world().skills[id]?.hostile &&
-      targets.some(t => t.type !== 'monster' || t.mtype !== 'franky' || !shared.skillTargetAllowed?.(t as Target));
+  // Area effects and movement skills cannot honor strict boss-only, hold-position combat
+  // (Franky, Halloween bosses). Scare stays allowed: warrior.ts casts it directly (it's
+  // untargeted) as how an off-tank mitigates the boss's damage without contesting aggro.
+  const bossExcluded = new Set<string>(['agitate','charge','dash','blink','stomp','cleave','fanofknives']);
+  function bossSkillBlocked(id: SkillId, targets: Combatant[]): boolean {
+    if (!shared.bossCombatActive?.()) return false;
+    return bossExcluded.has(id) || !!world().skills[id]?.hostile &&
+      targets.some(t => t.type !== 'monster' || !shared.bossTargetAllowed?.(t as Target) || !shared.skillTargetAllowed?.(t as Target));
   }
   function castSkill(d:SkillDecision):Promise<unknown> {
-    if (frankySkillBlocked(d.skill, d.targets)) return Promise.reject(new Error('Skill conflicts with Franky-only combat'));
+    if (bossSkillBlocked(d.skill, d.targets)) return Promise.reject(new Error('Skill conflicts with boss-only combat'));
     if(returnCastBlocked(d))return Promise.reject(new Error('Skill conflicts with return movement or attacker-only policy'));
     const argument=d.argument ?? (d.targets.length>1 || world().skills[d.skill]?.multi ? d.targets.map(t=>t.id) : d.targets[0]?.id || d.targets[0]?.name);
     return host.use_skill(d.skill,argument);

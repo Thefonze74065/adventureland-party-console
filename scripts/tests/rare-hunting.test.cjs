@@ -1,6 +1,11 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { createRareHunting, regions, validateOrder, scanPoints, samples } = require('../rare-hunting.cjs');
+const { createRareHunting, regions, validateOrder, scanPoints } = require('../rare-hunting.cjs');
+function samples(area) {
+  const [x1,y1,x2,y2]=area.boundary,nx=Math.max(1,Math.ceil((x2-x1)/60)),ny=Math.max(1,Math.ceil((y2-y1)/60)),result=[];
+  for(let x=0;x<=nx;x++)for(let y=0;y<=ny;y++)result.push({x:x1+(x2-x1)*x/nx,y:y1+(y2-y1)*y/ny});
+  return result;
+}
 const boxes = [['main',708,-300,1668,-86],['main',378,1686,904,1920],
   ['main',-1358,-118,-1010,1680],['halloween',-166,453,182,808],['cave',-375,-1287,14,-1041]];
 const catalog = [{ id:'phoenix', locations:boxes.map(([map,...boundary]) => ({ map,boundary,
@@ -117,30 +122,73 @@ test('active patrol detects Phoenix with passive checkbox off and resets after c
   r.controller.report('W',r.party.statuses.W);r.controller.tick();
   r.advance(2000);r.party.statuses.W.rareLoot={id:r.controller.control('W').id,at:r.time(),observedAt:r.time(),realm:':USII',map:'main',in:'main',complete:true};
   r.controller.tick();
-  assert.equal(r.party.rareHuntState.patrol.index,0);assert.equal(r.party.rareHuntState.patrol.stage,'respawn');
-});
-test('patrol only advances after real coverage and endpoint dwell',()=>{
-  const r=fixture();r.party.monsterFocus=['phoenix'];r.controller.start(regions(catalog).map(a=>a.id));r.controller.tick();
-  const d=r.controller.control('W').destination;
-  r.advance(1001);r.controller.tick();assert.equal(r.party.rareHuntState.patrol.index,0);
-  Object.assign(r.party.statuses.W,d,{in:d.map});r.party.activeConvoy=null;r.controller.tick();r.advance(1001);r.controller.tick();
-  assert.equal(r.party.rareHuntState.patrol.index,1);
-});
-test('failed points have bounded retries and all unreachable regions pause the patrol',()=>{
-  const r=fixture();r.party.monsterFocus=['phoenix'];r.controller.start(regions(catalog).map(a=>a.id));
-  for(let i=0;i<100&&!r.party.rareHuntState.patrol?.paused;i++) {
-    r.controller.tick();const c=r.controller.control('W');
-    if(c)r.party.activeConvoy={purpose:'phoenix-patrol',phase:'failed',failureCode:'route-failed'};
-    r.controller.tick();
-  }
-  assert.equal(r.party.rareHuntState.patrol.paused,true);
-  assert.equal(r.party.rareHuntState.patrol.incomplete.length,5);
+  assert.equal(r.party.rareHuntState.patrol.stage,'respawn');
 });
 test('no-progress and five-minute limits bound a continuously visible passive encounter',()=>{
   const r=fixture();r.sight();r.advance(30001);r.sight();assert.equal(r.controller.encounter(),false);
   const q=fixture();q.sight();
   for(let i=1;i<=16;i++){q.advance(20000);q.sight('phoenix','W',{hp:5600-i*10});}
   assert.equal(q.controller.encounter(),false);
+});
+// Live failure: a gathered patrol Phoenix stalled while formation settled, was
+// rejected by retry evidence, and later on-route sightings were all dropped.
+test('a stalled patrol Phoenix keeps forming, then a later on-route sighting retries it',()=>{
+  const r=fixture();r.party.monsterFocus=['phoenix'];
+  r.controller.start(regions(catalog).map(a=>a.id));r.controller.tick();
+  r.sight();r.controller.tick();
+  assert.equal(r.party.rareHuntState.encounter.stage==='converge',false,'every fighter is already in range');
+  for(let i=0;i<11;i++){r.advance(3000);r.sight();}
+  assert.equal(r.controller.encounter(),true,'the no-progress clock must wait for grouped combat to lock the Phoenix');
+  for(let i=0;i<90&&r.controller.encounter();i++){r.advance(3000);r.sight();}
+  assert.equal(r.controller.encounter(),false,'the five-minute limit still ends the attempt');
+  assert.deepEqual(Object.keys(r.party.rareRetryEvidence||{}),[],'a patrol Phoenix is never rejected by retry evidence');
+  r.advance(4000);
+  Object.assign(r.party.statuses.W,{x:-600,y:0});
+  r.sight('phoenix','W',{x:20,y:10,reachable:false});
+  assert.equal(r.party.rareHuntState.encounter?.stage,'converge','a distant on-route sighting must start a new converge');
+});
+// Live failure: one fighter's transient command or a brief heartbeat gap paused
+// every searcher; empty controls cancelled routes about once a second.
+test('one fighter\'s pending command or brief heartbeat gap never stalls the other searchers',async()=>{
+  const r=fixture();r.party.monsterFocus=['phoenix'];
+  r.controller.start(regions(catalog).map(a=>a.id));r.controller.tick();
+  await new Promise(resolve=>setImmediate(resolve));r.controller.tick();
+  const before=r.controller.control('W');
+  assert.equal(before.kind,'search');assert.ok(before.destination);
+  r.party.commands.P={type:'give'};r.advance(1000);r.controller.tick();
+  assert.deepEqual(r.controller.control('W'),before,'another fighter\'s command must not withdraw this search leg');
+  assert.equal(r.controller.control('P'),null,'the commanded fighter yields to its own command');
+  delete r.party.commands.P;r.advance(1000);r.controller.tick();
+  r.party.statuses.W.seenAt-=4000;r.controller.tick();
+  r.advance(1000);r.controller.tick();
+  assert.deepEqual(r.controller.control('W'),before,'a brief heartbeat gap keeps the same assignment and point');
+});
+// Live failure: boss chase hopped the party to another realm; the patrol stopped
+// for good and the party idled after coming home.
+function hop(r,server){for(const s of Object.values(r.party.statuses))s.server=server;r.advance(1000);r.controller.tick();}
+test('a realm hop suspends the Phoenix patrol, which resumes on its own realm',async()=>{
+  const r=fixture();r.party.monsterFocus=['phoenix'];
+  r.controller.start(regions(catalog).map(a=>a.id));r.controller.tick();
+  hop(r,'USV');
+  assert.equal(r.party.phoenixPatrolActive,true,'a realm hop must not end the patrol');
+  assert.equal(r.party.rareHuntState.patrol,null);
+  assert.match(r.party.rareHuntState.message,/suspended/);
+  for(let i=0;i<5;i++){r.advance(1000);r.controller.tick();}
+  assert.equal(r.party.rareHuntState.patrol,null,'no patrol on the foreign realm');
+  assert.equal(r.controller.control('W'),null);
+  hop(r,'USII');
+  await new Promise(resolve=>setImmediate(resolve));r.controller.tick();
+  assert.equal(r.party.rareHuntState.patrol?.active,true,'the patrol resumes back home');
+  assert.equal(r.controller.control('W')?.kind,'search');
+});
+test('new navigation while the patrol is suspended still stops it',()=>{
+  const r=fixture();r.party.monsterFocus=['phoenix'];
+  r.controller.start(regions(catalog).map(a=>a.id));r.controller.tick();
+  hop(r,'USV');
+  r.revisions.W++;r.advance(1000);r.controller.tick();
+  hop(r,'USII');
+  assert.equal(r.party.phoenixPatrolActive,false);
+  assert.equal(r.party.rareHuntState.patrol,null);
 });
 test('passive checkbox cancellation leaves an explicitly active Phoenix patrol running',()=>{
   const r=fixture();r.sight();r.controller.setSettings({phoenix:false});assert.equal(r.controller.encounter(),false);
@@ -227,7 +275,6 @@ test('restored Phoenix patrol keeps its route instead of starting a farming retu
  r.party.phoenixRouteOrder=regions(catalog).map(a=>a.id);
  r.party.rareHuntReturn={leader:'W',realm:':USII',focus:'["phoenix"]',policy:'auto',revisions:{W:1,M:1,P:1},returnLocation:{map:'main',x:1,y:2}};
  r.controller.tick();assert.equal(r.party.rareHuntReturn,null);assert.ok(r.party.rareHuntState.patrol.active);
- assert.equal(r.party.activeConvoy?.purpose,'phoenix-patrol');
 });
 
 function groupRare(r,id='phoenix',state='planned') {

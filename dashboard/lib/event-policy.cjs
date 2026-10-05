@@ -28,7 +28,7 @@ __export(event_policy_exports, {
   supportedEvents: () => supportedEvents
 });
 module.exports = __toCommonJS(event_policy_exports);
-var supportedEvents = ["anniversary", "abtesting", "goobrawl", "crabxx", "franky", "icegolem", "snowman"];
+var supportedEvents = ["anniversary", "abtesting", "goobrawl", "crabxx", "franky", "icegolem", "snowman", "halloween"];
 function selectedEvents(party, name) {
   const source = eventPolicy(party, name).source;
   const saved = party.eventSelectionsByCharacter?.[source];
