@@ -2116,16 +2116,18 @@
   // wears an owned cosmetic and equip_cx(slot) removes it (skin is replaced).
   function cosmeticDescription(name) {
     var type = parent.T && parent.T[name], slot = type && parent.cxtype_to_slot && parent.cxtype_to_slot[type];
-    if (type) return { kind: "appearance", type: type, slot: slot || null };
-    if (G.skills && G.skills[name] && G.skills[name].emote) return { kind: "emote", type: null, slot: null };
-    return { kind: "unknown", type: null, slot: null };
+    // The game names emotes; appearance pieces are shown by ID, as in its own cosmetic info.
+    if (type) return { kind: "appearance", type: type, slot: slot || null, label: name };
+    if (G.skills && G.skills[name] && G.skills[name].emote)
+      return { kind: "emote", type: null, slot: null, label: G.skills[name].name || name };
+    return { kind: "unknown", type: null, slot: null, label: name };
   }
   function cosmeticsSnapshot() {
     var owned = typeof parent.all_cx === "function" ? parent.all_cx(character) : (character.acx || {});
     var jars = [];
     (character.items || []).forEach(function (item, slot) {
       if (!item || item.name !== "cxjar") return;
-      var described = item.data ? cosmeticDescription(item.data) : { kind: "empty", type: null, slot: null };
+      var described = item.data ? cosmeticDescription(item.data) : { kind: "empty", type: null, slot: null, label: null };
       jars.push(Object.assign({ inventorySlot: slot, data: item.data || null, locked: !!item.l,
         usable: !!item.data && !item.l && described.kind !== "unknown" }, described));
     });

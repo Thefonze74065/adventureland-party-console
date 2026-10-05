@@ -152,7 +152,8 @@ cosmetics (`character.acx`, expanded by native `all_cx`) and worn cosmetics
 diagnostics stream. A CX jar's `data` names one cosmetic or emote; Open runs native
 `equip(slot)`, which adds it to the collection and consumes the jar. Wear and
 Remove run native `equip_cx(slot, name)` / `equip_cx(slot)`; skins can be replaced
-but not removed, and emotes are shown as unlocked. The `cx-open-jar`, `cx-wear` and
+but not removed, and emotes are shown as unlocked. Emotes use the game's
+name (`G.skills[id].name`); appearance pieces keep their ID, as in the game's own cosmetic info. The `cx-open-jar`, `cx-wear` and
 `cx-remove` commands (`characters/cosmetic-commands.ts`) are checked against the
 latest report, refused while another command is pending, re-checked by the
 character, and never take over navigation or combat. Failure inventory:

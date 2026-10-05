@@ -14,7 +14,8 @@ import { SkillClass } from "./skill-class";
 import { Sprite } from "./sprite";
 
 /** Reported by characters/shared.js cosmeticsSnapshot(). */
-export type CosmeticKind = { kind: "appearance" | "emote" | "unknown" | "empty"; type: string | null; slot: string | null };
+/** `label` is the game's display name for emotes and the ID for appearance pieces (absent from older reports). */
+export type CosmeticKind = { kind: "appearance" | "emote" | "unknown" | "empty"; type: string | null; slot: string | null; label?: string | null };
 export type CosmeticsReport = {
   jars: (CosmeticKind & { inventorySlot: number; data: string | null; locked: boolean; usable: boolean })[];
   owned: (CosmeticKind & { name: string; count: number })[];

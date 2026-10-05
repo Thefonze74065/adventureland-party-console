@@ -33,7 +33,7 @@ export const CosmeticsPanel = memo(function CosmeticsPanel({ name, cosmetics, po
         <p className="mb-1 font-semibold text-fuchsia-100">CX jars in inventory</p>
         {cosmetics.jars.length ? <ul className="grid gap-1">{cosmetics.jars.map(jar =>
           <li key={jar.inventorySlot} className="flex items-center gap-2 rounded border border-slate-700 bg-black px-2 py-1">
-            <span className="flex-1">Slot {jar.inventorySlot} · {jar.data || "empty"}{jar.kind === "emote" ? " · emote" : jar.slot ? ` · ${jar.slot}` : ""}</span>
+            <span className="flex-1">Slot {jar.inventorySlot} · {jar.label || jar.data || "empty"}{jar.kind === "emote" ? " · emote" : jar.slot ? ` · ${jar.slot}` : ""}</span>
             <span className={jar.usable ? "text-emerald-300" : "text-slate-400"}>{jarState(jar)}</span>
             {jar.usable && <button type="button" className={buttonClass} disabled={busy !== null}
               aria-label={`Open CX jar in slot ${jar.inventorySlot}`}
@@ -57,7 +57,7 @@ export const CosmeticsPanel = memo(function CosmeticsPanel({ name, cosmetics, po
         {cosmetics.owned.length ? <ul className="grid max-h-48 gap-1 overflow-auto">{cosmetics.owned.map(entry => {
           const wearing = !!entry.slot && cosmetics.worn[entry.slot] === entry.name;
           return <li key={entry.name} className="flex items-center gap-2 rounded border border-slate-700 bg-black px-2 py-1">
-            <span className="flex-1">{entry.name}{entry.count > 1 ? ` ×${entry.count}` : ""} · {entry.kind === "emote" ? "emote" : entry.slot || entry.kind}</span>
+            <span className="flex-1">{entry.label || entry.name}{entry.count > 1 ? ` ×${entry.count}` : ""} · {entry.kind === "emote" ? "emote" : entry.slot || entry.kind}</span>
             {entry.kind === "emote" ? <span className="text-emerald-300">Unlocked</span>
               : entry.kind === "appearance" && entry.slot ? <button type="button" className={buttonClass} disabled={busy !== null || wearing}
                 aria-label={`Wear ${entry.name}`} onClick={() => void run("wear" + entry.name, { type: "cx-wear", name: entry.name, slot: entry.slot })}>

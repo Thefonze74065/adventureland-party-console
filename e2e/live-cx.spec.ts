@@ -9,12 +9,12 @@ test('CX jars show their state, open into the collection, and the cosmetic is wo
   const seed = await live.admin(`output=(()=>{
     const p=get_player(${JSON.stringify(W)}),hat=Object.keys(T).filter(k=>T[k]==='hat').sort()[0];
     if(!hat)throw Error('No hat cosmetic in the native table');
-    const slots=[];for(let i=0;i<p.isize&&slots.length<3;i++)if(!p.items[i])slots.push(i);
-    if(slots.length<3)throw Error('Three free inventory slots required');
+    const slots=[];for(let i=0;i<p.isize&&slots.length<4;i++)if(!p.items[i])slots.push(i);
+    if(slots.length<4)throw Error('Four free inventory slots required');
     globalThis.__e2eCx={owned:(p.p.acx||{})[hat]||0,worn:Object.assign({},p.cx)};
-    p.items[slots[0]]={name:'cxjar',q:1,data:hat};p.items[slots[1]]={name:'cxjar',q:1,data:hat,l:'l'};p.items[slots[2]]={name:'cxjar',q:1};
+    p.items[slots[0]]={name:'cxjar',q:1,data:hat};p.items[slots[1]]={name:'cxjar',q:1,data:hat,l:'l'};p.items[slots[2]]={name:'cxjar',q:1};p.items[slots[3]]={name:'cxjar',q:1,data:'ikissyou'};
     cache_player_items(p);resend(p,'reopen+cid');
-    return {hat,slot:cxtype_to_slot[T[hat]],slots,owned:globalThis.__e2eCx.owned};
+    return {hat,slot:cxtype_to_slot[T[hat]],slots,owned:globalThis.__e2eCx.owned,emote:G.skills.ikissyou.name};
   })()`);
   const server = () => live.admin(`output=(()=>{const p=get_player(${JSON.stringify(W)});
     return {jar:p.items[${seed.slots[0]}]||null,owned:(p.p.acx||{})[${JSON.stringify(seed.hat)}]||0,worn:p.cx[${JSON.stringify(seed.slot)}]||null}})()`);
@@ -30,6 +30,8 @@ test('CX jars show their state, open into the collection, and the cosmetic is wo
     await expect(row(seed.slots[0])).toContainText('Usable');
     await expect(row(seed.slots[1])).toContainText('Locked');
     await expect(row(seed.slots[2])).toContainText('Empty');
+    // Emotes use the game's own display name.
+    await expect(row(seed.slots[3])).toContainText(`${seed.emote} · emote`);
     await expect(row(seed.slots[1]).getByRole('button')).toHaveCount(0);
     await expect(row(seed.slots[2]).getByRole('button')).toHaveCount(0);
     await info.attach('cx-jars-dashboard', { body: await page.screenshot(), contentType: 'image/png' });
