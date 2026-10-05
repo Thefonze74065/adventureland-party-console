@@ -11456,6 +11456,23 @@
   var anniversaryHandoffRetryAt = {};
   async function runAnniversaryHandoff() {
     if (anniversaryBusy || character.rip || merchantForceStand || !anniversaryPlan) return;
+    // A handoff releases staging for its own round only. A slice left from an earlier
+    // round (merchant out of range, recovered from the plan on every call) must not
+    // release the party staged for the round now in its pre-window or live.
+    // A featured character or party holds for one minute after the round starts;
+    // the anniversary tick releases that hold, not the handoff.
+    function releaseStaging(round) {
+      var event = eventStatus() && eventStatus().anniversary;
+      var cycle = anniversaryPlan && anniversaryPlan.eventCycle;
+      var featuredStart = event && (Number(cycle && cycle.startsAt) ||
+        (anniversaryEpoch(event.expires) ? anniversaryEpoch(event.expires) - 300000 : 0));
+      if (event && event.live !== false && featuredStart && Date.now() < featuredStart + 60000 &&
+          (event.target === character.name || anniversaryPlan && anniversaryPlan.partyFeatured)) return;
+      var staged = event && event.active !== false && (event.live !== false ||
+        anniversaryEpoch(event.next) > Date.now() && anniversaryEpoch(event.next) - Date.now() <= 90000);
+      if (!staged || anniversaryRoundId(event, character.s && character.s.anniversary_visit) === String(round))
+        anniversaryStaging = false;
+    }
     if (character.ctype !== "merchant" && eventsEnabled && (activeCombatEvent() || eventTraveling || eventReturnPending)) return;
     if (character.ctype !== "merchant") {
       // A confirmed kiss releases the fighter to combat immediately. Keep the
@@ -11473,7 +11490,7 @@
       var handedOffRound = anniversaryPendingHandoff.round;
       if (anniversaryPendingHandoff.attempted) {
         anniversaryPendingHandoff = root.__anniversaryPendingHandoff = null;
-        anniversaryStaging = false;
+        releaseStaging(handedOffRound);
         if (!activeCombatEvent()) reportAnniversaryReturn(handedOffRound);
         return;
       }
@@ -11482,14 +11499,14 @@
       if (!merchant || merchant.map !== character.map ||
           Math.hypot(merchant.x - character.x, merchant.y - character.y) > 390) {
         anniversaryPendingHandoff = root.__anniversaryPendingHandoff = null;
-        anniversaryStaging = false;
+        releaseStaging(handedOffRound);
         if (!activeCombatEvent()) reportAnniversaryReturn(handedOffRound);
         return;
       }
       var slot = findInventoryItemByName(anniversaryPendingHandoff.slice);
       if (slot < 0) {
         anniversaryPendingHandoff = root.__anniversaryPendingHandoff = null;
-        anniversaryStaging = false;
+        releaseStaging(handedOffRound);
         if (!activeCombatEvent()) reportAnniversaryReturn(handedOffRound);
         return;
       }
@@ -11501,12 +11518,12 @@
           round: anniversaryPendingHandoff.round, slice: anniversaryPendingHandoff.slice } });
         anniversaryPendingHandoff = root.__anniversaryPendingHandoff = null;
         anniversaryStage = "slice delivered";
-        anniversaryStaging = false;
+        releaseStaging(handedOffRound);
         if (!activeCombatEvent()) reportAnniversaryReturn(handedOffRound);
       } catch (error) {
         anniversaryStage = "slice handoff attempted";
         anniversaryPendingHandoff = root.__anniversaryPendingHandoff = null;
-        anniversaryStaging = false;
+        releaseStaging(handedOffRound);
         if (!activeCombatEvent()) reportAnniversaryReturn(handedOffRound);
       } finally { anniversaryBusy = false; }
       return;
@@ -14849,6 +14866,15 @@
     if (character.ctype === "merchant") return false;
     if ((partyConvoyActive || convoyTraveling) && !root.__partyConvoyDefense) {
       cancelFarmApproach("convoy owns movement"); return true;
+    }
+    // Staged for an Anniversary round, the party holds in Main. Walking back to the
+    // farm area pulls it out of the staging radius and staging warps it back again.
+    // A selected target is still fought by normal combat.
+    if (typeof anniversaryStaging !== "undefined" && (anniversaryBusy || anniversaryStaging)) {
+      cancelFarmApproach("anniversary staging holds position");
+      if (target) return false;
+      root.partyCombatPosition={at:Date.now(),mode:"anniversary-hold",movementOwner:null,reason:"holding in Main for the anniversary round"};
+      return true;
     }
     if (!runtimeCurrent() || character.rip || root.sharedRoutine.isOccupied() || activeCombatEvent() || joinedEvent || navigationIntent.cancelled) {
       cancelFarmApproach("navigation or activity changed"); return false;
