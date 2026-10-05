@@ -86,8 +86,13 @@ function visitDue(
   );
 }
 
-function movementReserved(preWindow: boolean, live: boolean, complete: boolean): boolean {
-  return preWindow || (live && !complete);
+/**
+ * The pre-window and a live round hold the merchant in Main, except while the
+ * featured player is unavailable (offline, dead, hidden or on a private map):
+ * queued work runs then, and `kissDue` reclaims the merchant if it returns.
+ */
+function movementReserved(preWindow: boolean, live: boolean, complete: boolean, unavailable: boolean): boolean {
+  return preWindow || (live && !complete && !unavailable);
 }
 
 function busy(state: NonNullable<AnniversaryMerchantStatus["anniversaryState"]>): boolean {
@@ -131,7 +136,7 @@ export function merchantAnniversaryControl(
     featured,
     kissDue,
     preWindow,
-    reserved: movementReserved(preWindow, live, completed),
+    reserved: movementReserved(preWindow, live, completed, live && !featured && event?.available === false),
     busy: live && busy(state),
     retryAt,
     mode: state.mode || "idle",

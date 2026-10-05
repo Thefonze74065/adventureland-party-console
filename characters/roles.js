@@ -685,8 +685,8 @@
   function visitDue(event, status, live, featured, completed, retryAt, now) {
     return live && !featured && event?.available !== false && !!status?.anniversaryVisit && !completed && retryAt <= now;
   }
-  function movementReserved(preWindow, live, complete) {
-    return preWindow || live && !complete;
+  function movementReserved(preWindow, live, complete, unavailable) {
+    return preWindow || live && !complete && !unavailable;
   }
   function busy(state) {
     return !!state.busy || state.mode === "kiss-active";
@@ -711,7 +711,7 @@
       featured,
       kissDue,
       preWindow,
-      reserved: movementReserved(preWindow, live, completed),
+      reserved: movementReserved(preWindow, live, completed, live && !featured && event?.available === false),
       busy: live && busy(state),
       retryAt,
       mode: state.mode || "idle"

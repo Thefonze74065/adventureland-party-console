@@ -50,6 +50,42 @@ test('disabled anniversary selection leaves native Hunt fighting and creates no 
   } finally {await cleanupEvents(live);}
 });
 
+// Failure inventory: e2e/merchant-anniversary-wait-failures.md. A round whose featured
+// player is unavailable must not hold the merchant: queued work runs inside the round.
+test('merchant works through an anniversary round whose featured player is unavailable',async({live},info)=>{
+  test.setTimeout(300_000);
+  try {
+    await live.post('/formation',{character:M,eventSelections:['anniversary']});
+    await live.post('/merchant/force-stand',{enabled:false});
+    await live.post('/merchant/routine-priorities',{priorities:{},enabled:{'inventory cleanout':true}});
+    const seeded=await live.admin(`output=(()=>{const w=get_player(${JSON.stringify(W)});
+      for(let i=0;i<w.isize-2;i++)if(!w.items[i])w.items[i]={name:'feather0',q:1};
+      cache_player_items(w);resend(w,'reopen+cid');return w.items;})()`);
+    await expect.poll(async()=>quantity((await live.clients[W].snapshot()).items,'feather0')).toBe(quantity(seeded,'feather0'));
+    const seed=await beginAnniversary(live,P);
+    await expect.poll(async()=>(await world(live)).anniversary?.live,{timeout:30_000}).toBe(true);
+    // Native ineligibility: an invisible featured player is no longer a valid target.
+    await live.admin(`output=(()=>{const p=get_player(${JSON.stringify(P)});p.s.invis={ms:600000};resend(p,'u+cid');
+      // Availability is recomputed by the event tick; publish it now, as beginAnniversary does.
+      anniversary_tick();return E.anniversary})()`);
+    await expect.poll(async()=>(await world(live)).anniversary?.available,{timeout:30_000}).toBe(false);
+    const round=(await world(live)).anniversary;
+    expect(round.target).toBe(P);
+    await live.post('/merchant/cleanout',{character:W});
+    await expect.poll(async()=>quantity((await world(live)).players[W].items,'feather0'),
+      {timeout:150_000,message:'The merchant must collect during the live round, not after it'}).toBeLessThan(quantity(seeded,'feather0'));
+    const during=await world(live),state=await live.state();
+    expect(during.anniversary?.live,'The first transfer happened while the unavailable round was still live').toBe(true);
+    expect(during.anniversary?.round).toBe(round.round);
+    expect((state.merchantActivity||[]).some((entry:any)=>/deferred: anniversary/.test(entry.message)),
+      'The merchant must not defer the job for the anniversary').toBe(false);
+    await info.attach('anniversary-unavailable-merchant-work',{body:JSON.stringify({seed,round,during,activity:state.merchantActivity}),contentType:'application/json'});
+  } finally {
+    await live.admin(`output=(()=>{const p=get_player(${JSON.stringify(P)});if(p){delete p.s.invis;resend(p,'u+cid')}if(events.anniversary)anniversary_tick();return true})()`).catch(()=>{});
+    await cleanupEvents(live);
+  }
+});
+
 for(const type of ['phoenix','goldenbat','cutebee','hen','rooster','tinyp']) test(`native ${type} interruption kills and loots before resuming the same Hunt`,async({live},info)=>{
   test.setTimeout(420_000);
   try {
