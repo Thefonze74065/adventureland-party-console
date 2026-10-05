@@ -9,6 +9,17 @@ Activate with the supported coordinator/dashboard-only restart.
 
 # Character coordinator
 
+Phoenix patrol splits the fighters instead of moving the party as one convoy
+(`navigation/phoenix-patrol.ts`, `navigation/rare-hunting.ts`, and the `search`,
+`converge` and `engage` controls in `characters/shared.js`). Each fighter takes
+the nearest unchecked, unclaimed spawn region by planned route. A sighting starts
+a converge stage that holds fire until every fighter is within 300 units, unless
+the Phoenix is already being fought. After a kill, only the leader loots; the
+others pre-position for the respawn. Starting a patrol no longer launches a
+party convoy. Failure inventory: `e2e/phoenix-search-failures.md`. Validate
+`live-phoenix-search.spec.ts` and publish character and coordinator assets
+through the ordinary full restart.
+
 Merchant settings stores one Main-map stand location for parking, Town-return
 checks and marketplace fallbacks. A fresh settings store chooses integer X/Y
 coordinates independently within -100..100, rejects native collision geometry
@@ -106,6 +117,48 @@ Explicit Give remains available. Validate the native full-bag Tracktrix cleanout
 journey in `e2e/live-economy.spec.ts`, with conserved cargo and restart evidence.
 Publish character and coordinator assets through the supported full restart;
 CoordinatorOnly does not activate the inventory change.
+
+Fighters no longer wait for combat to end before a merchant handoff (item
+collection and inventory cleanout). `merchantHandoff` in `characters/shared.js`
+runs while fighting: the fighter holds position while engaged and the merchant
+comes to it. Each `send_item`/`send_gold` waits for the merchant to be within
+300 units and for native call cost (`character.cc`) to be at most 120 of the
+200-per-4s disconnect limit. A send window that cannot be obtained within 30s
+ends the handoff early and reports what was sent; cleanout queues its usual
+follow-up. The post-handoff farm reunion only runs when the fighter actually
+walked. Handoffs that must unequip marked gear still wait for combat.
+Validate `npm test -- -- --project=live --grep "full-bag cleanout transfers cargo"`
+and publish character assets through the ordinary full restart.
+
+Realm hopping honors a saved party blacklist (`realmHopBlacklist`,
+`navigation/realm-hop-blacklist.ts`, `POST /party-api/realm/hop-blacklist` with
+`{realms}`). Boss chase and daily-event chase never pick a listed realm, and a
+trip whose realm becomes listed ends and returns home. PVP is always excluded.
+Manual realm changes and the return home are not hop choices and are unaffected.
+The control sits under the chase settings in Interface settings. Failure inventory:
+`e2e/realm-hop-blacklist-failures.md`. Validate `live-realm-hop-blacklist.spec.ts`
+and `scripts/tests/realm-hop-blacklist.test.cjs`; activate with the
+coordinator/dashboard-only restart.
+
+Halloween attendance and its routines (`encounterModes.halloween`, deaths counted
+per encounter in `events/franky-auto-tank.ts`) are described in
+docs/events-and-anniversary.md. Failure inventory: `e2e/halloween-failures.md`.
+Validate `live-halloween.spec.ts` and the live Franky specs, and publish character
+assets through the ordinary full restart.
+
+Each character card has a Cosmetics section. Characters report CX jars, owned
+cosmetics (`character.acx`, expanded by native `all_cx`) and worn cosmetics
+(`character.cx` plus skin) as the `cosmetics` status field, published through the
+diagnostics stream. A CX jar's `data` names one cosmetic or emote; Open runs native
+`equip(slot)`, which adds it to the collection and consumes the jar. Wear and
+Remove run native `equip_cx(slot, name)` / `equip_cx(slot)`; skins can be replaced
+but not removed, and emotes are shown as unlocked. Emotes use the game's
+name (`G.skills[id].name`); appearance pieces keep their ID, as in the game's own cosmetic info. The `cx-open-jar`, `cx-wear` and
+`cx-remove` commands (`characters/cosmetic-commands.ts`) are checked against the
+latest report, refused while another command is pending, re-checked by the
+character, and never take over navigation or combat. Failure inventory:
+`e2e/cx-failures.md`. Validate `live-cx.spec.ts`; publish character, coordinator
+and dashboard assets through the ordinary full restart.
 
 Marked withdrawals create merchant jobs by default at priority 90. The checkbox
 in Merchant settings controls the separate Marked withdrawals routine. Merchant
@@ -1656,7 +1709,10 @@ bosses: Mr. Pumpkin and Mr. Green (`halloween`), Dragold (`lunarnewyear`) and Gr
 (`holidayseason`). A boss is polled only while an active character has its event selected. Giga
 Crab usually dies well before Hop Sickness clears, so the lifetime gate below rarely lets it through.
 It acts only when enabled (Realm panel, `POST /party-api/realm/boss-chase`) and when
-no selected boss is live on the party's current realm. A candidate's remaining lifetime is
+no selected boss is being killed on the party's current realm. A local boss counts as stalled, and
+no longer holds the party, once its drain over at least 50 seconds shows no progress or projects
+more than 120 minutes to kill (an untouched 120M HP Franky on the home realm, say). A stalled local
+boss never triggers a respawn trip; only a live boss elsewhere that passes the gate below does. A candidate's remaining lifetime is
 estimated from its HP drain across polls (at least 50 seconds apart). The party moves only when
 that estimate meets `minEtaMinutes` (default 15), because Hop Sickness (12 minutes) must clear
 before the kill for full loot luck. The move uses the dashboard realm-switch route without

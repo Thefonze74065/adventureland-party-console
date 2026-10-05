@@ -119,6 +119,7 @@ export const settingsFields = [
   "activeRealm",
   "bossChase",
   "dailyChase",
+  "realmHopBlacklist",
   "activeConvoy",
   "convoyCompletionReceipts",
   "navigationEpoch",

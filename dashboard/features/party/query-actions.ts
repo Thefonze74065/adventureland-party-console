@@ -35,6 +35,7 @@ export const actionDomains = {
   '/realm/switch': inventory,
   '/realm/boss-chase': core,
   '/realm/daily-chase': core,
+  '/realm/hop-blacklist': ['core', 'config'],
   '/steam/action': inventory,
   '/steam/recover': inventory,
   '/roster/create': core,

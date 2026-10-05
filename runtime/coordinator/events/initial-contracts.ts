@@ -12,6 +12,7 @@ export interface SavedEventState extends HuntEventTrips {
   abtestingStrategy?: ABStrategy | null;
   bossChase?: unknown;
   dailyChase?: unknown;
+  realmHopBlacklist?: unknown;
 }
 
 export type LastEventReturn = EventReturnState["last"];

@@ -124,7 +124,7 @@
     name: "warrior",
     combat: true,
     beforeTarget: async function() {
-      if (!sharedRoutine.frankyCombatActive?.() && await sharedRoutine.emergencyWarriorStomp()) return true;
+      if (!sharedRoutine.bossCombatActive?.() && await sharedRoutine.emergencyWarriorStomp()) return true;
       return await sharedRoutine.skillSupport?.() ?? false;
     },
     chooseTarget: function() {
@@ -138,7 +138,7 @@
       return partyTarget();
     },
     beforeAttack: async function(target) {
-      if (sharedRoutine.frankyCombatActive?.()) {
+      if (sharedRoutine.bossCombatActive?.()) {
         if (target.target !== character.name && scareReady(target)) {
           await scare(target);
           return true;
@@ -1610,7 +1610,7 @@
       return result;
     }
     function authorized(w, t, id) {
-      if (returnTargetBlocked(t, id) || frankySkillBlocked(id, [t])) return false;
+      if (returnTargetBlocked(t, id) || bossSkillBlocked(id, [t])) return false;
       const type = w.skills[id]?.damage_type || "physical";
       if (id !== "taunt" && monsterAttackBlock(t.mtype, type, w.actor.range)) return false;
       if (!targetAuthorized(t, id)) return false;
@@ -1630,13 +1630,13 @@
       if (returnExcluded.has(d.skill)) return true;
       return !!world().skills[d.skill]?.hostile && d.targets.some((t) => !shared.returnAttacker?.(t));
     }
-    const frankyExcluded = /* @__PURE__ */ new Set(["agitate", "charge", "dash", "blink", "stomp", "cleave", "fanofknives"]);
-    function frankySkillBlocked(id, targets) {
-      if (!shared.frankyCombatActive?.()) return false;
-      return frankyExcluded.has(id) || !!world().skills[id]?.hostile && targets.some((t) => t.type !== "monster" || t.mtype !== "franky" || !shared.skillTargetAllowed?.(t));
+    const bossExcluded = /* @__PURE__ */ new Set(["agitate", "charge", "dash", "blink", "stomp", "cleave", "fanofknives"]);
+    function bossSkillBlocked(id, targets) {
+      if (!shared.bossCombatActive?.()) return false;
+      return bossExcluded.has(id) || !!world().skills[id]?.hostile && targets.some((t) => t.type !== "monster" || !shared.bossTargetAllowed?.(t) || !shared.skillTargetAllowed?.(t));
     }
     function castSkill(d) {
-      if (frankySkillBlocked(d.skill, d.targets)) return Promise.reject(new Error("Skill conflicts with Franky-only combat"));
+      if (bossSkillBlocked(d.skill, d.targets)) return Promise.reject(new Error("Skill conflicts with boss-only combat"));
       if (returnCastBlocked(d)) return Promise.reject(new Error("Skill conflicts with return movement or attacker-only policy"));
       const argument = d.argument ?? (d.targets.length > 1 || world().skills[d.skill]?.multi ? d.targets.map((t) => t.id) : d.targets[0]?.id || d.targets[0]?.name);
       return host.use_skill(d.skill, argument);
@@ -2920,7 +2920,7 @@
     function passingTarget() {
       if (sharedRoutine.dungeonOwned?.()) return null;
       if (character.ctype === "merchant" || !active || character.rip || !resolvedRole().combat || ["pending", "feed"].includes(sharedRoutine.getAbtestingMode())) return null;
-      if (sharedRoutine.frankyCombatActive?.()) return null;
+      if (sharedRoutine.bossCombatActive?.()) return null;
       return sharedRoutine.getPassingTarget?.() || null;
     }
     function attackTarget() {
@@ -2959,7 +2959,7 @@
     function chooseTarget() {
       if (sharedRoutine.dungeonOwned?.()) return sharedRoutine.getDungeonTarget?.() || null;
       if (sharedRoutine.returnCombatActive?.()) return sharedRoutine.returnDefenseTarget?.() || null;
-      if (sharedRoutine.frankyCombatActive?.()) return sharedRoutine.getEventTarget();
+      if (sharedRoutine.bossCombatActive?.()) return sharedRoutine.getEventTarget();
       if (character.ctype === "merchant") return resolvedRole().chooseTarget();
       if (sharedRoutine.usesLeaderTarget?.()) return sharedRoutine.getGroupedTarget();
       const rare = sharedRoutine.getRareTarget?.();
@@ -2967,7 +2967,7 @@
       return resolvedRole().chooseTarget();
     }
     function exclusiveCombat() {
-      return !!sharedRoutine.dungeonOwned?.() || !!sharedRoutine.returnCombatActive?.() || !!sharedRoutine.frankyCombatActive?.();
+      return !!sharedRoutine.dungeonOwned?.() || !!sharedRoutine.returnCombatActive?.() || !!sharedRoutine.bossCombatActive?.();
     }
     async function publishSelection(target) {
       selectedTarget = target?.id || !exclusiveCombat() && sharedRoutine.sharedTargetId?.() || null;
@@ -3024,13 +3024,13 @@
       equipment2?.tick(target, actor.damage_type, Number(character.range), combatAllowed());
       luckSwap?.tick(combatAllowed() ? currentTarget() : null);
     }
-    function frankyMovement() {
-      if (!sharedRoutine.frankyCombatActive?.()) return false;
+    function bossMovement() {
+      if (!sharedRoutine.bossCombatActive?.()) return false;
       if (selectedTarget && !currentTarget()) {
         invalidated = true;
         void selectTarget();
       }
-      if (combatAllowed()) sharedRoutine.frankyMovementTick?.(currentTarget());
+      if (combatAllowed()) sharedRoutine.bossMovementTick?.(currentTarget());
       attacks.wake();
       return true;
     }
@@ -3048,7 +3048,7 @@
             attacks.wake();
             return;
           }
-          if (frankyMovement()) return;
+          if (bossMovement()) return;
           if (sharedRoutine.pollRareHunting?.()) return;
           if (sharedRoutine.pollFarmingCombatHandoff) sharedRoutine.pollFarmingCombatHandoff();
           if (sharedRoutine.pollFarmingSpawnRecovery) sharedRoutine.pollFarmingSpawnRecovery();

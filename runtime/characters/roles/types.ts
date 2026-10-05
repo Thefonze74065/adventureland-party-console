@@ -44,6 +44,10 @@ export interface SharedCombat {
   sharedTargetId?(): string | null;
   frankyCombatActive?(): boolean;
   frankyMovementTick?(target: Target | null): boolean;
+  /** Boss-only attendance (Franky or a Halloween boss): no passing attacks, adds or area skills. */
+  bossCombatActive?(): boolean;
+  bossTargetAllowed?(target: Target): boolean;
+  bossMovementTick?(target: Target | null): boolean;
   getScatterTarget: TargetGetter;
   getLeaderTarget: TargetGetter;
   getPreferredTarget: TargetGetter;

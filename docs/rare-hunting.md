@@ -30,63 +30,79 @@ remains available.
 
 Starting Phoenix from the farming-area picker selects Phoenix alone. Select all
 five spawn regions in the desired order; selecting a numbered region removes it
-and renumbers the rest. The saved order survives restart. Stop Phoenix patrol
-cancels its movement without disabling passive Phoenix encounters.
-
-During an active patrol, a fresh visible Phoenix sighting from any party member
-on the leader's map/instance interrupts patrol travel before waypoint arrival.
-Sightings and encounter controls use the fast combat channel. Observations carry
-their capture time, runtime, position, realm, and instance; delayed full statuses
-cannot overwrite newer observations, and position heartbeats alone do not count
-as scan coverage. Navigation logs record sighting receipt and combat selection.
-While patrol acquisition is authorized, fresh Phoenix observations are also fed
-directly into the grouped candidate list, even if convoy travel suppresses client
-nominations. Patrol Phoenix priority is 100.5: above other priority-100 passive
-rares, below Fairy at 101. Already-engaged fights and protected activities retain
-ownership. All interrupted rare pursuits retry after three seconds.
-The encounter allows up to ten seconds for normal grouped-combat selection to
-take ownership; stale sightings still expire normally. Protected activities keep
-their movement priority, and attack range/readiness checks remain authoritative.
-
-All patrol scan legs, including short approaches, belong to the convoy. Client
-patrol controls never launch an independent smart move. Assembly acknowledgements
-must show stopped characters before capturing the planning origin. ALClient remains
-the primary planner; regrouping, cancellation, origin drift, and transport errors
-do not authorize native pathfinding. Geometry/pathfinding failures may use native
-fallback. Obsolete local approach failures cannot invalidate a convoy scan.
+and renumbers the rest. The saved order survives restart and only breaks ties
+between equally distant regions. Selecting another monster stops the patrol
+without disabling passive Phoenix encounters. Starting a patrol launches no party
+convoy: each fighter begins searching from where it stands.
 
 Without a valid saved order, the picker preselects Mainland (641, 1803), Cave
 (-180, -1164), western Mainland (-1184, 781), eastern Mainland (1188, -193), then
 Spooky Forest (8, 631). Valid custom orders are preserved.
 
-The search planner uses a conservative rectangular footprint inside the game's
-700-by-500 visibility half-extents. Four current regions need one observation
-point; the tall western Mainland region needs overlapping north–south coverage.
-Only actual fresh positions count toward coverage, and observation endpoints
-include a one-second dwell. Blocked points retry once, then use bounded nearby
-coverage points; unfinished regions are reported and skipped. Failure in all
-regions pauses travel until the user restarts. Scan convoys carry exact points:
-ordinary farming-area resolution must not attach shapes or substitute a farming
-entry point. All convoy members acknowledge arrival before scan advancement.
-The leader handles approaches within 180 units, with a 30-second no-progress
-watchdog covering convoy/local handoff and repeatedly completed ineffective trips.
-Runtime loss or temporary unavailability retries the same point after five
-seconds without consuming geometry fallback attempts. Fallback coordinates are
-clamped to the spawn boundary rather than sending the party outside the region.
+Phoenix is not in the server-info boss list and its spawn is not announced, so
+the patrol finds it by looking. The fighters search independently; the merchant
+does not take part. A free fighter takes the nearest region, by planned route,
+that nobody has checked in this coverage cycle and no other fighter is heading
+to. It shares an already claimed region only when every unchecked region is
+claimed. Route distance is walking distance plus 400 units per map transition.
+Assignment is one planning round over every free fighter; a round that settles
+after the patrol was stopped, superseded, or reset is ignored. Each searcher
+walks its own route (`search` control) and holds fire. When all five regions are
+checked without a sighting, a new cycle starts.
 
-After a confirmed Phoenix death and required loot collection, choose from the
-leader's current position: stay in the current spawn region, or compare planned
-routes to all five scan entry points and choose the nearest reachable region.
-Route distance includes walking distance and 400 equivalent units per map
-transition; ties follow the saved order. Failed plans are excluded; if none can
-be planned, pause with a visible reason. Position within a region is not assumed
-to cover it: reposition to its observation point even after a long, drifting fight.
-Wait until death + 35 seconds, counting loot and travel time. Sightings can
-interrupt the wait immediately. At the deadline, scan with fresh coverage, then
-continue with that region's successor in the saved order. Region and deadline
-persist through restart; disappearance never starts a confirmed-death timer.
-The installed 17083 game definition has respawn=32, and published server code
-adds up to 0.9 seconds and samples uniformly from the five boundaries (20% each).
+Each region is covered by observation points with a conservative rectangular
+footprint inside the game's 700-by-500 visibility half-extents. Four regions need
+one point; the tall western Mainland region gets overlapping north–south points.
+A point counts after a one-second dwell, and only with a fresh observation from
+that fighter's current runtime. A failed route or 30 seconds without movement
+skips the point. A region whose points were all skipped is marked incomplete for
+the cycle; all five incomplete pauses the patrol with a visible reason. A dead,
+stale, reloading, or protected fighter releases its region to the others and is
+reassigned from its new position when it returns. A fighter that a monster
+targets defends itself through ordinary combat and then resumes the same control.
+While searching, only party-wide conditions pause every searcher: town, combat
+recovery, escape, events, Hunt turn-in, or a leader heartbeat older than 10
+seconds. A fighter's own pending command, low HP, or event withholds only that
+fighter's control. Assignments survive pauses and absences under 10 seconds;
+only the movement watchdog restarts. Each withheld control is logged as
+"Phoenix search control withheld" with the fighter and the reason. Encounters
+keep the party-wide protection rules.
+
+Any fighter's fresh sighting starts the encounter, on any map. The encounter
+first converges: the other fighters walk to the latest Phoenix position, and the
+spotter shadows it from about 200 units, outside its attack range. Nobody attacks
+it: clients reject the Phoenix as a target while converging, and patrol
+observations are not fed into grouped combat. Exception: if the Phoenix already
+has a target (another player is fighting it, or it aggroed one of us), fighters
+within 300 units engage at once, since Phoenix loot is cooperative. The rest keep
+converging. Converging tolerates ten seconds without a sighting while the
+spotter re-acquires it.
+
+Once every fighter is within 300 units, normal grouped combat takes over with
+Phoenix priority 100.5, the ten-second selection window, and the usual claim,
+progress, and five-minute limits, counted from the gather. The convergence
+deadline is the later of five minutes and twice the slowest fighter's planned
+travel time at its reported speed. After it, the party engages with whoever is
+in range, and the encounter message names the missing fighters. After the gather,
+the 30-second no-progress rule starts only once grouped combat locks the Phoenix.
+A failed patrol attempt only gets the 3-second cooldown, never a retry-evidence
+rejection, and an older rejection is cleared on the next sighting. Otherwise a
+fighter walking past the Phoenix outside attack range could never re-qualify it.
+
+On a confirmed Phoenix death, coverage restarts and the respawn deadline becomes
+death + 35 seconds. Only the leader stays to collect loot; once grouped fights are
+finished, the other fighters spread out and wait at their regions' first points.
+Observations before the deadline do not count. A death we did not take part in
+(another party's kill) also starts the deadline, without loot. The deadline
+persists through restart; assignments and coverage are rebuilt rather than trusting
+old positions. A realm hop (for example boss chase moving the party to another
+server) suspends the patrol instead of ending it: any encounter there is dropped,
+the checkpoint keeps the home realm and respawn deadline, and no patrol runs on
+the foreign realm. When the leader is back on the patrol's realm, a fresh split
+search resumes. New navigation while away (a revision, focus, policy, or leader
+change) still ends the patrol. The installed 17083 game definition has respawn=32, and published
+server code adds up to 0.9 seconds and samples uniformly from the five boundaries
+(20% each).
 
 Every owned runtime reports rare sightings, field generators, and observed kills
 through ordinary status telemetry, even with no map viewer open. The coordinator
@@ -112,7 +128,7 @@ is ordinary attacks and bounded pursuit, with no guarantee of success.
 Settings use `POST /party-api/rare-hunting` with partial boolean keys `tinyp`,
 `phoenix`, `goldenbat`, and `cutebee`. Phoenix starts extend `POST /party-api/navigate-to-monster` with
 `monsterId: "phoenix"` and `phoenixRouteOrder: string[]`; the server validates all
-five catalog region IDs. `POST /party-api/phoenix-stop` cancels the patrol.
+five catalog region IDs.
 Dashboard state exposes `passiveRareHunts`, `phoenixRouteOrder`, and `rareHuntState`;
 character status responses include a revision-bound `rareControl`. A saved return
 checkpoint survives coordinator restart, while encounter locks and scan coverage

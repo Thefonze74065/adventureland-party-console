@@ -72,6 +72,8 @@ export interface DailyChasePorts {
   homeRealm(): string | null;
   /** Connectable non-PVP realm keys. */
   realms(): string[];
+  /** Not PVP and not on the party's realm-hop blacklist. */
+  hopAllowed(realm: string): boolean;
   realmSwitchBusy(): boolean;
   /** Another realm errand (e.g. the boss chase) currently owns the party's realm. */
   paused(): boolean;
@@ -228,7 +230,7 @@ export function createDailyChase(party: DailyChaseParty, ports: DailyChasePorts)
       if (until < minLeadMs || until > leadMs || !wantedHere.length) continue;
       const slot = dailySlotIndex(next.region, next.slotAt, next.rotation);
       if (next.region === homeRegion ? !homeMisses(current, slot, next.rotation, wantedHere) : !chase.otherRegions) continue;
-      const pick = next.predictions.find((entry) => entry.realm !== current && wantedHere.includes(entry.event));
+      const pick = next.predictions.find((entry) => entry.realm !== current && ports.hopAllowed(entry.realm) && wantedHere.includes(entry.event));
       if (pick) return { ...pick, rotation: next.rotation, slot, slotAt: next.slotAt };
     }
     return null;
@@ -266,6 +268,11 @@ export function createDailyChase(party: DailyChaseParty, ports: DailyChasePorts)
 
   async function followTrip(trip: DailyChaseTrip, now: number): Promise<void> {
     const current = ports.currentRealm();
+    if (!ports.hopAllowed(trip.realm)) {
+      if (current === trip.realm) return finishTrip(trip, current, trip.realm + " is blacklisted for realm hopping");
+      party.dailyChase.trip = null;
+      return ports.persist();
+    }
     if (current !== trip.realm) {
       // The switch failed, or the party was moved elsewhere by hand.
       if (trip.arrived || now > trip.slotAt) {

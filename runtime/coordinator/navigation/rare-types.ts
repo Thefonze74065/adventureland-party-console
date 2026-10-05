@@ -46,34 +46,45 @@ export interface Encounter extends Owner {
   combatAt?: number;
   travelAt?: number;
   awaitingSelection?: boolean;
+  /** Patrol Phoenix: when converging may stop waiting for every fighter. */
+  gatherDeadline?: number;
+  gatheredAt?: number;
+  /** Fighters still out of range when the convergence deadline forced the fight. */
+  gatheredWithout?: string[];
+  respawnPrepared?: boolean;
+}
+/** One fighter's independent Phoenix search leg. */
+export interface Searcher {
+  regionId: string;
+  points: Point[];
+  point: number;
+  skipped: number;
+  arrivedAt: number;
+  retry: number;
+  progressAt: number;
+  progressPosition?: Point;
+  absentSince?: number;
 }
 export interface Patrol extends Owner {
   id: string;
-  index: number;
-  area: Area | null;
   readyAt: number;
+  /** Coverage generation; a kill or a fully checked map starts a new one. */
+  cycle: number;
+  covered: Record<string, number>;
   incomplete: string[];
+  searchers: Record<string, Searcher>;
+  assigning?: number;
+  assigningAt?: number;
+  assignAfter?: number;
   stage: string;
-  failures: Record<number, number>;
-  points: Point[];
-  remaining: Point[];
-  point: number;
-  arrivedAt: number;
-  fallbacks: number;
-  retry?: number;
   paused?: boolean;
   message?: string;
-  progressAt?: number;
-  progressPosition?: Point;
-  progressPoint?: string;
-  waitingRegion?: boolean;
-  choosing?: boolean;
   retryReason?: string;
-  retryAt?: number;
 }
 export interface Checkpoint extends Owner {
-  regionId: string;
   readyAt: number;
+  /** Saved by a realm hop: resume only back on `realm`, and only without new navigation. */
+  suspended?: boolean;
 }
 export interface Status extends Point {
   region?: string;
@@ -92,11 +103,12 @@ export interface Status extends Point {
   groupedCombat?: {approach?: import('../../combat/pursuit.ts').ApproachReport;currentAttackersAt?:number;currentAttackers?:import('./travel-defense.ts').CurrentAttacker[]};
   range?: number;
   combatSelection?: {runtimeId?: string};
+  speed?: number;
   rareObservation?: {at: number; runtimeId: string; map: string; in: string; server: string; x: number; y: number; sightings: Sight[]};
   rareKills?: (Point & { id: string; mtype: string; at: number; partyEngaged?: boolean })[];
   rareFields?: { x: number; y: number }[];
   rareDeployment?: { encounterId: string; failed?: boolean };
-  rareNavigation?: { id: string; failed?: boolean };
+  rareNavigation?: { id: string; failed?: boolean; at?: number };
   rareLoot?: {
     id: string;
     observedAt: number;
