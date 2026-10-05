@@ -36,3 +36,7 @@ aggro 0.05. Mr. Green: physical, range 620, aggro 1, rage. Neither is in `G.even
     same destination (within 1 unit). Found live: clients reading the broadcast
     moments apart disagreed and waited forever. Attendance walks to the boss's
     fixed spawn area instead.
+11. **A targeted off-tank never flees (Franky too).** The off-tank's attack target
+    is withheld until another player holds the boss, so movement must read the
+    boss's aggro from the live entity. Found live; the Franky encounter-mode
+    journey failed this way before this change as well.

@@ -15797,6 +15797,10 @@
     // A flee sequence runs to completion once started, since Franky's aggro
     // isn't observable while briefly off on the adjacent map.
     if (frankyFleeState.phase !== "none") return frankyFleeTick();
+    // An off-tank's attack target is withheld until someone else holds Franky,
+    // including while he targets us, so read his aggro from the live entity.
+    if (!frankyTargetAllowed(target)) target = Object.values(parent.entities || {}).filter(frankyTargetAllowed)
+      .sort(function (a, b) { return Math.hypot(a.x - character.x, a.y - character.y) - Math.hypot(b.x - character.x, b.y - character.y); })[0] || null;
     if (frankyTargetAllowed(target)) frankyLastKnown = { x: target.x, y: target.y, at: Date.now() };
     var safeSpot = frankySafeCorner();
     if (!frankyTargetAllowed(target)) {
