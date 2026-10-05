@@ -26,6 +26,7 @@ function threadedHost(o) {
     o.stats.requests++;
     o.stats.byPath.set(parsed.pathname + kind, (o.stats.byPath.get(parsed.pathname + kind) || 0) + 1);
     if (m.body && m.body.length > o.stats.largestBody) o.stats.largestBody = m.body.length;
+    if (o.stats.observe) o.stats.observe(parsed.pathname, m.body);
     const local = /^(127\.0\.0\.1|localhost)$/.test(parsed.hostname), app = local && o.apps.get(Number(parsed.port || 80));
     if (!app) {
       o.stats.errors++;

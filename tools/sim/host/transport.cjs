@@ -52,7 +52,7 @@ function dispatch(app, { method, path, headers, body }, done) {
 }
 
 function createTransport({ clock, apps, latency }) {
-  const stats = { requests: 0, errors: 0, byPath: new Map(), byStatus: new Map(), firstFailure: new Map(), largestBody: 0 };
+  const stats = { observe: null, requests: 0, errors: 0, byPath: new Map(), byStatus: new Map(), firstFailure: new Map(), largestBody: 0 };
   let open = 0; // requests a handler has not answered yet (long polls, async work)
 
   /** One request; `done` receives { statusCode, headers, body } or an Error, on the virtual clock. */
@@ -62,6 +62,7 @@ function createTransport({ clock, apps, latency }) {
     const kind = body && /"combatWait":true/.test(body) ? " [combatWait]" : body && /"combatOnly":true/.test(body) ? " [combatOnly]" : "";
     stats.byPath.set(parsed.pathname + kind, (stats.byPath.get(parsed.pathname + kind) || 0) + 1);
     if (body && body.length > stats.largestBody) stats.largestBody = body.length;
+    if (stats.observe) stats.observe(parsed.pathname, body);
     clock.at(clock.now + latency(), () => {
       const local = /^(127\.0\.0\.1|localhost)$/.test(parsed.hostname), app = local && apps.get(Number(parsed.port || 80));
       if (!app) {

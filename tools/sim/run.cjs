@@ -122,6 +122,23 @@ async function main() {
     }
   }, 1000, [], true, "node", (e) => log("error", String(e)));
 
+  // SIM_TRACE=<from>-<to> (virtual minutes): request bodies and the game server's view of each character (at most
+  // every 250 ms) to trace.jsonl. It only reads, from requests the run makes anyway: a timer of its own would change
+  // the clock's event order, and the traced replay would no longer be the run it investigates.
+  const trace = /^(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$/.exec(process.env.SIM_TRACE || "");
+  if (trace) {
+    const traceFile = fs.openSync(path.join(out, "trace.jsonl"), "a"), from = clock.now + trace[1] * 60000, to = clock.now + trace[2] * 60000;
+    const write = (entry) => fs.writeSync(traceFile, JSON.stringify({ at: new Date(clock.now).toISOString(), ...entry }) + "\n");
+    let snapshotAt = 0;
+    transport.stats.observe = (route, body) => {
+      if (clock.now < from || clock.now > to) return;
+      if (body) write({ route, body: safeJson(body) });
+      if (clock.now - snapshotAt < 250) return;
+      snapshotAt = clock.now;
+      for (const p of Object.values(sim.server.players || {})) write({ server: p.name, map: p.map, x: Math.round(p.x), y: Math.round(p.y), moving: p.moving, c: p.c, s: Object.keys(p.s || {}), rip: p.rip, hp: p.hp });
+    };
+  }
+
   const timeline = fs.openSync(path.join(out, "timeline.jsonl"), "a");
   const startedAt = clock.now, real0 = performance.now();
   const end = startedAt + scenario.minutes * 60000;

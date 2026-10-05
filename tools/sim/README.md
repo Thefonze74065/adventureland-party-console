@@ -61,6 +61,13 @@ Results go to `.build/sim-results/<scenario>-<time>/`:
 
 `SIM_PROGRESS_MS` sets how often (real ms) progress is printed to stderr.
 
+`SIM_TRACE=<from>-<to>` (virtual minutes) also writes `trace.jsonl`: every request body
+CODE sends to the coordinator in that window, and the game server's view of each character
+(map, position, movement, channels, conditions) at most every 250 ms. It only reads from
+requests the run makes anyway, so a traced replay stays identical to the run it
+investigates: replay a scenario with its seed and trace the window where something went
+wrong.
+
 ## Scenarios
 
 `scenarios/*.json`: `seed`, `threads` (one thread per character), `realm`, `minutes`,
