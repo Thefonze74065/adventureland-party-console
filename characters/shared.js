@@ -2629,7 +2629,7 @@
       combatSelection: { id: combatSelection.id, revision: combatSelection.revision,
         map: combatSelection.map, runtimeId: convoyRuntimeId, target: groupedNomination() },
       queueTiming: root.__partyQueueTiming || null,
-      groupedCombat: { approach:groupedApproachReport(),pursuitAck:groupedCombat && groupedCombat.pursuit && groupedCombat.pursuit.revoking || null, lootPending:!!(root.partyLootClient && root.partyLootClient.huntPending()), reportedAt: Date.now()+coordinatorClockOffset, protocol: 4, observationAt:root.__partyEntitiesObservedAt||0,passingEncounters:passingEncounterReport(),passingAcknowledgement:root.partyQueueClient && root.partyQueueClient.passingAcknowledgement && root.partyQueueClient.passingAcknowledgement(),huntDefense:huntTravelDefense(),returnDefense:typeof returnCombatActive==='function' && returnCombatActive() || returnDepartureDefense(),currentAttackers:currentTravelAttackers(),travelCandidates:typeof returnCombatActive==='function' && returnCombatActive()?[]:travelStopCandidates(),currentAttackersAt:travelObservationAt(),travelCommand:localTravelCommand(), epoch: root.__partyCombatResetAt||0, claims: queueClaims(), candidates: queueCandidates(), retentions:queueRetentions(), evidence: root.partyQueueClient ? root.partyQueueClient.reportEvidence(fightDeaths) : [], handoff:root.partyQueueClient && root.partyQueueClient.handoff && root.partyQueueClient.handoff.report(), queueAck: groupedCombat && groupedCombat.queueRevision, deaths: fightDeaths, packets: fightPackets, threats: groupedThreatReports(), sightings: groupedSightings(), ack: groupedAcknowledgement(), anchorVisible: groupedAnchorVisible(), state: groupedCombat },
+      groupedCombat: { approach:groupedApproachReport(),pursuitAck:groupedCombat && groupedCombat.pursuit && groupedCombat.pursuit.revoking || null, lootPending:!!(root.partyLootClient && root.partyLootClient.huntPending()), reportedAt: Date.now()+coordinatorClockOffset, protocol: 4, observationAt:root.__partyEntitiesObservedAt||0,passingEncounters:passingEncounterReport(),passingAcknowledgement:root.partyQueueClient && root.partyQueueClient.passingAcknowledgement && root.partyQueueClient.passingAcknowledgement(),huntDefense:huntTravelDefense(),returnDefense:typeof returnCombatActive==='function' && returnCombatActive() || returnDepartureDefense(),currentAttackers:currentTravelAttackers(),escaping:typeof escapingAttackers==="function"?escapingAttackers():[],travelCandidates:typeof returnCombatActive==='function' && returnCombatActive()?[]:travelStopCandidates(),currentAttackersAt:travelObservationAt(),travelCommand:localTravelCommand(), epoch: root.__partyCombatResetAt||0, claims: queueClaims(), candidates: queueCandidates(), retentions:queueRetentions(), evidence: root.partyQueueClient ? root.partyQueueClient.reportEvidence(fightDeaths) : [], handoff:root.partyQueueClient && root.partyQueueClient.handoff && root.partyQueueClient.handoff.report(), queueAck: groupedCombat && groupedCombat.queueRevision, deaths: fightDeaths, packets: fightPackets, threats: groupedThreatReports(), sightings: groupedSightings(), ack: groupedAcknowledgement(), anchorVisible: groupedAnchorVisible(), state: groupedCombat },
       dungeon: character.cave && root.installCaveRecovery ? Object.assign(dungeonRuntime().report(), { recovery: caveRecovery().report() }) : dungeonRuntime().report(),
       convoyProtocol: 4,
       movementGeometry: movement.identity,
@@ -3232,10 +3232,26 @@
   function rareSearchKind() {
     return rareActive() && ["search", "converge"].indexOf(rareControlState.kind) >= 0;
   }
-  function rareUnderAttack() {
-    return Object.values(parent.entities || {}).some(function (e) {
-      return e && e.type === "monster" && e.visible && !e.dead && e.target === character.name;
-    });
+  function rareUnderAttack() { return caughtBy().length > 0; }
+  // Caught outside a fight: a character escapes an attacker it is faster than by
+  // walking its existing path, and fights only one that keeps up (equal speed does).
+  function canOutrun(monster) {
+    var definition = G.monsters && G.monsters[monster.mtype] || {};
+    return Number(character.speed) > (Number(monster.speed || definition.speed) || 0);
+  }
+  // On its way (Phoenix search or converge, farming reunion), a character walks away
+  // from attackers it can outrun; the coordinator keeps them out of the party's fight.
+  function escapingAttackers() {
+    if (!(typeof rareSearchKind === "function" && rareSearchKind() || typeof reunion !== "undefined" && reunion)) return [];
+    var rare = typeof rareTarget === "function" && rareTarget();
+    return Object.values(parent.entities || {}).filter(function (e) {
+      return e && e.type === "monster" && e.visible && !e.dead && e.target === character.name && canOutrun(e) && !(rare && rare.id === e.id);
+    }).map(function (e) { return { id: String(e.id), mtype: e.mtype, map: character.map, in: character.in, server: reunionRealm() }; });
+  }
+  function caughtBy() {
+    return Object.values(parent.entities || {}).filter(function (e) {
+      return e && e.type === "monster" && e.visible && !e.dead && e.target === character.name && !canOutrun(e);
+    }).sort(function (a, b) { return combatDistance(a) - combatDistance(b); });
   }
   function rareActive() {
     if (typeof unfinishedFight === "function" && unfinishedFight() &&
@@ -13230,7 +13246,7 @@
   function queueReport() {
     return {name:character.name,monsterHunt:monsterHuntStatus(),rareObservation:rareObservationReport(),map:character.map,in:character.in,server:reunionRealm(),x:character.x,y:character.y,hp:character.hp,max_hp:character.max_hp,lastDeath:lastDeathInfo,rip:!!character.rip,
       combatSelection:Object.assign({},combatSelection,{runtimeId:convoyRuntimeId,target:groupedNomination()}),
-      groupedCombat:{formationRecovery:root.partyQueueClient && root.partyQueueClient.formation ? root.partyQueueClient.formation.report() : undefined,approach:groupedApproachReport(),pursuitAck:groupedCombat && groupedCombat.pursuit && groupedCombat.pursuit.revoking || null,lootPending:!!(root.partyLootClient && root.partyLootClient.huntPending()),reportedAt:Date.now()+coordinatorClockOffset,protocol:4,observationAt:root.__partyEntitiesObservedAt||0,passingEncounters:passingEncounterReport(),passingAcknowledgement:root.partyQueueClient && root.partyQueueClient.passingAcknowledgement && root.partyQueueClient.passingAcknowledgement(),huntDefense:huntTravelDefense(),returnDefense:typeof returnCombatActive==='function' && returnCombatActive() || returnDepartureDefense(),currentAttackers:currentTravelAttackers(),travelCandidates:typeof returnCombatActive==='function' && returnCombatActive()?[]:travelStopCandidates(),currentAttackersAt:travelObservationAt(),travelCommand:localTravelCommand(),epoch:root.__partyCombatResetAt||0,claims:typeof returnCombatActive==='function' && returnCombatActive()?[]:queueClaims(),candidates:typeof returnCombatActive==='function' && returnCombatActive()?[]:queueCandidates(),retentions:typeof returnCombatActive==='function' && returnCombatActive()?[]:queueRetentions(),evidence:root.partyQueueClient ? root.partyQueueClient.reportEvidence(fightDeaths) : [],deaths:fightDeaths,
+      groupedCombat:{formationRecovery:root.partyQueueClient && root.partyQueueClient.formation ? root.partyQueueClient.formation.report() : undefined,approach:groupedApproachReport(),pursuitAck:groupedCombat && groupedCombat.pursuit && groupedCombat.pursuit.revoking || null,lootPending:!!(root.partyLootClient && root.partyLootClient.huntPending()),reportedAt:Date.now()+coordinatorClockOffset,protocol:4,observationAt:root.__partyEntitiesObservedAt||0,passingEncounters:passingEncounterReport(),passingAcknowledgement:root.partyQueueClient && root.partyQueueClient.passingAcknowledgement && root.partyQueueClient.passingAcknowledgement(),huntDefense:huntTravelDefense(),returnDefense:typeof returnCombatActive==='function' && returnCombatActive() || returnDepartureDefense(),currentAttackers:currentTravelAttackers(),escaping:typeof escapingAttackers==="function"?escapingAttackers():[],travelCandidates:typeof returnCombatActive==='function' && returnCombatActive()?[]:travelStopCandidates(),currentAttackersAt:travelObservationAt(),travelCommand:localTravelCommand(),epoch:root.__partyCombatResetAt||0,claims:typeof returnCombatActive==='function' && returnCombatActive()?[]:queueClaims(),candidates:typeof returnCombatActive==='function' && returnCombatActive()?[]:queueCandidates(),retentions:typeof returnCombatActive==='function' && returnCombatActive()?[]:queueRetentions(),evidence:root.partyQueueClient ? root.partyQueueClient.reportEvidence(fightDeaths) : [],deaths:fightDeaths,
         threats:groupedThreatReports(),sightings:groupedSightings(),ack:groupedAcknowledgement(),handoff:root.partyQueueClient && root.partyQueueClient.handoff && root.partyQueueClient.handoff.report(),queueAck:groupedCombat && groupedCombat.queueRevision,
         anchorVisible:groupedAnchorVisible(),state:groupedCombat}};
   }
@@ -15351,6 +15367,8 @@
     if (!healRange) return false;
     var safeRange = healRange - Math.min(20, Math.max(8, healRange * 0.1));
     var attackers = formationFrame.attackers;
+    // Caught outside a fight by attackers it can outrun: keep walking, don't hover.
+    if (!target && typeof canOutrun === "function" && attackers.every(canOutrun)) return false;
     var chased = attackers.length > 0;
     var reference = target || attackers.sort(function (a, b) { return combatDistance(a) - combatDistance(b); })[0];
     if (!reference) return false;
@@ -16384,6 +16402,8 @@
           (!enemy.map || enemy.map === character.map) && (enemy.in == null || character.in == null || enemy.in === character.in) &&
           enemy.target === character.name; }).sort(function (a, b) { return combatDistance(a) - combatDistance(b); })[0];
       if (!threat) return false;
+      // An attacker it can outrun is escaped by walking on, not by kiting in place.
+      if (typeof canOutrun === "function" && canOutrun(threat)) return false;
       // No attack target: only evade an attacker that can reach us shortly.
       var definition = G.monsters && G.monsters[threat.mtype] || {};
       if (combatDistance(threat) > (Number(threat.range || definition.range) || 20) +
@@ -16742,7 +16762,15 @@
       var target = lock && lock.id && get_entity(lock.id);
       if (target && target.visible && !target.dead && isAllowedTarget(target) &&
           (!unfinishedFight() || is_in_range(target))) return target;
-      return groupedDefensiveTarget() || (target && target.visible && !target.dead && isAllowedTarget(target) ? target : null);
+      return groupedDefensiveTarget() || (target && target.visible && !target.dead && isAllowedTarget(target) ? target : null) ||
+        caughtTarget();
+      // No fight selected: the queue never nominates an attacker that caught a
+      // character away from the party. One it cannot outrun is killed before
+      // moving on (isAllowedTarget keeps a scattered search's Phoenix on hold fire).
+      function caughtTarget() {
+        if (typeof caughtBy !== "function") return null;
+        return caughtBy().filter(function (e) { return isAllowedTarget(e); })[0] || null;
+      }
     },
     combatTargetRevision: function () {
       if (dungeonOwned()) return "dungeon:" + (character.cave && character.cave.run || character.in) + ":" + combatTargetId;

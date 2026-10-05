@@ -40,6 +40,40 @@ entries marked **live**; others rely on the coordinator design and review.
     region. If a lower-level searcher is ever seen stalling under attack, the
     suspects are grouped-mode target admission (it may block attacking a lone
     attacker) and a watchdog that counts back-and-forth movement as progress.
+8c. **Caught by a monster outside a fight (reproduced in simulation).** Written
+    before the fix. `tools/sim/scenarios/phoenix-farm.json`: a gearless level-60
+    warrior walking alone was attacked by a bigbird ("Hawk": 32k HP, 480 attack,
+    speed 24). Being attacked cancelled its route (`rareUnderAttack`), no fight was
+    selected (grouped combat only fights what the coordinator's queue nominates), and
+    formation movement hovered near the bird, kiting toward a distant priest, for 30 s
+    until it died. Rule (the user's): a character caught outside a selected fight
+    escapes when it can, by ignoring the attacker and walking its existing path on
+    superior speed; only when it is not faster does it kill the attacker first, then
+    move on. Failure modes:
+    - **Route dropped for an attacker it can outrun.** The route must continue: no
+      route cancel, no formation or kite move, for attackers slower than the character.
+    - **No fight against one it cannot outrun.** The nearest such attacker becomes the
+      target (when allowed) even though the queue did not nominate it; afterwards the
+      route resumes.
+    - **Speed unknown.** A monster with no speed on the entity uses its definition's.
+      Equal speed counts as "not faster" (the attacker keeps up), so it is fought.
+    - **Phoenix.** The Phoenix stays on hold fire while scattered; it is never made a
+      target by this rule unless it is already fighting.
+    - **Selected fights unchanged.** With a fight selected (queue target, boss, event,
+      dungeon), formation and targeting behave as before.
+    - **The queue makes the attacker the party's fight.** Any monster attacking a member
+      is a party threat, so the coordinator nominated it and the caught character fought
+      alone (three warrior deaths in one three-hour run: a Dracul in the cave during a
+      search, two bigbirds on reunion walks; warrior speed 68 vs 40 and 24). A client-only
+      refusal deadlocked the party on a fight nobody took (kills fell from 32 to 14). The
+      decision belongs to the coordinator: while on its way (Phoenix search or converge,
+      farming reunion) a character reports the attackers it is escaping
+      (`groupedCombat.escaping`), and the coordinator drops those monsters from every
+      member's threats, attackers, candidates, claims, sightings and evidence before
+      choosing the party's fight. The ordinary attacker reports stay unchanged for the
+      other features that read them (hunt handoff, convoy defense).
+    - **Escaped monster stays nominated.** A fight already nominated for that monster
+      must end once it is reported as escaped, not hold the party waiting.
 8b. **Party-wide pause from one fighter.** Seen live: FonzeWarrior's status
     responses alternated between a search control and none, and each empty one
     cancelled its route, so it shuffled in place for over 30 seconds. Every
