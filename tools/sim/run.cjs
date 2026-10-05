@@ -114,12 +114,19 @@ async function main() {
   const baseline = new Map(); // each character from when it is first on the server
   const deaths = new Map();
   const ripped = new Set();
+  const deathLog = [];
   const tracked = { types: scenario.track || [], alive: new Map(), kills: [] };
   let startedAt = clock.now; // reset when the scenario starts
   clock.timer(() => {
     for (const p of Object.values(sim.server.players || {})) {
       if (!baseline.has(p.name)) baseline.set(p.name, { xp: p.xp, gold: p.gold, level: p.level });
-      if (p.rip && !ripped.has(p.name)) { ripped.add(p.name); deaths.set(p.name, (deaths.get(p.name) || 0) + 1); }
+      if (p.rip && !ripped.has(p.name)) {
+        ripped.add(p.name); deaths.set(p.name, (deaths.get(p.name) || 0) + 1);
+        // Who was on this character when it died, from the game server.
+        const attackers = Object.values((sim.server.instances[p.in] || {}).monsters || {}).filter((m) => m.target === p.name)
+          .map((m) => ({ id: m.id, type: m.type, hp: m.hp, max_hp: m.max_hp, x: Math.round(m.x), y: Math.round(m.y) }));
+        deathLog.push({ name: p.name, minute: +((clock.now - startedAt) / 60000).toFixed(2), map: p.map, x: Math.round(p.x), y: Math.round(p.y), attackers });
+      }
       if (!p.rip) ripped.delete(p.name);
     }
     // scenario.track: spawn and death of each listed monster type (a death is the monster gone or dead).
@@ -142,13 +149,14 @@ async function main() {
   // SIM_TRACE=<from>-<to> (virtual minutes): request bodies and the game server's view of each character (at most
   // every 250 ms) to trace.jsonl. It only reads, from requests the run makes anyway: a timer of its own would change
   // the clock's event order, and the traced replay would no longer be the run it investigates.
-  const trace = /^(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$/.exec(process.env.SIM_TRACE || "");
-  if (trace) {
-    const traceFile = fs.openSync(path.join(out, "trace.jsonl"), "a"), from = clock.now + trace[1] * 60000, to = clock.now + trace[2] * 60000;
+  const windows = (process.env.SIM_TRACE || "").split(",").map((w) => /^(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$/.exec(w.trim())).filter(Boolean)
+    .map((w) => [clock.now + w[1] * 60000, clock.now + w[2] * 60000]);
+  if (windows.length) {
+    const traceFile = fs.openSync(path.join(out, "trace.jsonl"), "a");
     const write = (entry) => fs.writeSync(traceFile, JSON.stringify({ at: new Date(clock.now).toISOString(), ...entry }) + "\n");
     let snapshotAt = 0;
     transport.stats.observe = (route, body) => {
-      if (clock.now < from || clock.now > to) return;
+      if (!windows.some(([from, to]) => clock.now >= from && clock.now <= to)) return;
       if (body) write({ route, body: safeJson(body) });
       if (clock.now - snapshotAt < 250) return;
       snapshotAt = clock.now;
@@ -194,6 +202,7 @@ async function main() {
       return [c.name, p ? { level: p.level, xpGained: p.xp - (b.xp || 0) + levelXp(b.level, p.level, sim), goldGained: p.gold - (b.gold || 0), deaths: deaths.get(c.name) || 0 } : { offline: true }];
     })),
     kills: tracked.types.length ? tracked.kills : undefined,
+    deaths: deathLog,
   };
   report.expect = scenario.expect ? check(scenario.expect, report) : undefined;
   fs.writeFileSync(path.join(out, "report.json"), JSON.stringify(report, null, 2));

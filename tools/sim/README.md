@@ -59,14 +59,15 @@ Results go to `.build/sim-results/<scenario>-<time>/`:
 
 - `report.json`: virtual minutes, real seconds, speed, coordinator log counts, HTTP
   requests by route and status, and per character the level, XP and gold gained and
-  deaths, read from the game server.
+  deaths, read from the game server. `deaths` lists each death's minute, place and the
+  monsters that were targeting the character.
 - `timeline.jsonl`: one line per sample: what the coordinator reports for each character
   (map, position, HP, navigation state, event) and where the game server has them.
 - `coordinator.log`: the coordinator's log, stamped with virtual time.
 
 `SIM_PROGRESS_MS` sets how often (real ms) progress is printed to stderr.
 
-`SIM_TRACE=<from>-<to>` (virtual minutes) also writes `trace.jsonl`: every request body
+`SIM_TRACE=<from>-<to>[,<from>-<to>...]` (virtual minutes) also writes `trace.jsonl`: every request body
 CODE sends to the coordinator in that window, and the game server's view of each character
 (map, position, movement, channels, conditions) at most every 250 ms. It only reads from
 requests the run makes anyway, so a traced replay stays identical to the run it
