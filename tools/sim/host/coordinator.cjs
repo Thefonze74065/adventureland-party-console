@@ -46,6 +46,41 @@ function coordinatorProcess({ clock, cwd, env }) {
  * @param {Map<number, object>} o.apps   receives the Express app per port at listen()
  * @param {Record<string,string>} o.env
  */
+/** A Worker for the movement planner bundle that runs on the main thread, on the virtual clock. */
+function plannerWorker(clock) {
+  return class PlannerWorker extends EventEmitter {
+    constructor(file, { workerData } = {}) {
+      super();
+      const port = new EventEmitter();
+      port.postMessage = (message) => clock.at(clock.now, () => this.emit("message", structuredClone(message)), "planner->coordinator");
+      this.port = port;
+      this.terminated = false;
+      const threads = { ...require("node:worker_threads"), parentPort: port, workerData: structuredClone(workerData), isMainThread: false };
+      clock.at(clock.now, () => {
+        if (this.terminated) return;
+        try {
+          const real = require("node:module").createRequire(file);
+          const wrapped = new Function("exports", "require", "module", "__filename", "__dirname", require("node:fs").readFileSync(file, "utf8"));
+          const module = { exports: {} };
+          wrapped(module.exports, (name) => (/^(node:)?worker_threads$/.test(name) ? threads : real(name)), module, file, path.dirname(file));
+        } catch (error) {
+          this.emit("error", error);
+        }
+      }, "planner start");
+    }
+    postMessage(message) {
+      if (!this.terminated) clock.at(clock.now, () => this.port.emit("message", structuredClone(message)), "coordinator->planner");
+    }
+    terminate() {
+      this.terminated = true;
+      this.port.removeAllListeners();
+      return Promise.resolve(0);
+    }
+    unref() {}
+    ref() {}
+  };
+}
+
 function startCoordinator(o) {
   const { clock, root } = o;
   const logging = caracal.logging(o.log);
@@ -61,9 +96,10 @@ function startCoordinator(o) {
     app.listen = (port) => { o.apps.set(Number(port), app); return Object.assign(new EventEmitter(), { close() {}, address: () => ({ port }) }); };
     return app;
   }, express);
-  // The route planner's worker thread cannot share the virtual clock: it never answers, and movement is native.
-  class IdleWorker extends EventEmitter { postMessage() {} terminate() { return Promise.resolve(0); } unref() {} ref() {} }
-  const workerThreads = { ...require("node:worker_threads"), Worker: IdleWorker, isMainThread: true };
+  // The route planner's worker runs in-process: its bundle gets a fake worker_threads, and messages cross in both
+  // directions at the current virtual instant (cloned, as between threads). Planning is synchronous CPU work, so it
+  // takes no virtual time, and the run stays deterministic.
+  const workerThreads = { ...require("node:worker_threads"), Worker: plannerWorker(clock), isMainThread: true };
   const childProcess = { ...require("node:child_process"), fork: () => o.fork() };
   const make = clockedRequire({
     ctx, root,

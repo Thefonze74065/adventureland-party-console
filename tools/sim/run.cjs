@@ -91,7 +91,7 @@ async function main() {
     account: caracal.account({ realm, characters }),
     game: caracal.gameFiles({ appRoot, version: sim.server.G.version, revision: "sim" }),
     config: caracal.config({ characters, merchant: scenario.merchant, realm, port }),
-    env: { AL_DATA_DIR: runDir, PARTY_MOVEMENT_MODE: "native", AL_INTERNAL_API_PORT: String(port), NODE_ENV: "production" },
+    env: { AL_DATA_DIR: runDir, PARTY_MOVEMENT_MODE: scenario.movement || "alclient", AL_INTERNAL_API_PORT: String(port), NODE_ENV: "production" },
   });
   coordinator.started.catch((error) => log("error", "coordinator boot failed: " + (error && error.stack || error)));
 

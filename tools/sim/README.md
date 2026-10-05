@@ -37,6 +37,11 @@ clock:
   character (game client and CODE) gets its own thread (`host/client-thread.cjs`). The
   caracAL IPC and CODE's HTTP cross threads as lockstep sockets (`host/threaded.cjs`).
   Single-threaded runs use `host/character-worker.cjs` on the main thread instead.
+- The coordinator's route planner (ALClient pathfinding, normally a worker thread) runs
+  in-process: `host/coordinator.cjs` loads the same planner bundle with a stand-in
+  `worker_threads`, and its messages cross at the current virtual instant. Planning takes
+  no virtual time, routes match the live game, and runs stay deterministic. A scenario can
+  set `"movement": "native"` to use the game's own pathfinding instead.
 
 A run is deterministic for a given build, scenario and seed: rerunning it gives the same
 timeline byte for byte. Threaded and single-threaded runs schedule cross-thread messages
@@ -87,10 +92,8 @@ scenario before trusting results.
 
 ## Limits
 
-- Movement uses native pathfinding (`PARTY_MOVEMENT_MODE=native`): the coordinator's route
-  planner runs in a worker thread, which cannot share the virtual clock.
 - Speed is bound by the CPU of the CODE and coordinator. For two farming characters,
-  single-threaded runs reach about 4x real time and threaded runs about 6x; the main
+  single-threaded runs reach about 4x real time and threaded runs about 5-6x; the main
   thread (game server plus coordinator) is then the busiest. Idle characters run at about
   20x (single-threaded) to 35x (threaded).
 - No dashboard, Steam runner or realm switching. ChronAL has no other players, and its own
