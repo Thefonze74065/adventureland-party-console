@@ -206,7 +206,14 @@
       if (["complete", "failed-hold", "recovery-convoy"].indexOf(state.stage) >= 0) return;
       if (state.stage === "recovering") {
         if(local.recoveryFailed)return;
-        if (character.rip) { await respawn(); return; }
+        if (character.rip) {
+          // This pulse runs every 100 ms; the server answers early attempts with
+          // "Can't respawn yet" and penalizes call bursts. Try once a second.
+          if (Date.now() < (local.respawnAt || 0)) return;
+          local.respawnAt = Date.now() + 1000;
+          await respawn();
+          return;
+        }
         if (character.map === "main" && Math.hypot(character.x, character.y) <= 65) return;
         // Failed group rescue does not stop survivors: each still escapes.
         if (character.ctype === "mage" && !local.recoveryBlinked && escapeReady("blink")) {
