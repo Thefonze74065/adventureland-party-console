@@ -1,5 +1,11 @@
 # Testing
 
+Long-running behavior (hours of travel and farming, slow state growth) can be run in
+the ChronAL simulation: `npm run sim:setup` once, then `npm run sim -- <scenario>`.
+It runs the real coordinator and CODE against the real game server at faster than
+real time; see `tools/sim/README.md`. It complements the live E2E suite and is not
+part of `npm test`.
+
 CX jars use `npm test -- -- --project=live --grep "CX jars"`. Setup places a
 usable jar holding the first native hat cosmetic, a locked jar, an empty jar and
 an "I Kiss You" emote jar in the warrior's bag; the emote row must show the

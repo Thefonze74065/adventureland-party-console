@@ -1,0 +1,11 @@
+{
+  "description": "A warrior and a priest boot through the full party console stack and report status.",
+  "seed": 1,
+  "realm": "SR_USI",
+  "minutes": 5,
+  "sampleSeconds": 30,
+  "characters": [
+    { "name": "SimWarrior", "type": "warrior", "level": 60 },
+    { "name": "SimPriest", "type": "priest", "level": 60 }
+  ]
+}

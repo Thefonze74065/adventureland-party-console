@@ -1,0 +1,55 @@
+diff --git a/sim/client_host.js b/sim/client_host.js
+index f52777a..d7fb514 100644
+--- a/sim/client_host.js
++++ b/sim/client_host.js
+@@ -383,4 +383,6 @@ function putStorage(st, entries) {
+ 	return st;
+ }
+ 
+-module.exports = { startClient, clientInfo, makeStorage, putStorage };
++module.exports = { startClient, clientInfo, makeStorage, putStorage,
++	// hosts that build their own CODE runner (a launcher's runner host) on a client's game window
++	makeWindow, run, exec, RUNNER_FILES };
+diff --git a/sim/fake_io.js b/sim/fake_io.js
+index 700b0d3..df0a6d6 100644
+--- a/sim/fake_io.js
++++ b/sim/fake_io.js
+@@ -61,6 +61,13 @@ class ServerIO extends Emitter {
+ 		this.path = path;
+ 		this.JSON = json || JSON;
+ 		this.sockets = new Map();
++		// server.js (game 98783128+) coalesces writes per engine connection; in-memory sockets have none to coalesce.
++		this.engine = { on() {}, off() {} };
++	}
++	/** socket.io rooms: every socket is in the room named by its id (server.js emit_fanout sends to id lists). */
++	to(rooms) {
++		const ids = Array.isArray(rooms) ? rooms : [rooms];
++		return { emit: (e, ...a) => { for (const id of ids) { const s = this.sockets.get(id); if (s) s.emit(e, ...a); } return true; } };
+ 	}
+ 	emit(e, ...a) {
+ 		for (const s of this.sockets.values()) s.emit(e, ...a);
+diff --git a/sim/sim.js b/sim/sim.js
+index c33647a..29fc2d7 100644
+--- a/sim/sim.js
++++ b/sim/sim.js
+@@ -448,7 +448,7 @@ class ThreadedSim extends Sim {
+ 	}
+ 	/** Log a created character in: its client thread from now (a window boundary while running). codeOf: as declare's,
+ 	 * for a start_character after it left (none: it can't be started again) */
+-	login(fx, { name, type, account, code, fps = 60, files, owned, byPage = null, codeOf = null }) {
++	login(fx, { name, type, account, code, fps = 60, files, owned, byPage = null, codeOf = null, worker = null, extra = null }) {
+ 		const { port1, port2 } = new MessageChannel(),
+ 			data = new MessageChannel();
+ 		// Shared control block: i32[0] go, i32[1] done, i32[2] kind (0 run to f64[2], 2 command posted), f64[3] busy ms.
+@@ -456,8 +456,9 @@ class ThreadedSim extends Sim {
+ 		const index = this.workers.length;
+ 		const modes = this.live ? new MessageChannel() : null; // LIVE: the thread's time per CODE mode (live.js)
+ 		this.gate.init(index + 1, this.clock.now);
+-		const thread = new Worker(path.join(__dirname, "client_worker.js"), {
+-			workerData: { storage: this.storage[account] || {}, rec: this.recDir ? { dir: this.recDir, name } : null, root: this.env.root, start: this.clock.now, seed: this.seed * 1009 + index + 1, info: clientInfo(this.server), latencyRange: this.latencyRange, W: this.W, fixture: fx, code, fps, files, owned, byPage: !!byPage, ctrl, any: this.any.buffer, port: port2, data: data.port2, shared: this.shared, slot: index + 1, spin: this.spin, modes: modes && modes.port2 },
++		// worker: a host's own client thread script (same control protocol as client_worker.js); extra: its workerData
++		const thread = new Worker(worker || path.join(__dirname, "client_worker.js"), {
++			workerData: { ...extra, storage: this.storage[account] || {}, rec: this.recDir ? { dir: this.recDir, name } : null, root: this.env.root, start: this.clock.now, seed: this.seed * 1009 + index + 1, info: clientInfo(this.server), latencyRange: this.latencyRange, W: this.W, fixture: fx, code, fps, files, owned, byPage: !!byPage, ctrl, any: this.any.buffer, port: port2, data: data.port2, shared: this.shared, slot: index + 1, spin: this.spin, modes: modes && modes.port2 },
+ 			transferList: [port2, data.port2, ...(modes ? [modes.port2] : [])],
+ 		});
+ 		const i32 = new Int32Array(ctrl),

@@ -19,6 +19,8 @@
     "typecheck": "tsc -p dashboard/tsconfig.json --noEmit && tsc -p tools/tsconfig.json && tsc -p runtime/tsconfig.json && tsc -p e2e/tsconfig.json",
     "dev": "node tools/dashboard/supervisor.mts",
     "build:dashboard": "npm --prefix dashboard run build",
+    "sim:setup": "node tools/sim/setup.mts",
+    "sim": "node tools/sim/run.cjs",
     "dev:dashboard": "npm --prefix dashboard run dev",
     "lint": "npm --prefix dashboard run lint && npm run lint:runtime",
     "lint:runtime": "oxlint --config runtime/.oxlintrc.json runtime tools",

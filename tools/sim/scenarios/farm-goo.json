@@ -1,0 +1,31 @@
+{
+  "description": "Two virtual hours: a warrior leads a following priest to Mainland goos and farms through the full party console stack.",
+  "seed": 1,
+  "threads": true,
+  "realm": "SR_USI",
+  "minutes": 120,
+  "sampleSeconds": 300,
+  "characters": [
+    {
+      "name": "SimWarrior",
+      "type": "warrior",
+      "level": 60
+    },
+    {
+      "name": "SimPriest",
+      "type": "priest",
+      "level": 60
+    }
+  ],
+  "steps": [
+    {
+      "atSeconds": 30,
+      "action": "farm",
+      "leader": "SimWarrior",
+      "followers": [
+        "SimPriest"
+      ],
+      "monster": "goo"
+    }
+  ]
+}
