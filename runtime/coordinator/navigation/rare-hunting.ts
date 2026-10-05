@@ -6,6 +6,7 @@ import { createRareRetryEvidence } from './rare-retry-evidence.ts';
 import * as zones from "../../../dashboard/lib/farming-zones.ts";
 import type {
   Catalog,
+  Checkpoint,
   Point,
   Owner,
   Sight,
@@ -19,12 +20,13 @@ import createRareReturn from "../../../scripts/rare-farming-return.cjs";
 import createRareCombat from "../../../scripts/rare-combat.cjs";
 import {
   newPatrol,
+  pauseSearch,
   patrolCheckpoint,
-  patrolControlId,
-  stepPatrol,
-  waitingRegion,
+  searchControlId,
+  searchDestination,
+  stepSearch,
 } from "./phoenix-patrol.ts";
-export { samples, scanPoints } from "./phoenix-patrol.ts";
+export { scanPoints } from "./phoenix-patrol.ts";
 const PRIORITY: Record<string, number> = {
   tinyp: 101,
   phoenix: 100,
@@ -42,6 +44,14 @@ const NAMES: Record<string, string> = {
   rooster: "Rooster",
 };
 const FRESH = 3000;
+/** Every fighter within this distance of the Phoenix counts as gathered. */
+const GATHER_RANGE = 300;
+/** Converging tolerates brief gaps while the spotter re-acquires the Phoenix. */
+const CONVERGE_LOST = 10000;
+/** Lower bound for waiting on slow, possibly cross-map, convergence. */
+const GATHER_MINIMUM = 300000;
+/** Map changes can delay a leader heartbeat; split searchers do not depend on it. */
+const SEARCH_LEADER_GRACE = 10000;
 export const realm = (s?: { region?: string; server?: string }) =>
   `${s?.region || ""}:${s?.server || ""}`;
 const instance = (s?: { in?: string | number; map?: string }) => String(s?.in ?? s?.map ?? "");
@@ -131,11 +141,19 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
     );
   }
   function memberProtected(name: string) {
+    return !!memberProtection(name);
+  }
+  function memberProtection(name: string): string | null {
     const s = party.statuses[name];
-    if (!s) return commandProtected(name);
-    if (s.joinedEvent || s.movement?.event || s.eventTraveling || s.rip) return true;
-    if (Number(s.max_hp) > 0 && Number(s.hp) / Number(s.max_hp) < 0.35) return true;
-    return commandProtected(name);
+    const reason = s ? statusProtection(s) : null;
+    if (reason || !commandProtected(name)) return reason;
+    const c = party.commands[name]!;
+    return `command ${c.type || "?"}/${c.purpose || "-"}`;
+  }
+  function statusProtection(s: Status): string | null {
+    if (s.joinedEvent || s.movement?.event || s.eventTraveling) return "event";
+    if (s.rip) return "dead";
+    return Number(s.max_hp) > 0 && Number(s.hp) / Number(s.max_hp) < 0.35 ? "low HP" : null;
   }
   function recoveryProtected() {
     if (eventProtected()) return true;
@@ -156,16 +174,41 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
       !!party.townCycle || recoveryProtected() || hooks.turnIn() || members().some(memberProtected)
     );
   }
+  /**
+   * Split searchers are independent: one fighter's command, low HP, event, or a
+   * leader heartbeat gap during a map change must not pause the others.
+   */
+  function searchPaused(): string | null {
+    const lead = leader();
+    if (!lead || lead.seenAt < now() - SEARCH_LEADER_GRACE) return "leader missing";
+    if (party.townCycle) return "town";
+    if (recoveryProtected()) return "recovery, escape, or event";
+    return hooks.turnIn() ? "Hunt turn-in" : null;
+  }
+  function splitSearch(): boolean {
+    return !!patrol && !encounter;
+  }
+  function blocked(): boolean {
+    return splitSearch() ? !!searchPaused() : protectedActivity();
+  }
   function validIntent(owner: Owner) {
-    return (
+    return !intentChange(owner);
+  }
+  /**
+   * "navigation": the user (or another owner) gave new orders. "realm": only the
+   * leader's realm differs, e.g. boss chase hopped servers; a patrol waits that out.
+   */
+  function intentChange(owner: Owner): "navigation" | "realm" | null {
+    const same =
       owner.leader === party.leader &&
-      (!leader() || leader().seenAt < now() - FRESH || owner.realm === realm(leader())) &&
       owner.focus === JSON.stringify(party.monsterFocus) &&
       owner.policy === party.farmingPolicy &&
       Object.entries(owner.revisions).every(
         ([n, revision]) => !hooks.intent(n).cancelled && hooks.intent(n).revision === revision,
-      )
-    );
+      );
+    if (!same) return "navigation";
+    const lead = leader();
+    return lead && lead.seenAt >= now() - FRESH && owner.realm !== realm(lead) ? "realm" : null;
   }
   function capture() {
     return {
@@ -191,17 +234,21 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
         stage: encounter.stage,
         generator: encounter.generator,
         message: encounter.message,
+        gatherDeadline: encounter.gatherDeadline,
+        gatheredAt: encounter.gatheredAt,
+        gatheredWithout: encounter.gatheredWithout,
+        targetId: encounter.target.id,
       },
       patrol: patrol && {
         active: true,
         paused: !!patrol.paused,
-        index: patrol.index,
-        total: 5,
         stage: patrol.stage,
         message: patrol.message,
+        cycle: patrol.cycle,
+        covered: Object.keys(patrol.covered),
         incomplete: patrol.incomplete,
-        regionId: party.phoenixRouteOrder[patrol.index],
-        waypoint: patrol.points[patrol.point],
+        searchers: Object.fromEntries(Object.entries(patrol.searchers).map(([name, s]) =>
+          [name, { regionId: s.regionId, waypoint: s.points[s.point] || null, point: s.point, total: s.points.length }])),
         readyAt: patrol.readyAt,
         retryReason: patrol.retryReason,
       },
@@ -257,13 +304,16 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
     hooks.persist();
   }
   function retryDeadline(e:Encounter):number {
+    if (assist(e.target)) return now()+3000;
     return party.rareRetryEvidence?.[key(e.target)] ? Number.MAX_SAFE_INTEGER : now()+3000;
   }
   function clearFinishedProgress(e:Encounter,killed:boolean):void {
     if(killed || party.rareRetryEvidence?.[key(e.target)])delete party.rarePursuitProgress?.[key(e.target)];
   }
   function rejectUnproductive(e: Encounter, killed: boolean, reason: string): void {
-    if (!killed && /selection released|no progress|time limit/i.test(reason)) retryEvidence().reject(key(e.target),e.target,leader());
+    // The patrol exists to hunt Phoenix: a failed attempt only cools down, so a
+    // later sighting (including one passed on the way somewhere) retries it.
+    if (!killed && !assist(e.target) && /selection released|no progress|time limit/i.test(reason)) retryEvidence().reject(key(e.target),e.target,leader());
   }
   function stop(reason = "Rare hunting cancelled") {
     if (encounter) {
@@ -397,7 +447,8 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
     const old = encounter;
     if (old) cooldowns.set(key(old.target), now() + 3000);
     const convoyId=retainTravelConvoy(target);
-    if (patrol) patrol.progressPosition = undefined;
+    // Encounters move searchers; a resumed search plans from their new positions.
+    if (patrol) patrol.searchers = {};
     // Scatter farming becomes grouped for the rare. Capture selection admission
     // after that switch, before formation has had a chance to select its target.
     party.partyFarmingMode = "default";
@@ -419,6 +470,7 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
       message: `Pursuing ${passiveName(target.mtype)}`,
     };
     restorePursuit(encounter);
+    beginConverge(encounter);
     retainRareReturn(encounter);
     hooks.persist();
     party.scatterBreakTarget = null;
@@ -427,6 +479,57 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
       encounter.deployer = carrier;
       encounter.generator = carrier ? "approaching" : "unavailable; ordinary attacks";
     }
+  }
+  /** Patrol searchers are scattered: hold fire until everyone has arrived. */
+  function beginConverge(e: Encounter): void {
+    if (!patrol || e.target.mtype !== "phoenix") return;
+    const started = now();
+    e.stage = "converge";
+    e.awaitingSelection = false;
+    e.gatherDeadline = started + GATHER_MINIMUM;
+    e.message = `Phoenix spotted by ${e.target.reporter}; converging`;
+    diagnostic('Phoenix convergence started', {id:e.target.id,reporter:e.target.reporter,map:e.target.map});
+    if (!hooks.routeDistance) return;
+    const destination = { map: e.target.map, x: e.target.x, y: e.target.y };
+    void Promise.all(members().map(async (name) => {
+      const s = party.statuses[name];
+      if (!s) return 0;
+      try {
+        const length = await hooks.routeDistance!({ map: s.map, x: s.x, y: s.y }, destination);
+        return (length / Math.max(10, Number(s.speed) || 55)) * 1000;
+      } catch { return 0; }
+    })).then((times) => {
+      if (encounter !== e || e.stage !== "converge") return;
+      // Walking is slow and maps chain; allow twice the slowest planned trip.
+      e.gatherDeadline = Math.max(e.gatherDeadline!, started + 2 * Math.max(0, ...times));
+      publish();
+    });
+  }
+  function gathered(s: Status | undefined, target: Sight): boolean {
+    return !!s && now() - s.seenAt <= FRESH && !s.rip && Number(s.hp) > 0 && realm(s) === target.realm &&
+      s.map === target.map && instance(s) === target.in && distance(s, target) <= GATHER_RANGE;
+  }
+  function tickConverge(e: Encounter): void {
+    e.progress = now();
+    cancelTravel();
+    const names = members().filter((n) => {
+      const s = party.statuses[n];
+      return !!s && now() - s.seenAt <= FRESH && !s.rip && Number(s.hp) > 0;
+    });
+    const missing = names.filter((n) => !gathered(party.statuses[n], e.target));
+    if (names.length && (!missing.length || now() >= e.gatherDeadline!)) {
+      e.stage = "approach";
+      e.awaitingSelection = combat.grouped();
+      e.gatheredAt = e.progress = now();
+      e.gatheredWithout = missing;
+      e.message = missing.length
+        ? `Convergence deadline passed; engaging Phoenix without ${missing.join(", ")}`
+        : "Party gathered; engaging Phoenix";
+      diagnostic('Phoenix party gathered', {id:e.target.id,missing});
+      return;
+    }
+    const fought = e.target.target ? "already being fought; members in range join" : "holding fire";
+    e.message = `Phoenix spotted by ${e.target.reporter} · converging ${names.length - missing.length}/${names.length} · ${fought}`;
   }
   function fieldAt(target: Sight) {
     return Object.values(party.statuses).some(
@@ -448,8 +551,8 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
   }
   function finishDead(e: Encounter) {
     e.deathAt ||= now();
+    if (assist(e.target)) prepareWait(e);
     if (!e.engaged) {
-      if (assist(e.target)) prepareWait(e);
       finish("Rare died without confirmed party engagement");
       return;
     }
@@ -483,7 +586,13 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
     if(waitingForAttackers(e))e.progress=now();
     return timeExpired(e) ? "Rare pursuit ended: no progress or time limit" : null;
   }
+  function convergeExpired(e: Encounter): string | null {
+    return now() - e.lastSeen > CONVERGE_LOST ? "Phoenix lost while the party converged" : null;
+  }
   function waitingForAttackers(e:Encounter):boolean {
+    // A gathered patrol Phoenix is still forming until grouped combat locks it;
+    // the five-minute limit from the gather bounds that phase.
+    if(assist(e.target) && !!e.gatheredAt && !combat.locked(e.target))return true;
     if(combat.selected(e.target))return false;
     return members().some(n=>freshOtherAttacker(party.statuses[n],e));
   }
@@ -495,7 +604,7 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
   function timeExpired(e: Encounter) {
     return (
       now() - e.lastSeen >= 30000 ||
-      now() - e.start >= 300000 ||
+      now() - (e.gatheredAt ?? e.start) >= 300000 ||
       now() - e.progress >= 30000
     );
   }
@@ -564,9 +673,13 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
       return;
     }
     refreshEncounter(e);
-    const expired = encounterExpired(e);
+    const expired = e.stage === "converge" ? convergeExpired(e) : encounterExpired(e);
     if (expired) {
       finish(expired);
+      return;
+    }
+    if (e.stage === "converge") {
+      tickConverge(e);
       return;
     }
     encounterMovement(e);
@@ -621,9 +734,7 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
     if (collected(e)) finish(`${passiveName(e.target.mtype)} defeated; loot checked`, true);
   }
   function savePatrol() {
-    party.phoenixPatrolCheckpoint = patrol
-      ? patrolCheckpoint(patrol, party.phoenixRouteOrder)
-      : null;
+    party.phoenixPatrolCheckpoint = patrol ? patrolCheckpoint(patrol) : null;
     hooks.persist();
   }
   function tickPatrol() {
@@ -636,20 +747,39 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
       stop("Phoenix patrol cancelled by farming change");
       return;
     }
-    stepPatrol(p, {
+    const catalog = regions(party.monsterChoices);
+    const areas = party.phoenixRouteOrder.map((id) => catalog.find((a) => a.id === id)).filter((a) => !!a?.boundary);
+    if (areas.length !== 5) {
+      stop("Phoenix spawn catalog changed; choose the route again");
+      return;
+    }
+    // Patrols saved before split searching may still own a whole-party convoy.
+    if (party.activeConvoy?.purpose === "phoenix-patrol") hooks.cancelConvoy();
+    stepSearch(p, {
       now: now(),
-      leader: leader(),
-      statuses: members().map((n) => party.statuses[n]),
-      areas: regions(party.monsterChoices),
-      order: party.phoenixRouteOrder,
-      convoy: party.activeConvoy,
-      cancel: cancelTravel,
-      save: savePatrol,
-      stop,
-      travel: (destination) => {
-        hooks.convoy(destination, `Phoenix region ${p.index + 1}/5`, members(), "phoenix-patrol");
-      },
+      clock: now,
+      statuses: party.statuses,
+      searchers: searchers(),
+      areas: areas as NonNullable<typeof areas[number]>[],
+      routeDistance: hooks.routeDistance?.bind(hooks),
+      current: (q) => patrol === q && validIntent(q),
+      publish: () => publish(),
     });
+  }
+  /** Fighters the patrol may direct now; an encounter keeps its own participants. */
+  function searchers(): string[] {
+    const spreading = !!encounter && lootSpread(encounter);
+    if (encounter && !spreading) return [];
+    return members().filter((n) => {
+      const s = party.statuses[n];
+      return (!spreading || n !== party.leader) && !!s && now() - s.seenAt <= FRESH && !s.rip &&
+        Number(s.hp) > 0 && realm(s) === patrol!.realm && !memberProtected(n);
+    });
+  }
+  /** After a patrol kill, only the leader stays for loot; the others pre-position for the respawn. */
+  function lootSpread(e: Encounter): boolean {
+    return !!patrol && !patrol.paused && e.target.mtype === "phoenix" && e.stage === "loot" &&
+      !!e.killedAt && !combat.busy();
   }
   function assist(target: Sight) {
     return !!patrol && !patrol.paused && target.mtype === "phoenix";
@@ -657,40 +787,21 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
   function claimed(target: Sight) {
     return !assist(target) && combat.claimed(target);
   }
+  /** Respawn is random across all five regions; restart coverage from current positions. */
   function prepareWait(e: Encounter) {
-    const p = patrol!;
-    const areas = party.phoenixRouteOrder.map((id) =>
-      regions(party.monsterChoices).find((a) => a.id === id)!,
-    );
+    const p = patrol;
+    if (!p || e.respawnPrepared) return;
+    e.respawnPrepared = true;
     p.readyAt = (e.deathAt || e.killedAt || now()) + 35000;
-    p.area = null;
+    p.cycle++;
+    p.covered = {};
+    p.incomplete = [];
+    p.searchers = {};
+    p.assigning = undefined;
+    p.assignAfter = 0;
     p.stage = "respawn";
-    p.message = "Phoenix defeated; waiting until 35 seconds after death";
-    p.points = [];
-    p.waitingRegion = true;
-    const current = areas.find((a) => a.map === leader().map && zones.contains(a, leader(), 0, 1));
-    if (current) {
-      p.index = party.phoenixRouteOrder.indexOf(current.id!);
-      savePatrol();
-      return;
-    }
-    p.choosing = true;
-    void waitingRegion(
-      areas,
-      { map: leader().map, x: leader().x, y: leader().y },
-      hooks.routeDistance?.bind(hooks),
-    ).then((area) => {
-      if (patrol !== p || !validIntent(p)) return;
-      p.choosing = false;
-      if (area) p.index = party.phoenixRouteOrder.indexOf(area.id!);
-      else {
-        p.paused = true;
-        p.message =
-          "Unable to plan a reachable Phoenix waiting region; restart the patrol to retry";
-      }
-      savePatrol();
-      publish();
-    });
+    p.message = "Phoenix defeated; spreading out before the respawn";
+    savePatrol();
   }
   function expireObservations() {
     for (const [k, s] of sightings) if (now() - s.seenAt > 30000) sightings.delete(k);
@@ -699,10 +810,8 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
   }
   function pauseProtected() {
     if (patrol && sightings.size) diagnostic('Phoenix acquisition waiting for protected activity', {});
-    if (patrol) {
-      patrol.progressAt = now();
-      patrol.progressPosition = undefined;
-    }
+    // Keep assignments; only the movement watchdogs restart afterwards.
+    if (patrol) pauseSearch(patrol, now());
     if (encounter && !combat.locked(encounter.target))
       finish("Rare encounter interrupted by protected activity", false, false);
     cancelTravel();
@@ -715,15 +824,43 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
           : undefined,
     );
   }
-  function restorePatrol() {
-    if (patrol || !party.phoenixPatrolActive || party.monsterFocus.join(",") !== "phoenix") return;
-    if (!validateOrder(party.monsterChoices, party.phoenixRouteOrder)) return;
-    patrol = newPatrol(capture(), `patrol-${now()}-${++serial}`);
-    const saved = party.phoenixPatrolCheckpoint;
-    if (saved && validIntent(saved) && party.phoenixRouteOrder.includes(saved.regionId)) {
-      patrol.index = party.phoenixRouteOrder.indexOf(saved.regionId);
-      patrol.readyAt = Number.isFinite(saved.readyAt) ? saved.readyAt : 0;
+  function restorable(): boolean {
+    return !patrol && !!party.phoenixPatrolActive && party.monsterFocus.join(",") === "phoenix" &&
+      validateOrder(party.monsterChoices, party.phoenixRouteOrder);
+  }
+  /** True while a suspended patrol must stay off: away on another realm, or superseded. */
+  function heldAway(saved: Checkpoint | null | undefined, change: "navigation" | "realm" | null): boolean {
+    // Away on another realm: boss chase or an event there owns the party.
+    if (change === "realm") {
+      lastMessage = `Phoenix patrol suspended while the party is away from ${saved!.realm}; it resumes on return`;
+      return true;
     }
+    if (!saved?.suspended || !change) return false;
+    stop("Phoenix patrol cancelled: new navigation while the party was away");
+    return true;
+  }
+  function restorePatrol() {
+    if (!restorable()) return;
+    const saved = party.phoenixPatrolCheckpoint;
+    const change = saved ? intentChange(saved) : null;
+    if (heldAway(saved, change)) return;
+    patrol = newPatrol(capture(), `patrol-${now()}-${++serial}`);
+    if (saved && !change) patrol.readyAt = Number.isFinite(saved.readyAt) ? saved.readyAt : 0;
+    if (saved?.suspended) savePatrol();
+  }
+  /** A realm hop keeps the patrol on: drop this realm's encounter, keep the checkpoint. */
+  function suspendPatrol() {
+    if (encounter) {
+      cooldowns.set(key(encounter.target), now() + 3000);
+      combat.release(encounter.target, now() + 3000, now());
+      encounter = null;
+    }
+    party.phoenixPatrolCheckpoint = { ...patrolCheckpoint(patrol!), suspended: true };
+    patrol = null;
+    farmingReturn.clear();
+    cancelTravel();
+    hooks.persist();
+    diagnostic('Phoenix patrol suspended by a realm change', {realm:party.phoenixPatrolCheckpoint.realm});
   }
   function eligible(s: Sight) {
     return (
@@ -738,6 +875,11 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
   }
   function retryEligible(s: Sight): boolean {
     const rejected=!!party.rareRetryEvidence?.[key(s)];
+    if (assist(s)) {
+      // Clear a rejection recorded before the patrol started.
+      if (rejected) { retryEvidence().remove(key(s)); combat.allow(s); hooks.persist(); }
+      return true;
+    }
     const reachable=s.reachable===true && members().some(n=> {
       const m=party.statuses[n];
       return m && now()-m.seenAt<=FRESH && realm(m)===s.realm && instance(m)===s.in &&
@@ -765,20 +907,25 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
   }
   function groupedTick(): boolean {
     if (!combat.grouped()) return false;
-    if (encounter && lostClaim(encounter))
-      finish("Rare pursuit cancelled: claimed outside party", false, false);
-    if (encounter && released(encounter)) finish("Rare pursuit cancelled: selection released");
+    releaseGrouped();
     acquireGrouped();
     if (encounter) {
-      tickEncounter();
+      tickOwned();
       publish();
       return true;
     }
     if (!combat.busy()) return false;
-    if (patrol) patrol.progressPosition = undefined;
+    // Split searchers defend themselves; one fighter's defense must not stop the others.
+    if (patrol) return false;
     cancelTravel();
     publish("Finishing party combat");
     return true;
+  }
+  function releaseGrouped() {
+    // Converging fighters are apart on purpose; formation cannot select yet.
+    if (!encounter || encounter.stage === "converge") return;
+    if (lostClaim(encounter)) finish("Rare pursuit cancelled: claimed outside party", false, false);
+    if (encounter && released(encounter)) finish("Rare pursuit cancelled: selection released");
   }
   function acquireGrouped() {
     const current = combat.current();
@@ -837,24 +984,31 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
     if (candidate) begin(candidate);
   }
   function acquirePatrolSighting() {
-    if (!patrol || patrol.paused || encounter || combat.busy()) return;
+    if (!patrol || patrol.paused || encounter) return;
     if (party.activeConvoy && party.activeConvoy.purpose !== "phoenix-patrol") return;
+    // Searchers are spread across maps: any searcher's fresh sighting counts.
     const candidate = [...sightings.values()]
-      .filter((s) => s.mtype === "phoenix" && s.visible && localFresh(s) && eligible(s))
-      .sort((a, b) => distance(leader(), a) - distance(leader(), b))[0];
+      .filter((s) => s.mtype === "phoenix" && s.visible && members().includes(s.reporter) &&
+        s.realm === patrol!.realm && s.seenAt >= now() - FRESH && eligible(s))
+      .sort((a, b) => b.seenAt - a.seenAt)[0];
     if (candidate) begin(candidate);
   }
   function restoreRejections():void {
     for(const failed of Object.values(party.rareRetryEvidence||{}))if(!combat.rejected(failed.sight))combat.release(failed.sight,Number.MAX_SAFE_INTEGER,now());
   }
+  /** A realm hop suspends a patrol; any other intent change ends the rare route. */
+  function superseded(): boolean {
+    if (patrol && intentChange(patrol) === "realm" && (!encounter || intentChange(encounter) !== "navigation"))
+      suspendPatrol();
+    if (!(encounter && !validIntent(encounter)) && !(patrol && !validIntent(patrol))) return false;
+    stop("Rare route superseded");
+    return true;
+  }
   function tick() {
     restoreRejections();
     expireObservations();
-    if ((encounter && !validIntent(encounter)) || (patrol && !validIntent(patrol))) {
-      stop("Rare route superseded");
-      return;
-    }
-    if (protectedActivity()) {
+    if (superseded()) return;
+    if (blocked()) {
       pauseProtected();
       return;
     }
@@ -862,9 +1016,13 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
     acquirePatrolSighting();
     if (groupedTick() || resumeFarm()) return;
     acquirePassive();
-    if (encounter) tickEncounter();
-    else if (patrol) tickPatrol();
+    tickOwned();
     publish();
+  }
+  function tickOwned() {
+    if (encounter) tickEncounter();
+    // Loot needs only the leader; everyone else spreads out for the respawn.
+    if (patrol && (!encounter || lootSpread(encounter))) tickPatrol();
   }
   function encounterControl(e: Encounter, name: string) {
     return {
@@ -881,20 +1039,42 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
   }
   function control(name: string) {
     if (!members().includes(name)) return null;
+    if (splitSearch()) return searchControlFor(name);
     if (protectedActivity() && !(encounter && combat.locked(encounter.target))) return null;
-    if (encounter) return encounterControl(encounter, name);
-    return patrolControl(name);
+    return encounter ? ownedControl(encounter, name) : searchControl(name);
   }
-  function patrolControl(name: string) {
-    if (patrol && !patrol.paused && now() >= (patrol.retryAt || 0) && patrol.points[patrol.point])
-      return {
-        id: patrolControlId(patrol),
-        kind: "patrol",
-        allowPhoenixAssist: true,
-        destination: patrol.points[patrol.point],
-        revision: patrol.revisions[name],
-      };
+  function searchControlFor(name: string) {
+    const reason = searchPaused() || memberProtection(name);
+    if (!reason) return searchControl(name);
+    diagnostic('Phoenix search control withheld', {id:name,reason});
     return null;
+  }
+  function ownedControl(e: Encounter, name: string) {
+    if (lootSpread(e) && name !== party.leader) return searchControl(name);
+    return e.stage === "converge" ? convergeControl(e, name) : encounterControl(e, name);
+  }
+  /** Members in range join a Phoenix someone is already fighting; the rest keep moving in. */
+  function convergeControl(e: Encounter, name: string) {
+    const engage = !!e.target.target && gathered(party.statuses[name], e.target);
+    return {
+      id: e.id,
+      kind: engage ? "engage" : "converge",
+      target: e.target,
+      destination: { map: e.target.map, x: e.target.x, y: e.target.y },
+      allowPhoenixAssist: true,
+      revision: e.revisions[name],
+    };
+  }
+  /** An unassigned searcher holds position while routes are planned. */
+  function searchControl(name: string) {
+    if (!patrol || patrol.paused) return null;
+    return {
+      id: searchControlId(patrol, name) || `${patrol.id}-${patrol.cycle}-${name}-hold`,
+      kind: "search",
+      allowPhoenixAssist: true,
+      destination: searchDestination(patrol, name),
+      revision: patrol.revisions[name],
+    };
   }
   publish();
   return {
@@ -904,7 +1084,9 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
     stop,
     control,
     owns: () => !!(encounter || patrol || farmingReturn.moving()),
-    patrolAcquisitionAllowed: () => !!patrol && !patrol.paused && !protectedActivity(),
+    // Grouped combat may select the Phoenix only after the scattered searchers gather.
+    patrolAcquisitionAllowed: () => !!patrol && !patrol.paused && !protectedActivity() &&
+      !!encounter && encounter.stage !== "converge",
     abandon: () => {
       encounter = null;
       cancelTravel();

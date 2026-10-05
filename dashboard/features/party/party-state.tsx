@@ -58,9 +58,10 @@ export type PartyState = {
   phoenixRouteOrder?: string[];
   rareHuntState?: {
     message?: string | null;
-    encounter?: { id: string; mtype: string; stage: string; generator: string; message?: string } | null;
-    patrol?: { active: boolean; paused: boolean; index: number; total: number; stage: string; message?: string; incomplete?: string[];
-      regionId?: string; waypoint?: {map: string; x: number; y: number}; readyAt?: number; retryReason?: string } | null;
+    encounter?: { id: string; mtype: string; stage: string; generator: string; message?: string; gatherDeadline?: number; gatheredAt?: number; gatheredWithout?: string[]; targetId?: string } | null;
+    patrol?: { active: boolean; paused: boolean; stage: string; message?: string; cycle?: number; covered?: string[]; incomplete?: string[];
+      searchers?: Record<string, { regionId: string; waypoint: {map: string; x: number; y: number} | null; point: number; total: number }>;
+      readyAt?: number; retryReason?: string } | null;
   };
   farmAreaState?: {
     message?: string;

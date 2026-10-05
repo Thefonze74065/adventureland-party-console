@@ -3015,7 +3015,7 @@
     var returning = convoy && (convoy.continuousReturn === 1 || hunting);
     if (character.rip || Number(character.max_hp)>0 && character.hp/character.max_hp<0.35 || character.ctype === 'merchant' || navigationIntent.cancelled || escapeOwns() || combatRecoveryActive() ||
         partyTownActive || banking || stocking || upgrading || gatheringActive || forceTraveling || townTraveling || eventTraveling || joinedEvent || activeCombatEvent() ||
-        (rareActive() && rareControlState.kind !== "patrol") || !returning && unfinishedFight()) return null;
+        (rareActive() && rareControlState.kind !== "search") || !returning && unfinishedFight()) return null;
     var candidates = Object.values(parent.entities || {}).filter(function(e) {
       if(passiveTravelInterruptible() && passiveStopRequired(e))return false;
       if(control && control.primary && passingKey(e)!==passingKey(control.primary))return false;
@@ -3121,6 +3121,15 @@
       rareControlState.revision === navigationIntent.revision && !character.rip &&
       !partyTownActive && !eventTraveling && !joinedEvent && !escapeOwns());
   }
+  // Split Phoenix search: the coordinator owns this fighter's walking and it holds fire.
+  function rareSearchKind() {
+    return rareActive() && ["search", "converge"].indexOf(rareControlState.kind) >= 0;
+  }
+  function rareUnderAttack() {
+    return Object.values(parent.entities || {}).some(function (e) {
+      return e && e.type === "monster" && e.visible && !e.dead && e.target === character.name;
+    });
+  }
   function rareActive() {
     if (typeof unfinishedFight === "function" && unfinishedFight() &&
         !(rareControlState && rareControlState.kind === "encounter" && groupedCombat.target &&
@@ -3138,7 +3147,7 @@
     return e && e.visible && !e.dead && e.hp>0 && !isExternallyClaimedMonster(e) ? e : null;
   }
   function rareTarget() {
-    if (!rareActive() || rareControlState.kind !== "encounter") return ownedRareTarget();
+    if (!rareActive() || ["encounter", "engage"].indexOf(rareControlState.kind) < 0) return ownedRareTarget();
     var wanted = rareControlState.target;
     if (wanted.map !== character.map || String(wanted.in) !== String(character.in || character.map)) return null;
     var e = get_entity(wanted.id);
@@ -3158,10 +3167,50 @@
     rarePath.cancelled = true; rarePath = null;
     if (!replaced && typeof stop === "function") Promise.resolve(stop("smart")).catch(function () {});
   }
+  function startRarePath(id, destination) {
+    var path = rarePath = { id: id, at: Date.now(), cancelled: false,
+      map: destination.map, x: destination.x, y: destination.y };
+    rareNavigation = { id: id, failed: false };
+    Promise.resolve(smart_move({ map: destination.map, x: destination.x, y: destination.y }))
+      .catch(function (error) {
+        if (!path.cancelled && rarePath === path) rareNavigation = { id: path.id, failed: true, at: Date.now(),
+          reason: String(error && (error.reason || error.message) || error) };
+      }).finally(function () { if (rarePath === path) rarePath = null; });
+    path.onDone = typeof smart !== "undefined" && smart.on_done;
+  }
+  // Search, converge and engage legs walk independently. Cross-map trips can take
+  // minutes, so only the coordinator's no-progress watchdog ends them.
+  function pollRareSearch(control) {
+    if (rareUnderAttack()) { cancelRarePath(); return false; }
+    var wanted = control.target, phoenix = wanted && wanted.map === character.map &&
+      String(wanted.in) === String(character.in || character.map) ? get_entity(wanted.id) : null;
+    if (phoenix && (phoenix.dead || !phoenix.visible)) phoenix = null;
+    // Already being fought: the role loop approaches and attacks.
+    if (control.kind === "engage" && phoenix) { cancelRarePath(); return false; }
+    var destination = phoenix ? { map: character.map,
+      x: phoenix.real_x !== undefined ? phoenix.real_x : phoenix.x,
+      y: phoenix.real_y !== undefined ? phoenix.real_y : phoenix.y } : control.destination;
+    if (!destination || !Number.isFinite(destination.x) || !Number.isFinite(destination.y)) { cancelRarePath(); return true; }
+    // Shadowing stays outside the Phoenix's 120 attack range but well within sight.
+    var hold = control.kind === "search" ? 30 : phoenix ? 200 : 100;
+    if (destination.map === character.map && Math.hypot(character.x-destination.x, character.y-destination.y) <= hold) {
+      cancelRarePath(); return true;
+    }
+    if (rarePath && (rarePath.id !== control.id || rarePath.map !== destination.map ||
+        Math.hypot(rarePath.x-destination.x, rarePath.y-destination.y) > 100)) cancelRarePath();
+    if (convoyTraveling || partyConvoyActive || banking || stocking || upgrading || forceTraveling || townTraveling) return true;
+    if (rareNavigation && rareNavigation.id === control.id && rareNavigation.failed) {
+      // The coordinator skips a failed search point; converge routes retry.
+      if (control.kind === "search" || Date.now() - Number(rareNavigation.at || 0) < 5000) return true;
+      rareNavigation = null;
+    }
+    if (!rarePath) startRarePath(control.id, destination);
+    return true;
+  }
   function pollRareHunting() {
     if (!rareActive()) { cancelRarePath(); return false; }
     var control = rareControlState, target = rareTarget();
-    if (control.kind === "patrol") { cancelRarePath(); return true; }
+    if (["search", "converge", "engage"].indexOf(control.kind) >= 0) return pollRareSearch(control);
     if (groupedFarming() && control.kind === "encounter" && (control.deployer !== character.name ||
         !target || Math.hypot(character.x-target.x,character.y-target.y)>=200)) {
       cancelRarePath(); return false;
@@ -3171,7 +3220,6 @@
     if (convoyTraveling || partyConvoyActive || banking || stocking || upgrading || forceTraveling || townTraveling) return true;
     if (control.kind === "encounter" && target && control.deployer !== character.name) return false;
     var destination = control.destination;
-    if (control.kind === "patrol" && character.name !== leader) return false;
     if (control.kind === "encounter" && target && control.deployer === character.name) {
       destination = { map: character.map, x: target.x, y: target.y };
       if (Math.hypot(character.x-target.x, character.y-target.y) < 200) {
@@ -3195,20 +3243,11 @@
     if (destination.map === character.map && Math.hypot(character.x-destination.x, character.y-destination.y) <= 30) {
       cancelRarePath();
       if (control.kind === "loot") { pollRareLoot(control); return true; }
-      return control.kind === "patrol";
+      return false;
     }
     if (rareNavigation && rareNavigation.id === control.id && rareNavigation.failed) return true;
-    if (!rarePath) {
-      var path = rarePath = { id: control.id, at: Date.now(), cancelled: false,
-        map: destination.map, x: destination.x, y: destination.y };
-      rareNavigation = { id: control.id, failed: false };
-      Promise.resolve(smart_move({ map: destination.map, x: destination.x, y: destination.y }))
-        .catch(function (error) {
-          if (!path.cancelled && rarePath === path) rareNavigation = { id: path.id, failed: true,
-            reason: String(error && (error.reason || error.message) || error) };
-        }).finally(function () { if (rarePath === path) rarePath = null; });
-      path.onDone = typeof smart !== "undefined" && smart.on_done;
-    } else if (Date.now() - rarePath.at > 30000) {
+    if (!rarePath) startRarePath(control.id, destination);
+    else if (Date.now() - rarePath.at > 30000) {
       rareNavigation = { id: control.id, failed: true, reason: "Rare route timed out" }; cancelRarePath();
     }
     return true;
@@ -15932,7 +15971,7 @@
       }))interruptConvoyForDefense();
       if (combatRecoveryActive() && root.__partyCombatRecovery.phase!=='finishing') return true;
       if (escapeOwns()) return true;
-      if (typeof rareActive === "function" && rareActive() && (rareControlState.kind === "patrol" || rareControlState.kind === "loot" || rarePath ||
+      if (typeof rareActive === "function" && rareActive() && (rareSearchKind() && !rareUnderAttack() || rareControlState.kind === "loot" || rarePath ||
           !groupedFarming() && rareControlState.deployer === character.name)) return true;
       // A convoy owns movement completely. Releasing the role loop for a
       // passing threat lets kiting/follow movement replace smart_move, which
@@ -16403,7 +16442,8 @@
     usesLeaderTarget: function () { return groupedFarming(); },
     clearCombatSelection: function () { publishCombatSelection(null, true); },
     getGroupedTarget: function () {
-      if (!groupedFarming() && typeof rareTarget === "function" && rareTarget()) return rareTarget();
+      if (typeof rareTarget === "function" && rareTarget() &&
+          (!groupedFarming() || rareControlState.kind === "engage")) return rareTarget();
       var lock = groupedCombat && groupedCombat.protocol === 4 ? groupedCombat.target : leaderCombatSelection;
       var target = lock && lock.id && get_entity(lock.id);
       if (target && target.visible && !target.dead && isAllowedTarget(target) &&

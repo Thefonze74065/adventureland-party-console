@@ -9,6 +9,17 @@ Activate with the supported coordinator/dashboard-only restart.
 
 # Character coordinator
 
+Phoenix patrol splits the fighters instead of moving the party as one convoy
+(`navigation/phoenix-patrol.ts`, `navigation/rare-hunting.ts`, and the `search`,
+`converge` and `engage` controls in `characters/shared.js`). Each fighter takes
+the nearest unchecked, unclaimed spawn region by planned route. A sighting starts
+a converge stage that holds fire until every fighter is within 300 units, unless
+the Phoenix is already being fought. After a kill, only the leader loots; the
+others pre-position for the respawn. Starting a patrol no longer launches a
+party convoy. Failure inventory: `e2e/phoenix-search-failures.md`. Validate
+`live-phoenix-search.spec.ts` and publish character and coordinator assets
+through the ordinary full restart.
+
 Merchant settings stores one Main-map stand location for parking, Town-return
 checks and marketplace fallbacks. A fresh settings store chooses integer X/Y
 coordinates independently within -100..100, rejects native collision geometry

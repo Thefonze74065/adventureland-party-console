@@ -1,5 +1,24 @@
 # Testing
 
+Phoenix split search uses
+`npm test -- -- --project=live --grep "Phoenix patrol splits"`. The declared
+fixture replaces the server's Phoenix with one created from the server's own
+`randomrespawn` definition, pinned to Spooky Forest, with 12,000 HP, attack 1 and
+a guaranteed `gem0` drop. Its death uses the unmodified definition, so the respawn
+is native (random region, 160,000 HP). The journey requires the two fighters to
+take different regions, the first party hit to land after a gather with nobody
+missing, the drop to reach inventory, both fighters to head to different regions
+before the respawn deadline, and the native respawn to be found again. The passing
+run: first sighting after 74 s (priest in Spooky Forest, warrior on Mainland), a
+33 s cross-map converge, first hit 505 ms after the gather, and the respawn spotted
+in the priest's pre-positioned region. Retain `phoenix-hold-fire-until-gathered`,
+`phoenix-respawn-spread`, `phoenix-native-respawn-found` and
+`phoenix-search-timeline`, then run `npm run test:e2e:verify` (36 verified
+evidence files). The outsider-already-fighting rule has no live coverage: the
+harness has no player outside the party. The existing native Phoenix Hunt
+interruption journey still passes. Failure inventory:
+`e2e/phoenix-search-failures.md`. Activate with the ordinary full restart.
+
 Designated tank (issue #39) uses
 `npm test -- -- --project=live --grep "designated tank persists through restart"`.
 The live journey sets a ranger (a ranged class, so the melee override is unmistakable)
