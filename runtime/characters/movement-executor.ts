@@ -54,10 +54,14 @@ export function createMovementExecutor(host: MovementHost, state: MoveState, val
     state.plot.shift(); if (transition) index++; issued = undefined; barrierReady = false; return true;
   }
   function alignArrival(current: Issued, p: Point) {
-    if (current.aligned || distance(p, current.step) <= 1 || distance(p, current.step) > 150) return;
+    if (distance(p, current.step) <= 1 || distance(p, current.step) > 150) return;
+    // The server drops, without a response, a move carrying the map counter from
+    // before the warp's new_map. Resend a connector that has made no progress for
+    // a second; the transition's 12 s deadline still bounds the step.
+    if (current.aligned && now() - current.progressAt < 1000) return;
     // The server scatters Town/door arrivals around their advertised spawn. Join
     // the shared route at its exact spawn using a newly collision-checked leg.
-    if (!validation.walk(p, current.step)) throw Error(`Arrival connector collision between ${JSON.stringify(p)} and ${JSON.stringify(current.step)}`);
+    if (!current.aligned && !validation.walk(p, current.step)) throw Error(`Arrival connector collision between ${JSON.stringify(p)} and ${JSON.stringify(current.step)}`);
     current.aligned = true; current.progressAt = now();
     void Promise.resolve(host.move(current.step.x, current.step.y)).catch(error => { if (issued === current) current.error = String(error); });
   }

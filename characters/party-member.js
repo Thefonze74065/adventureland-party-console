@@ -241,8 +241,9 @@
       return true;
     }
     function alignArrival(current, p) {
-      if (current.aligned || distance(p, current.step) <= 1 || distance(p, current.step) > 150) return;
-      if (!validation.walk(p, current.step)) throw Error(`Arrival connector collision between ${JSON.stringify(p)} and ${JSON.stringify(current.step)}`);
+      if (distance(p, current.step) <= 1 || distance(p, current.step) > 150) return;
+      if (current.aligned && now() - current.progressAt < 1e3) return;
+      if (!current.aligned && !validation.walk(p, current.step)) throw Error(`Arrival connector collision between ${JSON.stringify(p)} and ${JSON.stringify(current.step)}`);
       current.aligned = true;
       current.progressAt = now();
       void Promise.resolve(host.move(current.step.x, current.step.y)).catch((error) => {
