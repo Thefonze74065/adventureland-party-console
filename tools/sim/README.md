@@ -80,6 +80,16 @@ wrong.
 created character), and `steps` run at `atSeconds`: either a coordinator API call (`method`, `route`, `body`) or
 `{ "action": "farm", "leader", "followers", "monster" }`, which does what the dashboard
 does: formation, focus, then travel to the monster's farming area.
+`{ "action": "hunt", "leader", "followers", "monster" }` starts a rare-monster hunt the
+way the dashboard does (for the Phoenix, with its spawn regions in catalog order).
+
+`track` lists monster types whose spawns and deaths the report records (`kills`: each
+death's minute and its spawn-to-death time), and `expect` makes a scenario a test:
+`{ "minKills": { "<type>": n }, "maxCycleMinutes": n, "maxDeaths": n, "maxErrors": n }`.
+A run that misses an expectation lists it in `report.expect` and exits 1.
+
+- `phoenix-farm.json`: three hours of Phoenix farming by a level-80 warrior and priest
+  with mid-tier gear; fails on no kill, any death or any coordinator error.
 
 ## Pins and maintenance
 

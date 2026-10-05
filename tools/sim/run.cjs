@@ -114,12 +114,29 @@ async function main() {
   const baseline = new Map(); // each character from when it is first on the server
   const deaths = new Map();
   const ripped = new Set();
+  const tracked = { types: scenario.track || [], alive: new Map(), kills: [] };
+  let startedAt = clock.now; // reset when the scenario starts
   clock.timer(() => {
     for (const p of Object.values(sim.server.players || {})) {
       if (!baseline.has(p.name)) baseline.set(p.name, { xp: p.xp, gold: p.gold, level: p.level });
       if (p.rip && !ripped.has(p.name)) { ripped.add(p.name); deaths.set(p.name, (deaths.get(p.name) || 0) + 1); }
       if (!p.rip) ripped.delete(p.name);
     }
+    // scenario.track: spawn and death of each listed monster type (a death is the monster gone or dead).
+    if (!tracked.types.length) return;
+    const seen = new Set();
+    for (const instance of Object.values(sim.server.instances || {}))
+      for (const m of Object.values(instance.monsters || {})) {
+        if (!tracked.types.includes(m.type) || m.dead) continue;
+        seen.add(m.id);
+        if (!tracked.alive.has(m.id)) tracked.alive.set(m.id, { type: m.type, map: m.map, spawnedAt: clock.now });
+      }
+    for (const [id, m] of tracked.alive)
+      if (!seen.has(id)) {
+        tracked.alive.delete(id);
+        tracked.kills.push({ ...m, id, minute: +((clock.now - startedAt) / 60000).toFixed(2), cycleMinutes: +((clock.now - m.spawnedAt) / 60000).toFixed(2) });
+        delete tracked.kills.at(-1).spawnedAt;
+      }
   }, 1000, [], true, "node", (e) => log("error", String(e)));
 
   // SIM_TRACE=<from>-<to> (virtual minutes): request bodies and the game server's view of each character (at most
@@ -140,7 +157,8 @@ async function main() {
   }
 
   const timeline = fs.openSync(path.join(out, "timeline.jsonl"), "a");
-  const startedAt = clock.now, real0 = performance.now();
+  startedAt = clock.now;
+  const real0 = performance.now();
   const end = startedAt + scenario.minutes * 60000;
   const sampleEvery = (scenario.sampleSeconds ?? 60) * 1000;
   const steps = (scenario.steps || []).map((s) => ({ ...s, at: startedAt + s.atSeconds * 1000, done: false }));
@@ -153,6 +171,7 @@ async function main() {
     for (const step of steps.filter((s) => !s.done && s.at <= clock.now)) {
       step.done = true;
       if (step.action === "farm") await farm(step);
+      else if (step.action === "hunt") await hunt(step);
       else await call(step.method || "POST", step.route, step.body);
     }
     if (clock.now >= nextSample) {
@@ -174,11 +193,17 @@ async function main() {
       const p = Object.values(sim.server.players || {}).find((x) => x.name === c.name), b = baseline.get(c.name) || {};
       return [c.name, p ? { level: p.level, xpGained: p.xp - (b.xp || 0) + levelXp(b.level, p.level, sim), goldGained: p.gold - (b.gold || 0), deaths: deaths.get(c.name) || 0 } : { offline: true }];
     })),
+    kills: tracked.types.length ? tracked.kills : undefined,
   };
+  report.expect = scenario.expect ? check(scenario.expect, report) : undefined;
   fs.writeFileSync(path.join(out, "report.json"), JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report, null, 2));
   console.log("results:", out);
   await sim.close(); // client threads (threaded runs) keep the process alive otherwise
+  if (report.expect && !report.expect.pass) {
+    console.error("[sim] expectations failed:\n  " + report.expect.failures.join("\n  "));
+    process.exitCode = 1;
+  }
 
   async function call(method, route, body) {
     const result = await waitFor(api(method, route, body));
@@ -206,6 +231,21 @@ async function main() {
       throw new Error(`[sim] no farming area for ${step.monster} (see coordinator.log)`);
     }
     await call("POST", "/travel", areas.find((a) => a.map === "main") || areas[0]);
+  }
+
+  /** What the dashboard does to hunt a rare monster (Phoenix): formation, then search its spawn regions in catalog order. */
+  async function hunt(step) {
+    await call("POST", "/formation", { leader: step.leader });
+    for (const name of step.followers || []) await call("POST", "/formation", { character: name, follow: true });
+    const { zones } = require(path.join(root, "characters/farming-zones.cjs"));
+    let regions = [];
+    for (let attempt = 0; attempt < 60 && !regions.length; attempt++) {
+      const state = await waitFor(api("GET", "/state"));
+      if (state.body && state.body.monsterChoices) regions = zones(state.body.monsterChoices, [step.monster]);
+      if (!regions.length) await waitFor(new Promise((resolve) => clock.at(clock.now + 5000, resolve)));
+    }
+    if (!regions.length) throw new Error(`[sim] no spawn regions for ${step.monster} (see coordinator.log)`);
+    await call("POST", "/navigate-to-monster", { monsterId: step.monster, ...(step.monster === "phoenix" && { phoenixRouteOrder: regions.map((r) => r.id) }) });
   }
 
   /** Advance the clock until a request issued through the transport has answered. */
@@ -240,6 +280,25 @@ function codeDirectory(dir) {
     fs.copyFileSync(path.join(staged, file), path.join(dir, file));
   }
   fs.writeFileSync(path.join(dir, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
+}
+
+/**
+ * scenario.expect: { minKills: { <type>: n }, maxCycleMinutes: n, maxDeaths: n, maxErrors: n }. A scenario with
+ * expectations is a test: the run exits 1 and report.expect lists what failed.
+ */
+function check(expect, report) {
+  const failures = [];
+  const deaths = Object.values(report.characters).reduce((n, c) => n + (c.deaths || 0), 0);
+  for (const [type, min] of Object.entries(expect.minKills || {})) {
+    const n = (report.kills || []).filter((k) => k.type === type).length;
+    if (n < min) failures.push(`${type} kills ${n} < ${min}`);
+  }
+  for (const k of report.kills || [])
+    if (expect.maxCycleMinutes != null && k.cycleMinutes > expect.maxCycleMinutes) failures.push(`${k.type} ${k.id} took ${k.cycleMinutes} min from spawn to death > ${expect.maxCycleMinutes}`);
+  if (expect.maxDeaths != null && deaths > expect.maxDeaths) failures.push(`character deaths ${deaths} > ${expect.maxDeaths}`);
+  if (expect.maxErrors != null && report.log.error > expect.maxErrors) failures.push(`coordinator errors ${report.log.error} > ${expect.maxErrors}`);
+  if (report.halted || report.failed) failures.push(`simulation ${report.failed ? "failed: " + report.failed : "halted: " + report.halted}`);
+  return { pass: !failures.length, failures };
 }
 
 /** XP earned across level-ups: the game resets xp at each level, and G.levels[level] is that level's total. */
