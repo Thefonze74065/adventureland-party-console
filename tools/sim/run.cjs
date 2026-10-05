@@ -331,6 +331,10 @@ function sample(atMs, state, sim) {
       navigation: c.navigationState || null, event: c.joinedEvent || null, gold: c.gold, seenAt: c.seenAt,
     }])),
     server: Object.fromEntries(Object.values(sim.server.players || {}).map((p) => [p.name, { map: p.map, x: Math.round(p.x), y: Math.round(p.y), level: p.level, rip: !!p.rip }])),
+    // The coordinator's rare hunt (Phoenix patrol): stage, message, coverage and the last skip reason.
+    rare: state && state.rareHuntState ? (({ stage, message, patrol }) => ({ stage, message, patrol: patrol && {
+      paused: patrol.paused, stage: patrol.stage, message: patrol.message, cycle: patrol.cycle, covered: patrol.covered,
+      incomplete: patrol.incomplete, searchers: patrol.searchers, retryReason: patrol.retryReason } }))(state.rareHuntState) : undefined,
     // Loot the party left on the ground: drops nobody opened yet.
     chests: Object.values(sim.server.chests || {}).reduce((sum, c) => ({ count: sum.count + 1, gold: sum.gold + (Number(c.gold) || 0) }), { count: 0, gold: 0 }),
   };
