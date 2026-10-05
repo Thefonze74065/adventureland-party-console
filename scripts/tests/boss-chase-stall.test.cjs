@@ -11,7 +11,7 @@ function fixture() {
   const chase=createBossChase(party,{
     now:()=>time,
     fetchLive:async()=>[{type:'crabxx',id:'83862',hp:crab,lastSeen:new Date(time).toISOString(),serverRegion:'US',serverIdentifier:'V'}],
-    currentRealm:()=>realm, homeRealm:()=>HOME, realmExists:()=>true, realmSwitchBusy:()=>false, paused:()=>false,
+    currentRealm:()=>realm, homeRealm:()=>HOME, realmExists:()=>true, hopAllowed:to=>!to.endsWith('PVP'), realmSwitchBusy:()=>false, paused:()=>false,
     selected:event=>event==='crabxx',
     switchRealm:async to=>{switches.push(to);realm=to;return {ok:true};},
     log(){}, persist(){},

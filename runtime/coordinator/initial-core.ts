@@ -4,6 +4,7 @@ import type { SavedRecoveryState } from "./navigation/recovery-contracts.ts";
 import type { Catalog } from "../../dashboard/lib/farming-zones.ts";
 import { initialBossChase } from "./events/boss-chase.ts";
 import { initialDailyChase } from "./events/daily-chase.ts";
+import { initialRealmHopBlacklist } from "./navigation/realm-hop-blacklist.ts";
 import type { RealmOperation } from "./characters/realm-switch.ts";
 
 export function initialRecoveryState(saved: SavedRecoveryState) {
@@ -39,6 +40,7 @@ export function initialEventState(saved: SavedEventState, configuredRealm: strin
     abtestingStrategy: saved.abtestingStrategy || null,
     bossChase: initialBossChase(saved.bossChase),
     dailyChase: initialDailyChase(saved.dailyChase),
+    realmHopBlacklist: initialRealmHopBlacklist(saved.realmHopBlacklist),
   };
 }
 export function initialMarketObservations() {

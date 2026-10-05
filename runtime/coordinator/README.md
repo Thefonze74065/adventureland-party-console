@@ -130,6 +130,16 @@ walked. Handoffs that must unequip marked gear still wait for combat.
 Validate `npm test -- -- --project=live --grep "full-bag cleanout transfers cargo"`
 and publish character assets through the ordinary full restart.
 
+Realm hopping honors a saved party blacklist (`realmHopBlacklist`,
+`navigation/realm-hop-blacklist.ts`, `POST /party-api/realm/hop-blacklist` with
+`{realms}`). Boss chase and daily-event chase never pick a listed realm, and a
+trip whose realm becomes listed ends and returns home. PVP is always excluded.
+Manual realm changes and the return home are not hop choices and are unaffected.
+The control sits under the chase settings in Interface settings. Failure inventory:
+`e2e/realm-hop-blacklist-failures.md`. Validate `live-realm-hop-blacklist.spec.ts`
+and `scripts/tests/realm-hop-blacklist.test.cjs`; activate with the
+coordinator/dashboard-only restart.
+
 Halloween attendance and its routines (`encounterModes.halloween`, deaths counted
 per encounter in `events/franky-auto-tank.ts`) are described in
 docs/events-and-anniversary.md. Failure inventory: `e2e/halloween-failures.md`.

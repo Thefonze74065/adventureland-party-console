@@ -9,6 +9,12 @@ off-tank's first hit at least 4.5 s after the tank priest takes the boss, a
 natively targeted off-tank to leave the boss's range, and a native death in auto
 mode to count against Halloween and not Franky. Re-run the live Franky specs too.
 
+The realm-hop blacklist uses `npm test -- -- --project=live --grep "realm-hop
+blacklist"` for the real control, route validation, PVP locking and restart.
+Chase choices need live ALData, which the disposable server cannot reach, so
+`scripts/tests/realm-hop-blacklist.test.cjs` drives both chases with simulated
+payloads (retained isolated exception; failure inventory written first).
+
 Phoenix split search uses
 `npm test -- -- --project=live --grep "Phoenix patrol splits"`. The declared
 fixture replaces the server's Phoenix with one created from the server's own
