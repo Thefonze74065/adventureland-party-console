@@ -2989,11 +2989,29 @@
     if (committedHuntEncounter(target) || typeof huntTravelDefense === "function" && huntTravelDefense() && !(rule && rule.enabled && rule.keepMoving)) return false;
     var key = passingKey(target), now = Date.now() + coordinatorClockOffset;
     if (target.dead || target.hp === 0) return false;
-    var passingDeaths = (typeof fightDeaths !== 'undefined' ? fightDeaths : []).concat(groupedCombat && groupedCombat.deaths || []);
-    if (passingDeaths.some(function(d){return passingKey(d)===key && now-d.at<60000;})) return false;
-    if (peerPassingEncounters.some(function(e){return passingKey(e)===key && now-e.at<60000;})) return true;
+    // This runs for every visible monster on every combat tick, and the coordinator's death list
+    // holds up to 512 entries. Index each list once (identity -> latest time) and reuse the index
+    // until that list is replaced, grows, or the character's realm/map/instance defaults change.
+    var indexes = isPassingEncounter.indexes || (isPassingEncounter.indexes = new WeakMap());
+    var defaults = [reunionRealm(), character.map, character.in].join("|");
+    function recent(list) {
+      if (!list || !list.length) return false;
+      var index = indexes.get(list);
+      if (!index || index.length !== list.length || index.defaults !== defaults) {
+        index = { length: list.length, defaults: defaults, latest: new Map() };
+        list.forEach(function (entry) {
+          var at = Number(entry.at), entryKey = passingKey(entry);
+          // A NaN time never matches; it must not hide a valid entry for the same identity.
+          if (at === at && !(index.latest.get(entryKey) >= at)) index.latest.set(entryKey, at);
+        });
+        indexes.set(list, index);
+      }
+      return index.latest.has(key) && now - index.latest.get(key) < 60000;
+    }
+    if (recent(typeof fightDeaths !== 'undefined' ? fightDeaths : null) || recent(groupedCombat && groupedCombat.deaths)) return false;
+    if (recent(peerPassingEncounters)) return true;
     return !!(passingEncounters[key] && now - passingEncounters[key].at < 60000) ||
-      !!(groupedCombat && (groupedCombat.passingEncounters || []).some(function(e) {return passingKey(e) === key && now-e.at<60000;}));
+      recent(groupedCombat && groupedCombat.passingEncounters);
   }
   function passingTravelAllowed() {
     if (character.c && character.c.town || typeof movement !== 'undefined' && movement.transition && movement.transition()) return false;
