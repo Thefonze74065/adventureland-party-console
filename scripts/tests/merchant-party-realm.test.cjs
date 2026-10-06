@@ -86,3 +86,34 @@ test('realm retry commits completed improvements and preserves only undelivered 
  assert.deepEqual(f.state.compounds[name],[]);assert.ok(f.calls.some(c=>c[0]==='upgrades'));
  assert.ok(f.state.merchantDeliveries[name].some(mark=>mark.item.name==='ring'&&mark.item.level===3));
 });
+// The application sweeps offline merchant work every second alongside dispatch
+// (docs/realm-logistics.md, "Realm switch versus offline recovery").
+function withRecovery(){
+ const f=fixture();f.ports.routineNeedsHome=()=>false;
+ const {createMerchantRecovery}=require('../../runtime/coordinator/merchant/recovery.ts');
+ const recovery=createMerchantRecovery(f.state,{now:()=>f.ports.now(),nextCommand:()=>f.ports.now(),clearCommand(){},restockSatisfied:()=>false,
+  stamp:j=>j,log:(...args)=>f.logs.push(args),persist(){},dispatch(){},recoverSale(){}});
+ const second=()=>{f.tick(1000);recovery.expire('M');};
+ // Real clocks are epoch milliseconds: a missing timestamp read as 0 is decades old.
+ f.advance(Date.UTC(2026,9,6));
+ return {...f,second};
+}
+test('offline recovery leaves a pending realm switch to its own timeout',()=>{
+ const f=withRecovery();f.state.queue.push(party());f.tick();
+ assert.equal(f.state.current.phase,'switching party realm');
+ for(let i=0;i<59;i++)f.second();
+ assert.equal(f.state.current?.phase,'switching party realm','the sweep must not requeue a reconnecting merchant');
+ assert.deepEqual(f.travel,['SR_USIV']);
+ assert.ok(!f.logs.some(([message])=>/stopped reporting/.test(message)));
+ f.second();f.second();
+ assert.equal(f.state.current,null);
+ assert.ok(f.logs.some(([message])=>message==='Merchant realm switch timed out'));
+});
+test('offline recovery applies again once the realm switch hands the visit to the merchant',()=>{
+ const f=withRecovery();f.state.queue.push(party());f.tick();
+ f.statuses.M.server='SR_USIV';f.second();
+ assert.equal(f.state.current.phase,'assigned');
+ for(let i=0;i<181;i++)f.second();
+ assert.notEqual(f.state.current?.phase,'assigned');
+ assert.ok(f.logs.some(([message])=>/stopped reporting|not acknowledged|stalled/.test(message)));
+});
