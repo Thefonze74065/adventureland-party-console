@@ -20,6 +20,19 @@ entries marked **live**; others rely on the coordinator design and review.
 4. **Searcher lost.** A searcher dies, reloads, goes stale, or becomes protected
    (event, low HP). Its claim is released so others can take that region; it
    gets a new assignment when it is fresh again.
+4a. **A returning search assignment is rejected forever (reproduced in simulation).**
+    Written before the fix. The client's loot filter (`runtime/combat/departure-loot.ts`)
+    retires the id of every rare control it sees replaced and rejects that id from then
+    on, so a finished loot or encounter cannot return. Search control ids are rebuilt
+    from patrol, cycle, searcher, region and point, so the same assignment legitimately
+    comes back: an Anniversary round withheld control (minutes 118.8-121.5), which
+    retired the Spooky Forest assignment, and when the coordinator resent it every full
+    status nulled it while the combat channel (which skips the filter) restored it. The
+    control flipped once a second, each flip cancelled the route, farm recovery walked
+    the searchers back toward the farm, the shuffling counted as movement progress, and
+    the search never finished again (no kill for the last 70 minutes). Expected: search
+    controls are never retired; a search assignment withheld and resent is accepted
+    again; loot and encounter controls keep their one-way retirement.
 5. **Coverage before respawn.** A searcher reaches a region before the Phoenix
    has respawned. It waits at the region's first point. Coverage counts only
    observations taken after `readyAt`, plus the one-second dwell.

@@ -88,7 +88,9 @@ export function installLootClient(root:any,shared:any) {
       if(finalKill && state.serverNow>finalKillAt+1500 && !mission?.loot && !ownerDone(0))finalKill=null;
       if(!mission || finalKill!==huntLootId(mission) || mission.loot?.complete)finalKill=null;
       let c=state.rareControl;
-      if(lastRare && lastRare.id!==c?.id)retired.add(lastRare.id);
+      // A replaced loot or encounter control never returns. Search ids are rebuilt from the
+      // patrol, cycle, region and point, so a withheld assignment can legitimately come back.
+      if(lastRare && lastRare.id!==c?.id && lastRare.kind!=='search')retired.add(lastRare.id);
       // The loot owner must be able to approach a kill made by a distant peer.
       // Proximity gates the actual loot pass, not acceptance of its movement.
       if(c && (retired.has(c.id)||c.kind==='loot'&&!rare.samePlace({...c.target,id:c.id})))c=null;

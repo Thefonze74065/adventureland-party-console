@@ -141,3 +141,21 @@ test('client ignores a selected neutral when deciding whether it must defend bef
  }
  assert.equal(c.departureCombatPending(),false);entity.target='W';assert.equal(c.departureCombatPending(),true);
 });
+
+// Failure inventory: e2e/phoenix-search-failures.md (4a). Written before the change.
+test('a withheld search assignment is accepted again when resent; replaced encounters stay retired',()=>{
+ const saved=global.setInterval;global.setInterval=()=>0;let api;
+ const position={realm:':USII',map:'main',in:'main',x:0,y:0};
+ try {
+  api=installLootClient({},{departureLootPorts:()=>({name:()=> 'W',quest:()=>null,now:()=>0,cancelled:()=>false,position:()=>position,
+   defending:()=>false,huntEncounterDefending:()=>false,loot:async()=>true,chests:()=>[],socket:()=>({once(){},off(){}}),afterDraw:fn=>fn()})});
+  const search={id:'patrol-1-23-W-halloween-0',kind:'search',destination:{map:'halloween',x:8,y:631}};
+  assert.equal(api.accept({serverNow:100,rareControl:search}),search);
+  assert.equal(api.accept({serverNow:200,rareControl:null}),null,'withheld (an anniversary round)');
+  assert.equal(api.accept({serverNow:300,rareControl:search}),search,'the same assignment, resent, must be accepted');
+  const encounter={id:'rare-7',kind:'encounter',target:{id:'p',map:'main',in:'main',x:0,y:0}};
+  assert.equal(api.accept({serverNow:400,rareControl:encounter}),encounter);
+  assert.equal(api.accept({serverNow:500,rareControl:null}),null);
+  assert.equal(api.accept({serverNow:600,rareControl:encounter}),null,'a replaced encounter cannot return');
+ } finally {api?.stop();global.setInterval=saved;}
+});

@@ -2713,7 +2713,7 @@
         if (finalKill && state.serverNow > finalKillAt + 1500 && !mission?.loot && !ownerDone(0)) finalKill = null;
         if (!mission || finalKill !== huntLootId(mission) || mission.loot?.complete) finalKill = null;
         let c = state.rareControl;
-        if (lastRare && lastRare.id !== c?.id) retired.add(lastRare.id);
+        if (lastRare && lastRare.id !== c?.id && lastRare.kind !== "search") retired.add(lastRare.id);
         if (c && (retired.has(c.id) || c.kind === "loot" && !rare.samePlace({ ...c.target, id: c.id }))) c = null;
         lastRare = c;
         rare.accept(c?.kind === "loot" ? { ...c.target, id: c.id, after: c.killedAt } : null, state.serverNow);
