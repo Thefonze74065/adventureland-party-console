@@ -5351,8 +5351,11 @@
         // Recheck ownership, enabled rules and craft/delivery reservations immediately before sending.
         var pickupJob = await request("/merchant/job/" + command.jobId + "?target=" + encodeURIComponent(character.name));
         var livePickups = pickupJob.collectionPickups && pickupJob.collectionPickups.keep || [];
+        // A processing pickup yields its slot to an ordinary merchant mark for the same copy
+        // (collectionPickups), so the recheck can return that mark instead. Either authorizes the send.
         var authorizedPickup = livePickups.find(function (mark) {
-          return mark.automaticPickup && mark.slot === requests[i].slot && sameItem(mark.item, requests[i].item);
+          return mark.slot === requests[i].slot && sameItem(mark.item, requests[i].item) &&
+            (mark.automaticPickup || !mark.npcSaleId && !mark.deconstructionId);
         });
         slot = requests[i].slot;
         if (!authorizedPickup || !Number.isInteger(slot) || !sameItem(character.items[slot], requests[i].item) ||
@@ -5360,7 +5363,9 @@
         command.craftProtection = pickupJob.craftProtection;
         var pickupStock = compoundAvailableStock(command)[slot];
         if (!pickupStock) continue;
-        requests[i].quantity = Math.min(Number(authorizedPickup.quantity) || 1, itemQuantity(pickupStock.item));
+        if (!authorizedPickup.automaticPickup) requests[i].mark = authorizedPickup;
+        requests[i].quantity = authorizedPickup.automaticPickup
+          ? Math.min(Number(authorizedPickup.quantity) || 1, itemQuantity(pickupStock.item)) : itemQuantity(pickupStock.item);
       }
       if (requests[i].mark && requests[i].mark.autoCompound) {
         await refreshCompoundProtection(command);
