@@ -162,6 +162,12 @@ async function main() {
       snapshotAt = clock.now;
       for (const p of Object.values(sim.server.players || {})) write({ server: p.name, map: p.map, x: Math.round(p.x), y: Math.round(p.y), moving: p.moving, c: p.c, s: Object.keys(p.s || {}), rip: p.rip, hp: p.hp });
     };
+    // SIM_TRACE_RESPONSES=1 also records the coordinator's reply to each request in the window (large).
+    if (process.env.SIM_TRACE_RESPONSES) transport.stats.observeResponse = (route, body, response) => {
+      if (!windows.some(([from, to]) => clock.now >= from && clock.now <= to)) return;
+      const request = safeJson(body);
+      write({ route, response: true, character: request && (request.name || request.character) || null, body: safeJson(response) });
+    };
   }
 
   const timeline = fs.openSync(path.join(out, "timeline.jsonl"), "a");
@@ -190,6 +196,8 @@ async function main() {
   }
   const realMs = performance.now() - real0, virtualMs = clock.now - startedAt;
   const finalState = await waitFor(api("GET", "/state"));
+  // The whole coordinator state at the end (combat logs, rare-hunt state, queues), for after-the-fact diagnosis.
+  fs.writeFileSync(path.join(out, "final-state.json"), JSON.stringify(finalState.body));
   const report = {
     scenario: path.basename(scenarioFile), seed: scenario.seed ?? 1, game: sim.server.G.version,
     virtualMinutes: +(virtualMs / 60000).toFixed(1), realSeconds: +(realMs / 1000).toFixed(1), speed: +(virtualMs / realMs).toFixed(1),
@@ -332,7 +340,9 @@ function sample(atMs, state, sim) {
     }])),
     server: Object.fromEntries(Object.values(sim.server.players || {}).map((p) => [p.name, { map: p.map, x: Math.round(p.x), y: Math.round(p.y), level: p.level, rip: !!p.rip }])),
     // The coordinator's rare hunt (Phoenix patrol): stage, message, coverage and the last skip reason.
-    rare: state && state.rareHuntState ? (({ stage, message, patrol }) => ({ stage, message, patrol: patrol && {
+    rare: state && state.rareHuntState ? (({ stage, message, patrol, encounter }) => ({ stage, message,
+      encounter: encounter && { stage: encounter.stage, id: encounter.id, killedAt: encounter.killedAt, message: encounter.message },
+      patrol: patrol && {
       paused: patrol.paused, stage: patrol.stage, message: patrol.message, cycle: patrol.cycle, covered: patrol.covered,
       incomplete: patrol.incomplete, searchers: patrol.searchers, retryReason: patrol.retryReason } }))(state.rareHuntState) : undefined,
     // Loot the party left on the ground: drops nobody opened yet.

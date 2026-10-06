@@ -64,6 +64,8 @@ Results go to `.build/sim-results/<scenario>-<time>/`:
 - `timeline.jsonl`: one line per sample: what the coordinator reports for each character
   (map, position, HP, navigation state, event) and where the game server has them.
 - `coordinator.log`: the coordinator's log, stamped with virtual time.
+- `final-state.json`: the coordinator's full `/state` at the end of the run (combat logs,
+  rare-hunt state, queues).
 
 `SIM_PROGRESS_MS` sets how often (real ms) progress is printed to stderr.
 
@@ -72,7 +74,8 @@ CODE sends to the coordinator in that window, and the game server's view of each
 (map, position, movement, channels, conditions) at most every 250 ms. It only reads from
 requests the run makes anyway, so a traced replay stays identical to the run it
 investigates: replay a scenario with its seed and trace the window where something went
-wrong.
+wrong. With `SIM_TRACE_RESPONSES=1` the trace also records the coordinator's reply to each
+request in the window (large: full status replies).
 
 ## Scenarios
 

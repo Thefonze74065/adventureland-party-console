@@ -36,6 +36,7 @@ function threadedHost(o) {
       const tag = parsed.pathname + " " + result.statusCode;
       o.stats.byStatus.set(tag, (o.stats.byStatus.get(tag) || 0) + 1);
       if (result.statusCode >= 400 && !o.stats.firstFailure.has(tag)) o.stats.firstFailure.set(tag, result.body.slice(0, 300));
+      if (o.stats.observeResponse) o.stats.observeResponse(parsed.pathname, m.body, result.body);
       socket.emit("res", { id: m.id, result: { ...result, headers: Object.fromEntries(Object.entries(result.headers || {}).map(([k, v]) => [k, String(v)])) } });
     });
   }));

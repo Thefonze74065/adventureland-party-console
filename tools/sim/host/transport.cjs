@@ -52,7 +52,7 @@ function dispatch(app, { method, path, headers, body }, done) {
 }
 
 function createTransport({ clock, apps, latency }) {
-  const stats = { observe: null, requests: 0, errors: 0, byPath: new Map(), byStatus: new Map(), firstFailure: new Map(), largestBody: 0 };
+  const stats = { observe: null, observeResponse: null, requests: 0, errors: 0, byPath: new Map(), byStatus: new Map(), firstFailure: new Map(), largestBody: 0 };
   let open = 0; // requests a handler has not answered yet (long polls, async work)
 
   /** One request; `done` receives { statusCode, headers, body } or an Error, on the virtual clock. */
@@ -76,6 +76,7 @@ function createTransport({ clock, apps, latency }) {
         const tag = parsed.pathname + " " + result.statusCode;
         stats.byStatus.set(tag, (stats.byStatus.get(tag) || 0) + 1);
         if (result.statusCode >= 400 && !stats.firstFailure.has(tag)) stats.firstFailure.set(tag, result.body.slice(0, 300));
+        if (stats.observeResponse) stats.observeResponse(parsed.pathname, body, result.body);
         clock.at(clock.now + latency(), () => done(result), "sim http response");
       });
     }, "sim http request");
