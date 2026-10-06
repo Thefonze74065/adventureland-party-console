@@ -5,6 +5,9 @@ import { endangered, incomingDps, safeTransfer } from './damage.ts';
 export function absorbDecision(w: SkillWorld): SkillDecision | null {
   const aggroOwner = w.context.tank || w.context.leader;
   if (w.actor.ctype !== 'priest' || aggroOwner !== w.actor.name) return null;
+  // At a boss only the encounter's tank pulls attackers onto itself; an off-tank
+  // priest standing in the boss's adds dies to them within seconds of absorbing.
+  if (w.context.bossRoutine && w.context.bossRoutine !== 'tank') return null;
   if (w.actor.mp - cost(w, 'absorb') < cost(w, 'heal')) return null;
   const ally = w.context.allies.filter(a => a.name !== w.actor.name &&
     w.context.monsters.some(m => m.target === a.name) && safeTransfer(w, a))

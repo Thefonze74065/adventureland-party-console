@@ -16494,6 +16494,7 @@
         monsters.some(function(m){return event.types.indexOf(m.mtype) >= 0;}));
       return { leader: leader || character.name, tank: tank || null, allies: allies, monsters: monsters,
         event: eventCombat ? event.name : null,
+        bossRoutine: typeof bossCombatActive === "function" && bossCombatActive() ? bossRoutine() : null,
         mode: root.sharedRoutine.isOccupied() || isLiveAbtesting() ? "blocked" : eventCombat ? "event" : !character.cave && farmingMode === "scatter" ? "scatter" : "grouped",
         observedAt: parent.socket && parent.socket.connected ? Date.now() : 0 };
     },

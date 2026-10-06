@@ -18,3 +18,17 @@ test('missing skill runtime never falls back to unowned aggro transfers',async()
  const c=vm.createContext({root:{sharedRoutine:{}}});vm.runInContext(code,c);
  assert.equal(await c.absorbSinsBelow(.6),false);
 });
+// Failure inventory: e2e/boss-absorb-failures.md. Written before the change.
+test('a boss off-tank never absorbs; a boss tank and ordinary farming still do',async()=>{
+ const run=async(context)=>{
+  const r=fixture('priest');r.ally('Friend',{hp:10000});r.add('a',{target:'Friend'});
+  Object.assign(r.w.context,context);
+  const engine=createSkillEngine(r.ports);
+  const absorbed=await engine.absorb();engine.stop();
+  return absorbed && r.calls.some(call=>call.skill==='absorb');
+ };
+ assert.equal(await run({bossRoutine:'offtank'}),false,'off-tank at a boss must not pull attackers onto itself');
+ assert.equal(await run({bossRoutine:'tank'}),true,'the boss tank keeps its rescue');
+ assert.equal(await run({bossRoutine:null}),true,'ordinary farming is unchanged');
+ assert.equal(await run({}),true,'a context without the field is unchanged');
+});

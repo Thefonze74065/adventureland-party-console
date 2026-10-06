@@ -18,6 +18,13 @@ with Open only on the usable jar, then reads the server after each click: the
 jar leaves the bag and the hat's `acx` count rises, Wear sets the hat slot, and
 Remove clears it. The original jars, collection and worn cosmetics are restored.
 
+Absorb Sins at a boss uses `npm test -- -- --project=live --grep "Franky's adds"`. A
+passive Franky (no range, aggro or native adds) puts the off-tank party in the safe
+corner; three harmless native `nerfedmummy` adds attack the warrior. The designated-tank
+priest, following with the party's off-tank routine, must not pull any of them for 30 s;
+switched to the tank routine it must (the control). Failure inventory:
+`e2e/boss-absorb-failures.md`.
+
 Halloween attendance uses `npm test -- -- --project=live --grep "Halloween"`. The
 declared fixture turns the native season on, lets the server's own timer spawn
 Mr. Pumpkin, and lowers only his HP and attack. One journey ticks the Halloween

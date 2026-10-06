@@ -1308,6 +1308,7 @@
   function absorbDecision(w) {
     const aggroOwner = w.context.tank || w.context.leader;
     if (w.actor.ctype !== "priest" || aggroOwner !== w.actor.name) return null;
+    if (w.context.bossRoutine && w.context.bossRoutine !== "tank") return null;
     if (w.actor.mp - cost(w, "absorb") < cost(w, "heal")) return null;
     const ally = w.context.allies.filter((a) => a.name !== w.actor.name && w.context.monsters.some((m) => m.target === a.name) && safeTransfer(w, a)).sort((a, b) => health(a) - health(b) || a.name.localeCompare(b.name)).find((a) => w.range(a, "absorb"));
     return ally ? decision("absorb", [ally], "survival", "leader aggro rescue") : null;
