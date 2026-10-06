@@ -1,6 +1,18 @@
 import * as fs from 'node:fs';
 import type {CoordinatorFileStore} from '../infrastructure/platform-contracts.ts';
 
+/** "pid starttime bootid" on Linux; just the PID where /proc is unavailable. */
+function writerIdentity(pid:number):string {
+  try {
+    const stat=fs.readFileSync('/proc/'+pid+'/stat','utf8');
+    // Field 22 (starttime) counts from boot; the command name in field 2 may contain spaces or parentheses.
+    const start=stat.slice(stat.lastIndexOf(')')+2).split(' ')[19];
+    const boot=fs.readFileSync('/proc/sys/kernel/random/boot_id','utf8').trim();
+    if(start && boot)return pid+' '+start+' '+boot;
+  } catch {}
+  return String(pid);
+}
+
 /** Compatible JSONL store: replay one record at a time, never the entire journal. */
 export class CoordinatorJsonlStore implements CoordinatorFileStore {
   private values = new Map<string,unknown>();
@@ -31,17 +43,23 @@ export class CoordinatorJsonlStore implements CoordinatorFileStore {
     try {this.lock=fs.openSync(this.lockPath,'wx');}
     catch(error) {
       if((error as NodeJS.ErrnoException).code!=='EEXIST')throw error;
-      const owner=Number(fs.readFileSync(this.lockPath,'utf8'));
-      if(this.alive(owner))throw new Error('Storage already has a live writer: '+this.mainPath);
+      if(this.alive(fs.readFileSync(this.lockPath,'utf8')))throw new Error('Storage already has a live writer: '+this.mainPath);
       fs.unlinkSync(this.lockPath);
       this.lock=fs.openSync(this.lockPath,'wx');
     }
-    fs.writeFileSync(this.lock,String(process.pid));
+    fs.writeFileSync(this.lock,writerIdentity(process.pid));
   }
-  private alive(pid:number):boolean {
-    if(!Number.isSafeInteger(pid) || pid<=0)return false;
-    try {process.kill(pid,0);return true;}
-    catch(error){return (error as NodeJS.ErrnoException).code!=='ESRCH';}
+  /** A PID alone is not proof: after a reboot or container restart the stale lock's PID can belong to another process. */
+  private alive(owner:string):boolean {
+    const [pid,start,boot]=owner.trim().split(' ');
+    const id=Number(pid);
+    if(!Number.isSafeInteger(id) || id<=0)return false;
+    try {process.kill(id,0);}
+    catch(error){if((error as NodeJS.ErrnoException).code==='ESRCH')return false;}
+    // Locks written before identities were recorded, or on platforms without /proc, fall back to the PID.
+    if(start===undefined)return true;
+    const current=writerIdentity(id).split(' ');
+    return current.length<3 || current[1]===start && current[2]===boot;
   }
   private replay():void {
     const chunk=Buffer.allocUnsafe(64*1024);
