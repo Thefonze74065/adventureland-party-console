@@ -8,8 +8,18 @@ interface CompoundRule { name: string; targetTier?: number; quantity?: number }
 interface ReceiptRule { family: 'upgrade' | 'compound'; key: string; signature: string }
 // Recovery is a client journal protocol, not a complete game item or operation.
 export interface ProductionJournal { id: string; item: {name: string; level?: number}; slots: number[]; phase: 'prepared' | 'running' | 'complete'; [key: string]: unknown }
-export interface ProductionAttempt { name: string; level: number; kind: 'upgrade' | 'compound'; rules: ReceiptRule[]; journal?: ProductionJournal; automaticCompoundTarget?: number; completed?: boolean; success?: boolean; requestId?: string; offering?: string; resolution?: { outcome: 'unknown'; reason: string; at: number } }
+export interface ProductionAttempt { name: string; level: number; kind: 'upgrade' | 'compound'; rules: ReceiptRule[]; journal?: ProductionJournal; automaticCompoundTarget?: number; completed?: boolean; success?: boolean; completedAt?: number; requestId?: string; offering?: string; resolution?: { outcome: 'unknown'; reason: string; at: number } }
 export interface ProductionState { attempts: Record<string, ProductionAttempt> }
+// Completed attempts only answer retries and stale-journal inspections of the same id, which arrive
+// within seconds. Keep a short window so the settings document stops growing with every operation.
+const completedRetention = 60 * 60 * 1000, completedMinimum = 100;
+/** Drop completed attempts older than the retention window, keeping the newest few regardless of age. */
+export function pruneCompletedProduction(production: ProductionState, now = Date.now()): void {
+  const completed = Object.entries(production.attempts).filter(([, attempt]) => attempt.completed);
+  // Attempts completed before completedAt existed count as expired.
+  for (const [id, attempt] of completed.slice(0, -completedMinimum))
+    if (now - (attempt.completedAt ?? 0) > completedRetention) delete production.attempts[id];
+}
 export function pendingProduction(production: ProductionState, includeJournal = false) {
   return Object.entries(production.attempts).filter(([, attempt]) => !attempt.completed)
     .map(([id, attempt]) => ({id, name:attempt.name, level:attempt.level, kind:attempt.kind, ...(includeJournal && attempt.journal ? {journal:attempt.journal} : {})}));
@@ -101,14 +111,15 @@ function validJournalSlots(slots: unknown): boolean {
   return Array.isArray(slots) && slots.length > 0 && slots.every(slot => Number.isInteger(slot) && Number(slot) >= 0 && Number(slot) < 42);
 }
 type ProductionLog = (message: string, level: 'success', details: {name: string; level: number; attemptId: string}) => void;
-export function finishProduction(state: State, id: string, success: boolean, log?: ProductionLog): void {
+export function finishProduction(state: State, id: string, success: boolean, log?: ProductionLog, now = Date.now()): void {
   const attempt = state.production.attempts[id];
   if (!attempt) throw Error('Unknown production attempt');
   if (attempt.completed) return;
   if (success) consumeQuotas(state, attempt);
-  attempt.completed = true; attempt.success = success;
+  attempt.completed = true; attempt.success = success; attempt.completedAt = now;
   delete attempt.journal;
   finishManualOffering(state, attempt);
+  pruneCompletedProduction(state.production, now);
   if (success && attempt.kind === 'compound' && attempt.level === attempt.automaticCompoundTarget)
     log?.('merchant completed auto compound', 'success', {name:attempt.name,level:attempt.level,attemptId:id});
 }
@@ -152,10 +163,11 @@ export function resolveUnknownProduction(state: State, body: Record<string, unkn
   const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
   if (!reason || reason.length > 1000) throw Error('Production resolution requires a review reason');
   attempt.resolution = {outcome:'unknown', reason, at:now};
-  attempt.completed = true;
+  attempt.completed = true; attempt.completedAt = now;
   delete attempt.success;
   // Retire one-shot manual ownership without inventing a success or spending quotas.
   finishManualOffering(state, attempt);
+  pruneCompletedProduction(state.production, now);
 }
 
 function validateReceipt(previous: ProductionAttempt, input: ReturnType<typeof attemptInput>): void {

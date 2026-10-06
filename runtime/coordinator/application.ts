@@ -2068,13 +2068,19 @@ export function startCoordinatorApplication(
       return huntQuests.prepare(hunt);
     }
 
+    // The status message changes several times a second during waits; it is display-only and need not
+    // trigger a full settings save on its own.
+    function huntPersistenceKey(hunt: unknown): string {
+      return JSON.stringify(hunt && typeof hunt === "object" ? {...hunt, message: undefined} : hunt);
+    }
+
     function monsterHuntTick(_previousStatus?: unknown, _changedName?: string) {
       dungeons.reconcile();
       if (party.leader && !dungeonOwns(party)) huntTick.tick();
       for (const service of independentServices()) {
-        const before = JSON.stringify(service.state.monsterHunt);
+        const before = huntPersistenceKey(service.state.monsterHunt);
         service.huntTick.tick();
-        if (before !== JSON.stringify(service.state.monsterHunt)) persistSettings();
+        if (before !== huntPersistenceKey(service.state.monsterHunt)) persistSettings();
       }
     }
 

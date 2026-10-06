@@ -6,6 +6,7 @@ import {
   initialCatalogs,
 } from "./initial-core.ts";
 import { initialCollectionState } from "./inventory/initial-collection.ts";
+import { pruneCompletedProduction, type ProductionState } from "./inventory/production.ts";
 import { initialMerchantSales } from "./merchant/initial-settings.ts";
 import { initialItemIntents } from "./inventory/initial-intents.ts";
 import { initialCommandState } from "./navigation/initial-commands.ts";
@@ -118,6 +119,9 @@ function dashboardPreferences(saved: Record<string, unknown>) {
 }
 
 function sharedSettings(settings: Record<string, unknown>) {
-  return { production: (settings.production || {attempts:{}}) as import("./inventory/production.ts").ProductionState,
+  const production = (settings.production || {attempts:{}}) as ProductionState;
+  // Ledgers saved before pruning existed can hold tens of thousands of completed attempts.
+  pruneCompletedProduction(production);
+  return { production,
     merchantRules: (settings.merchantRules || null) as import("./inventory/shared-rules.ts").SharedRules | null };
 }
