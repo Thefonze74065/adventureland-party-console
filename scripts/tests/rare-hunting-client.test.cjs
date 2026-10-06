@@ -96,3 +96,13 @@ test('owned committed Fairy permits basic attacks without a separate rare contro
  control.committed=[];assert.equal(c.rareTarget(),null);
  control.committed=[t];c.groupedFresh=()=>false;assert.equal(c.rareTarget(),null);
 });
+
+// Failure inventory: e2e/phoenix-search-failures.md (4b). Written before the change.
+test('a route that failed during the encounter is retried for its loot stage after five seconds',()=>{
+  const r=fixture(),c=r.c;
+  c.rareControlState={id:'e1',kind:'loot',revision:1,target:{...r.entity,in:'main'},destination:{map:'main',x:400,y:0}};
+  c.rareNavigation={id:'e1',failed:true,at:c.Date.now(),reason:'Unattributed movement stop'};
+  c.pollRareHunting();assert.equal(r.moves(),0,'no immediate retry');
+  r.advance(5001);c.rareControlAt=c.Date.now();
+  c.pollRareHunting();assert.equal(r.moves(),1,'the leader walks to the kill to loot');
+});

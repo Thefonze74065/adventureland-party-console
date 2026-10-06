@@ -3368,7 +3368,13 @@
       if (control.kind === "loot") { pollRareLoot(control); return true; }
       return false;
     }
-    if (rareNavigation && rareNavigation.id === control.id && rareNavigation.failed) return true;
+    // Encounter and loot share one id and nothing on the coordinator reads their route
+    // failures: retry after 5 s like converge routes, or a walk stopped mid-fight would
+    // keep the leader from ever reaching its loot.
+    if (rareNavigation && rareNavigation.id === control.id && rareNavigation.failed) {
+      if (Date.now() - Number(rareNavigation.at || 0) < 5000) return true;
+      rareNavigation = null;
+    }
     if (!rarePath) startRarePath(control.id, destination);
     else if (Date.now() - rarePath.at > 30000) {
       rareNavigation = { id: control.id, failed: true, reason: "Rare route timed out" }; cancelRarePath();

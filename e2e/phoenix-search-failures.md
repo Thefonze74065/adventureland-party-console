@@ -33,6 +33,14 @@ entries marked **live**; others rely on the coordinator design and review.
     the search never finished again (no kill for the last 70 minutes). Expected: search
     controls are never retired; a search assignment withheld and resent is accepted
     again; loot and encounter controls keep their one-way retirement.
+4b. **A failed encounter route blocks the loot walk forever (reproduced in simulation).**
+    Written before the fix. An encounter and its loot stage share one control id, and
+    `pollRareHunting` never retried a failed route for that id (search and converge
+    routes already retry after 5 s; the coordinator only reads failures for search
+    points). A walk stopped mid-fight by another mover ("Unattributed movement stop")
+    left the leader idle with the loot control for 15+ minutes: the loot stage never
+    ended, and the leader stayed out of the search. Expected: encounter and loot routes
+    retry after the same 5 s, so the leader walks to the kill and loots.
 5. **Coverage before respawn.** A searcher reaches a region before the Phoenix
    has respawned. It waits at the region's first point. Coverage counts only
    observations taken after `readyAt`, plus the one-second dwell.
