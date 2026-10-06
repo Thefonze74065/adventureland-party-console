@@ -694,6 +694,9 @@
   function completedVisit(state, event) {
     return state.mode === "complete" && (state.completedRound === void 0 || state.completedRound === String(event?.round));
   }
+  function unavailableRound(event, live, featured) {
+    return live && !featured && event?.available === false;
+  }
   function claimedVisit(event, claimedRound) {
     return claimedRound !== void 0 && claimedRound === String(event?.round);
   }
@@ -711,7 +714,7 @@
       featured,
       kissDue,
       preWindow,
-      reserved: movementReserved(preWindow, live, completed, live && !featured && event?.available === false),
+      reserved: movementReserved(preWindow, live, completed, unavailableRound(event, live, featured)),
       busy: live && busy(state),
       retryAt,
       mode: state.mode || "idle"

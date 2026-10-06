@@ -109,6 +109,11 @@ function completedVisit(
   );
 }
 
+/** A live round whose featured player (someone other than the merchant) cannot be visited. */
+function unavailableRound(event: AnniversaryEvent | undefined, live: boolean, featured: boolean): boolean {
+  return live && !featured && event?.available === false;
+}
+
 /** The featured merchant waits one minute; other visits retain their existing retry ownership. */
 function claimedVisit(event: AnniversaryEvent | undefined, claimedRound: string | undefined): boolean {
   return claimedRound !== undefined && claimedRound === String(event?.round);
@@ -136,7 +141,7 @@ export function merchantAnniversaryControl(
     featured,
     kissDue,
     preWindow,
-    reserved: movementReserved(preWindow, live, completed, live && !featured && event?.available === false),
+    reserved: movementReserved(preWindow, live, completed, unavailableRound(event, live, featured)),
     busy: live && busy(state),
     retryAt,
     mode: state.mode || "idle",

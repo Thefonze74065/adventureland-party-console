@@ -191,31 +191,32 @@ export function createBossChase(party: BossChaseParty, ports: BossChasePorts) {
   }
 
   async function followTrip(trip: BossChaseTrip, live: LiveBoss[]): Promise<void> {
-    const chase = party.bossChase;
     const current = ports.currentRealm();
-    if (!ports.hopAllowed(trip.realm)) {
-      chase.trip = null;
-      ports.persist();
-      ports.log("Boss chase: " + trip.realm + " is blacklisted for realm hopping; ending the chase", "info");
-      if (current === trip.realm && trip.returnRealm && trip.returnRealm !== current) await travel(trip.returnRealm);
-      return;
-    }
-    if (current !== trip.realm) {
-      // Arrival never happened (failed switch) or the party was moved elsewhere by hand.
-      if (trip.arrived || ports.now() - trip.startedAt > 5 * 60_000) {
-        ports.log("Boss chase: party is no longer on " + trip.realm + "; ending the chase", "info");
-        chase.trip = null;
-        ports.persist();
-      }
-      return;
-    }
+    if (!ports.hopAllowed(trip.realm)) return endBlacklisted(trip, current);
+    if (current !== trip.realm) return leftRealm(trip);
     trip.arrived = true;
     const chased = live.find((boss) => boss.boss === trip.boss && boss.realm === trip.realm);
     if (chased) return followLiveBoss(trip, chased);
+    return bossMissing(trip, current);
+  }
+  async function endBlacklisted(trip: BossChaseTrip, current: string | null): Promise<void> {
+    party.bossChase.trip = null;
+    ports.persist();
+    ports.log("Boss chase: " + trip.realm + " is blacklisted for realm hopping; ending the chase", "info");
+    if (current === trip.realm && trip.returnRealm && trip.returnRealm !== current) await travel(trip.returnRealm);
+  }
+  /** Arrival never happened (failed switch) or the party was moved elsewhere by hand. */
+  function leftRealm(trip: BossChaseTrip): void {
+    if (!trip.arrived && ports.now() - trip.startedAt <= 5 * 60_000) return;
+    ports.log("Boss chase: party is no longer on " + trip.realm + "; ending the chase", "info");
+    party.bossChase.trip = null;
+    ports.persist();
+  }
+  async function bossMissing(trip: BossChaseTrip, current: string | null): Promise<void> {
     // Waiting ahead of a respawn: the boss isn't expected yet, so its absence means nothing.
     if (trip.respawnAt && ports.now() < trip.respawnAt + respawnGraceMs) return ports.persist();
     if (++trip.missingPolls < goneAfterMissingPolls) return ports.persist();
-    chase.trip = null;
+    party.bossChase.trip = null;
     ports.persist();
     const home = trip.returnRealm;
     if (!home || home === current) return;
