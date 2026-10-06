@@ -16,6 +16,11 @@ services:
         condition: service_healthy
     restart: unless-stopped
     stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
   updater:
     image: ghcr.io/thefonze74065/adventureland-party-console:latest
     user: root
@@ -31,5 +36,10 @@ services:
       timeout: 3s
       retries: 20
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 volumes:
   party-data:
