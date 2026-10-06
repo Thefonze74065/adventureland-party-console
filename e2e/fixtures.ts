@@ -56,7 +56,7 @@ async function ready(process: ChildProcess, url: string, log: string) {
   }
   throw new Error(`E2E service failed readiness at ${url}\n${existsSync(log) ? readFileSync(log, 'utf8').slice(-12000) : 'No output'}`);
 }
-type App = { url: string; directory: string; restartCoordinator(): Promise<void>; state(): Promise<any> };
+type App = { url: string; directory: string; restartCoordinator(): Promise<void>; crashCoordinator(): Promise<void>; startCoordinator(): Promise<void>; state(): Promise<any> };
 
 export const test = base.extend<{ app: App; merchantDialogs: boolean; merchantConnected: boolean; playerInventory: boolean; statusIntervalMs: number | null }, { dashboard: { port: number; log: string } }>({
   merchantDialogs: [false, {option:true}],
@@ -117,6 +117,13 @@ export const test = base.extend<{ app: App; merchantDialogs: boolean; merchantCo
         url,
         directory,
         async restartCoordinator() { await stop(coordinator!, true); await start(); },
+        // An unclean exit: no shutdown handlers run, so the writer lock stays on disk.
+        async crashCoordinator() {
+          const crashed = coordinator!;
+          if (crashed.exitCode !== null || crashed.signalCode !== null) return;
+          await new Promise<void>(resolve => { crashed.once('exit', () => resolve()); crashed.kill('SIGKILL'); });
+        },
+        startCoordinator: start,
         async state() {
           const response = await fetch(`${url}/party-api/state`, { signal: AbortSignal.timeout(10_000) });
           if (!response.ok) throw new Error(`State request failed: ${response.status}`);

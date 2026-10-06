@@ -1,6 +1,6 @@
 import { test, expect } from './fixtures';
 import { createServer } from 'node:http';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -836,4 +836,52 @@ test('market affordability uses core bank gold and active WTB prices open the fu
   await page.getByText('Hide unaffordable',{exact:true}).click();
   await expect(page.getByRole('button',{name:/AffordableSeller/}).first()).toBeVisible();
   await info.attach('market-core-bank-gold-affordability',{body:await page.screenshot(),contentType:'image/png'});
+});
+
+test('coordinator restarts over a stale writer lock and prunes completed production after a crash', async ({app},info) => {
+  // Failure modes (issues #59, #62):
+  // - a lock left by a crash names a PID now owned by an unrelated live process, so startup loops forever;
+  // - the lock check is loosened so far that a second writer could take over the live coordinator's lock;
+  // - completed production attempts are never removed, so every settings save grows without bound;
+  // - pruning removes an unfinished attempt and loses recovery evidence, or removes recent completed
+  //   attempts that a retry or stale journal of the same id still needs.
+  const lockPath = path.join(app.directory, 'state.jsonl.writer.lock'), journalPath = path.join(app.directory, 'state.jsonl');
+  const settingsKey = 'party_dashboard_settings_state_v1';
+  const liveLock = readFileSync(lockPath, 'utf8').trim().split(' ');
+  expect(liveLock.length, 'the lock records PID, start time and boot id').toBe(3);
+  await app.crashCoordinator();
+  expect(readFileSync(lockPath, 'utf8').trim()).toBe(liveLock.join(' '));
+
+  const records = readFileSync(journalPath, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line) as Record<string, unknown>);
+  const stored = records.filter(record => settingsKey in record).at(-1)![settingsKey];
+  const settings = typeof stored === 'string' ? JSON.parse(stored) : structuredClone(stored);
+  const now = Date.now(), attempt = {name:'helmet', level:3, kind:'upgrade', rules:[], completed:true, success:true};
+  const attempts: Record<string, unknown> = {};
+  for (let i = 0; i < 3; i++) attempts[`expired-${i}`] = {...attempt, completedAt: now - 2 * 60 * 60 * 1000};
+  for (let i = 0; i < 5; i++) attempts[`recent-${i}`] = {...attempt, completedAt: now - 10 * 60 * 1000};
+  for (let i = 0; i < 2000; i++) attempts[`legacy-${i}`] = attempt;
+  attempts['unfinished'] = {name:'helmet', level:4, kind:'upgrade', rules:[]};
+  settings.production = {attempts};
+  records.push({[settingsKey]: typeof stored === 'string' ? JSON.stringify(settings) : settings});
+  writeFileSync(journalPath, records.map(record => JSON.stringify(record)).join('\n') + '\n');
+  // The test runner is alive but is not the coordinator that wrote this lock.
+  writeFileSync(lockPath, `${process.pid} 1 ${liveLock[2]}`);
+
+  await app.startCoordinator();
+  const restartedLock = readFileSync(lockPath, 'utf8').trim().split(' ');
+  expect(restartedLock[0]).not.toBe(String(process.pid));
+  expect((await app.state()).productionPending.map((entry: {id: string}) => entry.id)).toEqual(['unfinished']);
+  const saved = await fetch(`${app.url}/party-api/dashboard-preferences`, {method:'POST', headers:{'Content-Type':'application/json', Origin:app.url},
+    body:JSON.stringify({anniversaryAutoChat:true})});
+  expect(saved.ok).toBe(true);
+  const persisted = readFileSync(journalPath, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line) as Record<string, unknown>)
+    .filter(record => settingsKey in record).at(-1)![settingsKey];
+  const ids = Object.keys((typeof persisted === 'string' ? JSON.parse(persisted) : persisted).production.attempts);
+  const evidence = {lockBefore: liveLock, staleLock: [process.pid, '1', liveLock[2]], lockAfter: restartedLock,
+    seededAttempts: Object.keys(attempts).length, persistedAttempts: ids.length,
+    kept: {recent: ids.filter(id => id.startsWith('recent-')).length, legacy: ids.filter(id => id.startsWith('legacy-')).length,
+      expired: ids.filter(id => id.startsWith('expired-')).length, unfinished: ids.includes('unfinished')}};
+  await info.attach('stale-lock-production-prune', {body:JSON.stringify(evidence, null, 2), contentType:'application/json'});
+  expect(evidence.kept).toEqual({recent:5, legacy:100, expired:0, unfinished:true});
+  expect(ids.filter(id => id.startsWith('legacy-'))).toEqual(Array.from({length:100}, (_, i) => `legacy-${1900 + i}`));
 });
