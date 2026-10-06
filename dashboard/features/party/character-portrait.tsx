@@ -2,6 +2,7 @@
 import { memo, useMemo } from 'react';
 import type { Char } from './char';
 import { SpriteCrop } from './sprite-crop';
+import { sanitizeDollHtml } from './safe-doll-html';
 
 // Live vitals must not replace the image nodes underneath an active pointer.
 export const CharacterPortrait = memo(function CharacterPortrait({
@@ -15,7 +16,7 @@ export const CharacterPortrait = memo(function CharacterPortrait({
   skin: Char['skin'];
   centered?: boolean;
 }) {
-  const markup = useMemo(() => ({ __html: html || '' }), [html]);
+  const markup = useMemo(() => ({ __html: sanitizeDollHtml(html) }), [html]);
   return (
     <span
       aria-hidden="true"

@@ -25,6 +25,7 @@ import { ItemSetInfo } from "./item-set-info";
 import { propertiesAtLevel } from "./properties-at-level";
 import { statBadgeClass } from "./stat-badge-class";
 import { STAT_SCROLLS } from "./stat-scrolls";
+import { sanitizeDollHtml } from "./safe-doll-html";
 
 export function GearComparisonDialog({
   comparison,
@@ -323,7 +324,7 @@ export function GearComparisonDialog({
         <div
           className="h-20 w-16 shrink-0 overflow-hidden"
           dangerouslySetInnerHTML={
-            character.characterDollHtml ? { __html: character.characterDollHtml } : undefined
+            character.characterDollHtml ? { __html: sanitizeDollHtml(character.characterDollHtml) } : undefined
           }
         />
         <div className="min-w-0">

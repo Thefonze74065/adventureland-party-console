@@ -885,3 +885,61 @@ test('coordinator restarts over a stale writer lock and prunes completed product
   expect(evidence.kept).toEqual({recent:5, legacy:100, expired:0, unfinished:true});
   expect(ids.filter(id => id.startsWith('legacy-'))).toEqual(Array.from({length:100}, (_, i) => `legacy-${1900 + i}`));
 });
+
+// Game-shaped doll markup (sprite()/sprite_image() quoting) with one legitimate layer, followed by
+// hostile fragments a tampered skin or cx value could carry. Every handler bumps the same canary.
+const xss = "window.__dollXss=(window.__dollXss||0)+1";
+const dollLayer = (src: string) => `<div style='display: inline-block; width: 27px; height: 38px; overflow: hidden; position: absolute; left: 0px; bottom: 0px; '>` +
+  `<img style='margin-left: -27px; margin-top: -38px; width: 324px; height: 304px;' src='${src}'></div>`;
+const hostileDoll = (src: string) => `<div style='height: 38px; width: 27px; position: relative; text-align: center; overflow:hidden; display: inline-block'>` +
+  dollLayer(src) +
+  `<img src=x onerror="${xss}"><IMG SRC=x OnError="${xss}"><img/src=x/onerror=${xss}>` +
+  `<svg onload="${xss}"><image href=x onerror="${xss}"></image></svg><script>${xss}</script>` +
+  `<iframe srcdoc="<script>${xss}</script>"></iframe><a href="javascript:${xss}">x</a>` +
+  `<img src="javascript:${xss}"><img src="data:text/html,<script>${xss}</script>">` +
+  `<div style="background:url(javascript:${xss})"></div><div style="width:expression(${xss})"></div>` +
+  `<img style='x">' onerror="${xss}">&lt;img src=x onerror=&quot;${xss}&quot;&gt;` +
+  `</span></span></div></div></div><img src=x onerror="${xss}"><!-- <img src=x onerror="${xss}"> -->` +
+  `</div><img src=x onerror="${xss}"`;
+
+test.describe('hostile doll markup', () => {
+  test.use({dollHtml: hostileDoll('/e2e-doll-portrait.png')});
+  test('character portraits and live map dolls render without running markup', async ({page,app},info) => {
+    // Failure modes (issue #61): handlers in other players' doll markup run in the dashboard origin,
+    // through the portrait's dangerouslySetInnerHTML or the map's innerHTML layer parsing; or the
+    // sanitizer strips the legitimate sprite layers so dolls stop rendering.
+    const requested: string[] = [];
+    page.on('request', request => requested.push(new URL(request.url()).pathname));
+    await page.goto('/');
+    const portrait = page.locator('img[src="/e2e-doll-portrait.png"]');
+    await expect(portrait.first()).toBeAttached();
+    await expect(portrait.first()).toHaveAttribute('style', /margin-left: -27px/);
+    await expect(portrait.first().locator('xpath=..')).toHaveAttribute('style', /position: absolute/);
+
+    // W's card comes first; only W receives map frames below.
+    await page.getByRole('button', {name:'Expand live map'}).first().click();
+    const definition = {name:'zone_e2e0_1', min_x:-200, min_y:-200, max_x:200, max_y:200, default:null,
+      tiles:[['e2e', 0, 0, 16, 16]], placements:[[0, -200, -200, 200, 200]], groups:[], tilesets:{}};
+    const entity = {id:'Hostile', name:'Hostile', type:'character', ctype:'warrior', x:0, y:0, hp:1, max_hp:1, mp:0, max_mp:0,
+      target:null, moving:false, angle:0, direction:0, going_x:0, going_y:0, sprite:null, dollHtml:hostileDoll('/e2e-doll-map.png')};
+    await expect.poll(async () => {
+      const response = await fetch(`${app.url}/party-api/map-frame`, {method:'POST', headers:{'Content-Type':'application/json', Origin:app.url},
+        body:JSON.stringify({name:'W', map:'zone_e2e0_1', definition, at:Date.now(), x:0, y:0, entities:[entity], events:[]})});
+      expect(response.status).toBe(204);
+      return requested.includes('/e2e-doll-map.png');
+    }, {message:'the map parsed the legitimate doll layer and requested its sprite sheet', timeout:20_000}).toBe(true);
+
+    // Image errors and handlers are asynchronous; give any that survived time to fire.
+    await page.waitForTimeout(1500);
+    const result = await page.evaluate(() => ({
+      canary: (window as unknown as {__dollXss?: number}).__dollXss ?? 0,
+      inlineHandlers: Array.from(document.querySelectorAll('*')).filter(element => Array.from(element.attributes).some(attribute => /^on/i.test(attribute.name))).length,
+      foreign: document.querySelectorAll('main svg image, iframe, a[href^="javascript"], img[src^="javascript"], img[src^="data:"]').length,
+      portraitLayers: document.querySelectorAll('img[src="/e2e-doll-portrait.png"]').length,
+    }));
+    await info.attach('hostile-doll-markup', {body:JSON.stringify({...result, dollRequests:requested.filter(entry => entry.startsWith('/e2e-doll'))}, null, 2), contentType:'application/json'});
+    await info.attach('hostile-doll-dashboard', {body:await page.screenshot(), contentType:'image/png'});
+    expect(result).toEqual({canary:0, inlineHandlers:0, foreign:0, portraitLayers:result.portraitLayers});
+    expect(result.portraitLayers).toBeGreaterThan(0);
+  });
+});

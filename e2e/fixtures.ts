@@ -58,11 +58,12 @@ async function ready(process: ChildProcess, url: string, log: string) {
 }
 type App = { url: string; directory: string; restartCoordinator(): Promise<void>; crashCoordinator(): Promise<void>; startCoordinator(): Promise<void>; state(): Promise<any> };
 
-export const test = base.extend<{ app: App; merchantDialogs: boolean; merchantConnected: boolean; playerInventory: boolean; statusIntervalMs: number | null }, { dashboard: { port: number; log: string } }>({
+export const test = base.extend<{ app: App; merchantDialogs: boolean; merchantConnected: boolean; playerInventory: boolean; statusIntervalMs: number | null; dollHtml: string | null }, { dashboard: { port: number; log: string } }>({
   merchantDialogs: [false, {option:true}],
   merchantConnected: [true, {option:true}],
   playerInventory: [false, {option:true}],
   statusIntervalMs: [null, {option:true}],
+  dollHtml: [null, {option:true}],
   dashboard: [async ({}, use) => {
     const directory = path.join(root, '.build/e2e', `dashboard-${randomUUID()}`);
     mkdirSync(directory, { recursive: true });
@@ -79,14 +80,14 @@ export const test = base.extend<{ app: App; merchantDialogs: boolean; merchantCo
       await use({ port, log });
     } finally { await stop(process); }
   }, { scope: 'worker', timeout: 120_000 }],
-  app: async ({ dashboard, merchantDialogs, merchantConnected, playerInventory, statusIntervalMs }, use, testInfo) => {
+  app: async ({ dashboard, merchantDialogs, merchantConnected, playerInventory, statusIntervalMs, dollHtml }, use, testInfo) => {
     const directory = path.join(root, '.build/e2e', `scenario-${randomUUID()}`);
     mkdirSync(directory, { recursive: true });
     const port = await unusedPort(), log = path.join(directory, 'coordinator.log');
     let coordinator: ChildProcess | undefined;
     async function start() {
       coordinator = child(path.join(root, 'e2e/coordinator.cjs'), [], root,
-        environment({ E2E_COORDINATOR_PORT: String(port), E2E_DATA_DIR: directory, E2E_MERCHANT_DIALOGS: String(merchantDialogs), E2E_MERCHANT_CONNECTED: String(merchantConnected), E2E_PLAYER_INVENTORY: String(playerInventory), ...(statusIntervalMs ? { E2E_STATUS_INTERVAL_MS: String(statusIntervalMs) } : {}) }), log);
+        environment({ E2E_COORDINATOR_PORT: String(port), E2E_DATA_DIR: directory, E2E_MERCHANT_DIALOGS: String(merchantDialogs), E2E_MERCHANT_CONNECTED: String(merchantConnected), E2E_PLAYER_INVENTORY: String(playerInventory), ...(statusIntervalMs ? { E2E_STATUS_INTERVAL_MS: String(statusIntervalMs) } : {}), ...(dollHtml ? { E2E_DOLL_HTML: dollHtml } : {}) }), log);
       const started = coordinator;
       await new Promise<void>((resolve, reject) => {
         const output = () => existsSync(log) ? readFileSync(log, 'utf8') : 'No coordinator output';
