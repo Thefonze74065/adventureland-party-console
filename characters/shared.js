@@ -347,6 +347,8 @@
   var upgrading = false;
   var activeUpgrade = null;
   var departurePending = false;
+  // A walking departure escaping attackers it can outrun (afterCombat's escape option).
+  var departureEscape = false;
   var townTraveling = false;
   var partyTownActive = false;
   var townOverrideInFlight = false;
@@ -871,7 +873,7 @@
     if(data && currentPartyList().indexOf(String(data.id))>=0) {
       var aggressor=get_entity(data.hid || data.actor);
       var passingRule=aggressor && passiveHunting.rules[aggressor.mtype];
-      if(aggressor && aggressor.type==='monster' && (!isPassingEncounter(aggressor) || returnDepartureDefense() && !(passingRule && passingRule.enabled && passingRule.keepMoving)) && !joinedEvent && !eventTargetTypes.length) {
+      if(aggressor && aggressor.type==='monster' && !outrunConvoyAttacker(aggressor) && (!isPassingEncounter(aggressor) || returnDepartureDefense() && !(passingRule && passingRule.enabled && passingRule.keepMoving)) && !joinedEvent && !eventTargetTypes.length) {
         root.__partyDefensiveHit={target:groupedEntityReport(aggressor),at:Date.now()};
         interruptConvoyForDefense(null, null, aggressor);
         if(root.partyQueueClient)root.partyQueueClient.evidence(aggressor,'engaged');
@@ -3247,6 +3249,14 @@
     return Object.values(parent.entities || {}).filter(function (e) {
       return e && e.type === "monster" && e.visible && !e.dead && e.target === character.name && canOutrun(e) && !(rare && rare.id === e.id);
     }).map(function (e) { return { id: String(e.id), mtype: e.mtype, map: character.map, in: character.in, server: reunionRealm() }; });
+  }
+  // Party travel keeps walking from an attacker the member it targets can outrun, rather than
+  // pausing the whole convoy to defend (caught-by-monster rule). Unknown speeds defend.
+  function outrunConvoyAttacker(monster) {
+    if (!monster || !convoyTraveling || convoyTraveling.purpose !== "party-travel") return false;
+    var victim = monster.target === character.name ? character : get_player(monster.target);
+    var definition = G.monsters && G.monsters[monster.mtype] || {};
+    return !!victim && Number(victim.speed) > (Number(monster.speed || definition.speed) || Infinity);
   }
   function caughtBy() {
     return Object.values(parent.entities || {}).filter(function (e) {
@@ -9973,7 +9983,7 @@
       return afterCombat(async function () {
         await smart_move(command.location);
         game_log("Arrived at " + (command.label || "destination"), "#51D2E1");
-      }, "travel");
+      }, "travel", { escape: true });
     }
     if (command.type === "party-monster-travel" && command.location) {
       if (command.manualMonsterOverride) {
@@ -10016,7 +10026,7 @@
         return coordinatedMonsterTravel(command);
       }
       if(command.purpose === "party-travel" && command.phase === "assemble")
-        return afterCombat(function(){return coordinatedMonsterTravel(command);},"party travel");
+        return afterCombat(function(){return coordinatedMonsterTravel(command);},"party travel",{ escape: true });
       return coordinatedMonsterTravel(command);
     }
     if (command.type === "event-resume-travel" && command.location) {
@@ -10031,7 +10041,7 @@
         await joinEventDestination(leaderLocation);
         await smart_move(leaderLocation);
         game_log("Returned to party leader", "#51D2E1");
-      }, "returning to leader");
+      }, "returning to leader", { escape: true });
     }
     if (command.type === "use-item") return useDashboardItem(command);
     if (command.type === "equip") {
@@ -13101,7 +13111,8 @@
     return Object.values(parent.entities || {}).filter(function(e) {
       if(typeof outboundHuntTravel === 'function' && outboundHuntTravel() || typeof convoyTraveling!=='undefined' && convoyTraveling && convoyTraveling.continuousReturn===1)return e && e.type==='monster' && e.visible && !e.dead && e.hp>0 &&
         currentPartyList().indexOf(e.target)>=0 && !fightDeaths.some(function(d){return passingKey(d)===passingKey(e);});
-      return e && e.type === "monster" && departureTargetEngaged(e);
+      // The coordinator defends against every reported attacker; party travel walks on from one it outruns.
+      return e && e.type === "monster" && departureTargetEngaged(e) && !outrunConvoyAttacker(e);
     }).map(function(e) { return Object.assign({}, groupedEntityReport(e), { target: e.target, server: reunionRealm() }); });
   }
   function travelObservationAt() {
@@ -13736,12 +13747,8 @@
     // A walking departure leaves attackers it can outrun behind (caught-by-monster rule) and
     // waits only for one that keeps up. In an aggressive spawn a new attacker engages before
     // the last dies, so waiting for all combat to end never let an event return start.
-    var escape = !!(options && options.escape);
-    function waiting() {
-      if (travel) return getNearestPartyAttacker();
-      if (!escape) return engagedMonster();
-      return caughtBy().filter(function (monster) { return isAllowedTarget(monster); })[0] || null;
-    }
+    departureEscape = !!(options && options.escape);
+    function waiting() { return travel ? getNearestPartyAttacker() : departureCombatTarget(); }
     var target = waiting();
     if (target) game_log("Finishing combat before " + label, "#51D2E1");
     try {
@@ -13754,7 +13761,14 @@
       return await action();
     } finally {
       departurePending = false;
+      departureEscape = false;
     }
+  }
+  // While departing, fight only what must be fought first. An escaping walk ignores attackers
+  // it can outrun; turning a melee fighter back toward one would cancel its route.
+  function departureCombatTarget() {
+    if (!departureEscape) return engagedMonster();
+    return caughtBy().filter(function (monster) { return isAllowedTarget(monster); })[0] || null;
   }
 
   function inFarmArea(target, location, margin) {
@@ -16295,7 +16309,7 @@
       if (travelCombatActive() && !huntTravelDefense() && !departureCombatPending()) return true;
       if(root.partyLootClient && root.partyLootClient.huntPending() && !departureCombatPending())return true;
       if(convoyTraveling && !joinedEvent && !eventTargetTypes.length && Object.values(parent.entities||{}).some(function(e){
-        return e && e.type==='monster' && e.visible && !e.dead && isAttackingPartyMember(e);
+        return e && e.type==='monster' && e.visible && !e.dead && isAttackingPartyMember(e) && !outrunConvoyAttacker(e);
       }))interruptConvoyForDefense();
       if (combatRecoveryActive() && root.__partyCombatRecovery.phase!=='finishing') return true;
       if (escapeOwns()) return true;
@@ -16308,7 +16322,7 @@
       var convoyBlocksCombat = !!convoyTraveling && !convoyTraveling.defensePaused;
       root.__partyCombatOwner = convoyTraveling ? "convoy:" + convoyTraveling.phase : eventTraveling ? "event-travel" : followingLeader ? "follow" : null;
       if (reunion && !reunionBlocked() || banking || stocking || upgrading || forceTraveling || townTraveling || partyTownActive || convoyBlocksCombat || gatheringActive || followingLeader || eventTraveling || (anniversaryBusy || anniversaryStaging) && !root.__partyConvoyDefense) return true;
-      if (departurePending || bankQueued) return !engagedMonster();
+      if (departurePending || bankQueued) return !departureCombatTarget();
       return false;
     },
     isConvoyTraveling: function () { return !!convoyTraveling; },
@@ -16567,7 +16581,7 @@
       }
     },
     getLeaderTarget: function () {
-      if (departurePending || bankQueued) return engagedMonster();
+      if (departurePending || bankQueued) return departureCombatTarget();
       if (groupedFollower()) return this.getGroupedTarget();
       if (convoyTraveling) {
         var threatened = partyThreats.map(function (threat) { return get_entity(threat.id); })

@@ -26,3 +26,26 @@ Ways this departure can fail, each checked by
 
 Out of scope: on Main itself the return casts Town, which damage interrupts;
 that path is unchanged.
+
+## Other walking departures
+
+`character-travel`, `party-monster-travel` (party travel assembly) and
+`return-leader` used the same unbounded `afterCombat` wait, so each could stick
+in an aggressive spawn the same way. Additional ways they can fail, checked by
+the same spec:
+
+- Unlike the event return, `character-travel` and `return-leader` walk with a
+  plain `smart_move`, not a convoy. While the departure is pending the role loop
+  still fights whatever is engaged; a melee fighter stepping toward an outrun
+  attacker cancels the route, so the walk never gets away.
+- Party travel assembly hands over to a convoy; the convoy, not the departure
+  wait, must own movement once it starts.
+- Found while testing: the party-travel convoy then paused itself ("Defending
+  party; convoy will resume after combat") for the same bat, both locally on a
+  hit and in the coordinator, which defends against every reported travel
+  attacker. Attackers the targeted member can outrun are now neither reported
+  nor defended during party travel. A brief defense remains possible before the
+  client has formed its convoy, from reports sent earlier.
+- `return-leader` must reach the leader on another map, not merely start.
+- An attacker the character cannot outrun must still be fought before leaving
+  (unchanged; the departure keeps waiting for it).
