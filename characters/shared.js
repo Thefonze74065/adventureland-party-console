@@ -9944,7 +9944,7 @@
           eventRecoveryState.phase = "town-ready";
           await saveReturnPhase(command,"event","complete");
           game_log("Event ended; returned to Town", "#c084fc");
-        }, "returning from the event");
+        }, "returning from the event", { escape: true });
         requireEventExitOwner();
         await request("/event-return-complete", {
           method: "POST",
@@ -13729,11 +13729,19 @@
     return attackers[0] || null;
   }
 
-  async function afterCombat(action, label) {
+  async function afterCombat(action, label, options) {
     var navigationOwner = farmingTravelToken;
     departurePending = true;
     var travel = travelCombatActive();
-    function waiting() { return travel ? getNearestPartyAttacker() : engagedMonster(); }
+    // A walking departure leaves attackers it can outrun behind (caught-by-monster rule) and
+    // waits only for one that keeps up. In an aggressive spawn a new attacker engages before
+    // the last dies, so waiting for all combat to end never let an event return start.
+    var escape = !!(options && options.escape);
+    function waiting() {
+      if (travel) return getNearestPartyAttacker();
+      if (!escape) return engagedMonster();
+      return caughtBy().filter(function (monster) { return isAllowedTarget(monster); })[0] || null;
+    }
     var target = waiting();
     if (target) game_log("Finishing combat before " + label, "#51D2E1");
     try {
