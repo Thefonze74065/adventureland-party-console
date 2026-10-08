@@ -18,14 +18,15 @@
     "quantity": 2,
     "target": 5,
     "result": {
-      "attempts": 9,
-      "budget": 58000,
+      "attempts": 10,
+      "budget": 57000,
       "scrolls": [
-        40,
+        37,
         0,
         0,
         0
-      ]
+      ],
+      "approximate": false
     }
   },
   {
@@ -43,14 +44,15 @@
     "quantity": 1,
     "target": 8,
     "result": {
-      "attempts": 433,
-      "budget": 147430000,
+      "attempts": 355,
+      "budget": 151769000,
       "scrolls": [
-        1284,
-        832,
-        70,
+        1059,
+        710,
+        76,
         0
-      ]
+      ],
+      "approximate": false
     }
   }
 ]
