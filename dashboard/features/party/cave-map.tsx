@@ -20,11 +20,15 @@ export function CaveMap({
   view,
   cave,
   action,
+  actionsReady,
+  waitingForReports,
   error,
 }: {
   view: DungeonView;
   cave: NonNullable<CaveObservation['cave']>;
   action: (body: Record<string, unknown>) => Promise<unknown>;
+  actionsReady: boolean;
+  waitingForReports: boolean;
   error: string;
 }) {
   const [open, setOpen] = useState(false),
@@ -130,20 +134,21 @@ export function CaveMap({
               <span key={f.name}>{f.name}</span>
             ))}
           </div>
+          {waitingForReports && <output className="block text-sm text-amber-200">Waiting for fresh participant reports.</output>}
           <div className="flex items-center gap-2">
             <button className={dungeonButton} disabled={!frame} onClick={()=>setNativeSize(value=>!value)}>{nativeSize?'Fit full floor':'Native-size view'}</button>
             <button
               className={dungeonButton}
-              disabled={!frame}
+              disabled={!frame || !actionsReady}
               onClick={() => setAdding(true)}
             >
               Add waypoint
             </button>
             <button
               className={dungeonButton}
-              disabled={!waypoint || busy || cave.paused}
+              disabled={!waypoint || busy || !actionsReady || cave.paused}
               onClick={async () => {
-                if (!waypoint) return;
+                if (!waypoint || !actionsReady || cave.paused) return;
                 setBusy(true);
                 try {
                   if (await action({ action: 'waypoint', map, ...waypoint }))

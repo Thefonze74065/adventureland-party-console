@@ -138,10 +138,10 @@ test('lucky upgrade preserves party deliveries across preparation and interrupte
 });
 
 test('merchant mass skills use both tiers and passive recovery restores critical HP and MP during work', async ({ live }, info) => {
-  // Native CI observed four completed bank/NPC jobs taking 217 seconds and
-  // companion reconnection taking 96 seconds. Budget the final job separately;
+  // Native CI observed four completed bank/NPC jobs taking 324 seconds and
+  // companion reconnection taking 128 seconds. Budget the final job separately;
   // keep the 20-second recovery assertion and ordinary job deadlines intact.
-  test.setTimeout(600_000);
+  test.setTimeout(900_000);
   // Failure modes: commerce omits production buffs; ++ crosses the MP reserve;
   // exchange waits forever on a legacy skill promise; busy work fences recovery;
   // missing potions prevent free recovery or overlapping pulses consume twice.

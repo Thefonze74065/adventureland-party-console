@@ -71,11 +71,60 @@ from the commits merged into `main`.
 
 ### Fixed
 
+- Cave travel can reconnect up to three distinct retained walking endpoints
+  after separate combat displacements. Each connector keeps its three-second
+  native limit and complete route validation; repeated endpoints and a fourth
+  connector fail, while ordinary movement keeps its single-repair limit.
+  Ownership, barriers and destination remain intact, and failed repairs never
+  start an independent shared destination route.
+  Repairs rejoin a nearby point on the original validated walking segment,
+  execute the exact collision-checked join, and preserve the remaining route.
+  Stale segments, distant joins and unsafe planner gaps are rejected.
+  Reaching a corner retains the validated next segment across a combat pause
+  before its dispatch, so nearby backtracking can rejoin that corner safely.
+
+- Cave travel recovers when native combat displaces a participant after its
+  assembly command completed. Fresh, ready participants regroup under new owned
+  command IDs before the selected route departs, with bounded retries and
+  unchanged combat, loot and arrival barriers.
+
 - Native Cave cruise checks wait for the selected owned route to prepare before
   applying the motion deadline, preserving displacement and native cruise checks.
+  Resumed routes separate preparation and native wave combat from room arrival.
+  Lockbreaker arrival accommodates bounded native replans and the full walking
+  distance at the party's cruise speed. The regroup fixture stages both actors
+  with real collision-safe walking before checking assembly displacement.
+  Stairs coverage observes native farewell acknowledgement separately from the
+  owned route continuation and both characters' actual floor transition.
+  Manual Stop/resume uses a declared collision-safe native waypoint outside camp
+  aggro, then still requires both characters to reach the generated farm.
+  Map waypoint coverage distinguishes immediate selection acknowledgement from
+  native assembly and owned move dispatch, preserving exact target and run checks.
+  Safe waypoint fixtures account for canvas rounding and validate the exact
+  accepted destination with native collision checks.
+  Fixture clearance searches use exact segment distances and reject unsafe
+  candidates before native collision queries, keeping their existing bounds.
+  Fixture staging waits for completed waypoint receipts and acknowledged Stop,
+  preventing an owned route from overriding the setup's native movement.
+  Resumed waypoint coverage requires completed owned moves and exact endpoint
+  arrival before starting the farm trip.
+  Native farm arrival allows the same bounded combat and loot time as boss
+  travel, while still requiring both characters to physically reach the room.
+  Stairs approach uses that same bound for native combat and reassembly before
+  the farewell, with separate vote acknowledgement and floor-transition checks.
+  Waypoint E2Es verify the actual UI request and retry only observed heartbeat
+  suppression, retaining accepted-target checks and a submission evidence ledger.
+  Freshness-rejection retries additionally verify the requested run and floor,
+  live participants, and the observed report gap before another UI submission.
+- Explain disabled Cave waypoint actions with an accessible report-waiting
+  status, keeping map selections intact while current-run reports recover.
+- Keep the same-run Cave map and waypoint selection open during heartbeat gaps,
+  while disabling waypoint actions until every participant has a fresh, alive,
+  matching-floor observation. Changing run or floor clears the old selection.
 - Native merchant checks allow bank travel before the injected lucky return fault,
   generated reward-box exchange chains, and the final recovery batch's two
   upgrades and NPC scroll trips, preserving item, reward, and recovery assertions.
+  Skill-tier recovery includes the real companion reconnect in its total budget.
 - Hunt travel preserves pending loot through temporary communication and
   observation holds, suspends collection until defense resumes, and retries
   native chest-opening errors so the original Hunt can finish and claim rewards.

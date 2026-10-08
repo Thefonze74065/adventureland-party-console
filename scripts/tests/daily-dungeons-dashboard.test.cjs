@@ -23,7 +23,7 @@ test('dungeon panel exposes actual objectives and explicit priest recovery contr
   const { createDashboardClient } = load('query-cache.tsx');
   const { DungeonPanel } = load('dungeon-panel.tsx');
   const client = createDashboardClient(), now = Date.now();
-  client.setQueryData(['party', 'daily-dungeons'], { state: { phase: 'active', participants: ['W'],commands:{} }, members: [{ name: 'W', fresh: true,
+  client.setQueryData(['party', 'daily-dungeons'], { state: { phase: 'active', run: 'r', participants: ['W'],commands:{} }, members: [{ name: 'W', fresh: true,
     observation: { alive: false, cave: { run: 'r', floor: 1, expires: now + 50000, remainingMs: 50000, paused: true, gold: 20, amber: 3,
       points: [{ id: 'stairs', label: 'Stairs down', locked: true }],
       choice: { id: 'nera', title: 'Nera', text: 'Choose where to revive', deadline: now + 30000, resolved: false, votes: {},

@@ -26,9 +26,20 @@ export function DungeonPanel({ model }: { model: PartyConsoleModel }) {
   const [exitConfirm, setExitConfirm] = useState(false);
   const [itemInspection, setItemInspection] = useState<SelectedItem | null>(null);
   if (!view || ['idle', 'held'].includes(view.state.phase)) return null;
-  const cave = view.members.find((m) => m.fresh && m.observation?.cave)
-      ?.observation?.cave,
+  const sameRun = view.members.filter(member => member.observation?.cave?.run === view.state.run);
+  const cave = sameRun.find(member => member.fresh)?.observation?.cave,
     choice = cave?.choice;
+  const mapCave = cave || (view.state.phase === 'active' ? sameRun[0]?.observation?.cave : undefined);
+  const mapActionsReady = !!mapCave && view.state.participants.every(name => {
+    const member = view.members.find(candidate => candidate.name === name);
+    return member?.fresh && member.observation?.alive && member.observation.cave?.run === mapCave.run &&
+      member.observation.cave.floor === mapCave.floor && !member.observation.cave.paused;
+  });
+  const mapWaitingForReports = !!mapCave && view.state.participants.every(name => {
+    const member = view.members.find(candidate => candidate.name === name);
+    return member?.observation?.alive && member.observation.cave?.run === mapCave.run &&
+      member.observation.cave.floor === mapCave.floor && !member.observation.cave.paused;
+  }) && view.state.participants.some(name => !view.members.find(member => member.name === name)?.fresh);
   const recovery = view.state.priestRecovery;
   const priest = view.members.find((m) => m.name === recovery?.priest);
   const report =
@@ -56,7 +67,7 @@ export function DungeonPanel({ model }: { model: PartyConsoleModel }) {
       complete: 'Revival complete',
     }[report?.phase || 'idle'];
   const action = (body: Record<string, unknown>) =>
-    query.action({ run: cave?.run, ...body });
+    query.action({ run: view.state.run, ...body });
   const shopItem = model.state.merchantCatalog?.allItems?.find(item => item.id === choice?.shop?.name);
   const travelling = view.state.progress?.enabled || !!view.state.travel || Object.values(view.state.commands).some(command => command.action === 'move');
   return (
@@ -111,7 +122,7 @@ export function DungeonPanel({ model }: { model: PartyConsoleModel }) {
           .map((m) => m.name + (m.fresh ? '' : ' — awaiting connection'))
           .join(' · ')}
       </p>
-      {cave && <CaveMap key={cave.run+':'+cave.floor} view={view} cave={cave} action={action} error={query.actionError}/>}
+      {mapCave && <CaveMap key={mapCave.run+':'+mapCave.floor} view={view} cave={mapCave} action={action} actionsReady={mapActionsReady} waitingForReports={mapWaitingForReports} error={query.actionError}/>}
       {view.state.phase === 'active' && (
         <div className="mt-3">
           <p className="text-sm text-slate-200">

@@ -787,3 +787,39 @@ test('market affordability uses core bank gold and active WTB prices open the fu
   await expect(page.getByRole('button',{name:/AffordableSeller/}).first()).toBeVisible();
   await info.attach('market-core-bank-gold-affordability',{body:await page.screenshot(),contentType:'image/png'});
 });
+
+test('Cave map survives stale reports without allowing stale waypoint actions',async({page},info)=>{
+  // Declared read-boundary fixture: no native receipts, combat, or ownership is forged.
+  let run='read-fixture-a',floor=0,fresh=true;
+  const name='M';
+  const view=()=>({state:{phase:'active',run,participants:[name],protectFromEvents:true,commands:{},operations:[],progress:{enabled:false,serial:0}},members:[{name,fresh,observation:{protocol:1,at:Date.now(),supported:true,alive:true,ready:true,members:[name],cave:{run,floor,expires:Date.now()+600000,remainingMs:600000,paused:false,gold:0,amber:0,points:[]}}}]});
+  await page.route('**/party-api/daily-dungeons',route=>route.fulfill({json:view()}));
+  await page.route('**/party-api/map-stream/*',route=>{
+    const map='zone_'+run+'_'+floor;
+    return route.fulfill({contentType:'text/event-stream',body:'data: '+JSON.stringify({name,map,at:Date.now(),x:100,y:100,entities:[],definition:{name:map,min_x:0,min_y:0,max_x:200,max_y:200,tiles:[],placements:[],groups:[],tilesets:{}}})+'\n\n'});
+  });
+  await page.goto('/');
+  await page.getByRole('button',{name:'View full map',exact:true}).click();
+  const map=page.getByRole('dialog',{name:'Cave of Many Dreams — Floor 1',exact:true});
+  await map.getByRole('button',{name:'Add waypoint',exact:true}).click();
+  await map.locator('canvas').click({position:{x:100,y:100}});
+  const set=map.getByRole('button',{name:'Set waypoint',exact:true});
+  await expect(set).toBeEnabled();
+  fresh=false;
+  await expect(set).toBeDisabled();
+  await expect(map.getByRole('status')).toHaveText('Waiting for fresh participant reports.');
+  await expect(map).toBeVisible();
+  await info.attach('stale-cave-map-readonly',{body:await map.screenshot(),contentType:'image/png'});
+  fresh=true;
+  await expect(set).toBeEnabled();
+  await expect(map.getByRole('status')).toHaveCount(0);
+  await expect(map).toBeVisible();
+  floor=1;
+  await expect(map).not.toBeVisible();
+  await page.getByRole('button',{name:'View full map',exact:true}).click();
+  const next=page.getByRole('dialog',{name:'Cave of Many Dreams — Floor 2',exact:true});
+  await expect(next.getByRole('button',{name:'Set waypoint',exact:true})).toBeDisabled();
+  run='read-fixture-b';
+  await expect(next).not.toBeVisible();
+  await info.attach('cave-map-read-fixture-ledger',{body:JSON.stringify({transitions:['fresh','stale','fresh','floor 2','new run'],run,floor,fresh}),contentType:'application/json'});
+});

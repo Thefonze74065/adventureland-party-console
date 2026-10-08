@@ -8,11 +8,12 @@ function transitionLabel(step: Step): string {
 interface Issued { step: Step; from: Point; at: number; progressAt: number; position: Point; error?: Error | string; townUnavailable?: boolean; acknowledged?: boolean; finished?: boolean; aligned?: boolean; reissued?: boolean; sendVersion?: number }
 export function createMovementExecutor(host: MovementHost, state: MoveState, validation: ValidationPorts, now: () => number, townReady = () => true, lootCollected = () => true) {
   let issued: Issued | undefined, index = 0, barrierPending = false, barrierReady = false, lastBarrier = 0, waitingBarrier = false;
+  let walkingEdge: {from: Point; to: Step} | undefined;
   let sampledAt = now(), sampledPhase = 'idle';
   let lootWaitAt: number | undefined;
   let durations: Record<string,number> = {};
   const position = () => ({ map: host.character.map, in: host.character.in, x: host.character.real_x, y: host.character.real_y });
-  function reset() { issued = undefined; index = 0; barrierPending = false; barrierReady = false; lastBarrier = 0; waitingBarrier=false; lootWaitAt=undefined; sampledAt=now();sampledPhase='idle';durations={}; }
+  function reset() { issued = undefined; walkingEdge=undefined; index = 0; barrierPending = false; barrierReady = false; lastBarrier = 0; waitingBarrier=false; lootWaitAt=undefined; sampledAt=now();sampledPhase='idle';durations={}; }
   function cancel() {
     if (issued) {
       void Promise.resolve(host.move(host.character.real_x, host.character.real_y)).catch(() => {});
@@ -51,7 +52,10 @@ export function createMovementExecutor(host: MovementHost, state: MoveState, val
     notifyTown(current,options,'complete');
     if (!transitionReady(current, options, !!transition)) return false;
     notifyTransition(current,options);
-    state.plot.shift(); if (transition) index++; issued = undefined; barrierReady = false; return true;
+    state.plot.shift();
+    if(transition){walkingEdge=undefined;index++;}
+    else rememberWalkingEdge({...p,x:current.step.x,y:current.step.y},state.plot[0]);
+    issued = undefined; barrierReady = false; return true;
   }
   function alignArrival(current: Issued, p: Point) {
     if (distance(p, current.step) <= 1 || distance(p, current.step) > 150) return;
@@ -127,12 +131,21 @@ export function createMovementExecutor(host: MovementHost, state: MoveState, val
   }
   function sendObserved(captured: Issued): void {
       const version = captured.sendVersion = (captured.sendVersion || 0) + 1;
+      if(version===1)captureWalkingEdge(captured);
       try { void Promise.resolve(send(captured)).then(result => {
         if (issued !== captured || captured.sendVersion !== version) return;
         if (result && typeof result === 'object' && 'failed' in result && result.failed) throw result;
         captured.acknowledged = true;
       }).catch(error => { if (issued === captured && captured.sendVersion === version) rejected(captured,error); }); }
       catch (error) { if (issued === captured) rejected(captured,error); }
+  }
+  function captureWalkingEdge(current: Issued): void {
+    if(walkingEdge?.to===current.step)return;
+    rememberWalkingEdge(position(),current.step);
+  }
+  function rememberWalkingEdge(from: Point, next: Step | undefined): void {
+    walkingEdge=next && !isTransition(next) && from.map===next.map && validation.walk(from,next)
+      ? {from:{...from},to:next} : undefined;
   }
   function rejected(current:Issued,error:unknown):void {
     const reason=error && typeof error==='object' && 'reason' in error ? String(error.reason) : String(error);
@@ -161,7 +174,7 @@ export function createMovementExecutor(host: MovementHost, state: MoveState, val
       // Even a zero-distance game move sets moving=true. Consume reached walking
       // points before issuing it; transitions still require dispatch and acknowledgement.
       if (isTransition(next) || distance(p, next) > 1) break;
-      state.plot.shift();
+      state.plot.shift(); rememberWalkingEdge({...p,x:next.x,y:next.y},state.plot[0]);
     }
   }
   function lootReady(step: Step): boolean {
@@ -200,5 +213,6 @@ export function createMovementExecutor(host: MovementHost, state: MoveState, val
   return { tick, reset, cancel, pause, progress: () => ({step:index,phase:phase(),destination:issued?.step,durations:{...durations},
     position:position(),noProgressMs:issued ? now()-issued.progressAt : 0,reissued:!!issued?.reissued}),
     transition: () => issued && isTransition(issued.step) ? (issued.step.town ? 'town' : 'transport') : null,
+    walkingEdge:()=>walkingEdge?.to===state.plot[0] ? walkingEdge : undefined,
     remaining: () => state.plot.map(p => ({ ...p })) };
 }

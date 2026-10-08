@@ -69,7 +69,7 @@ export function createCaveTravel(
       t = d.travel;
     if (!t || d.phase !== "active" || d.participants.some((n) => status(n)?.dungeon?.cave?.paused))
       return;
-    if (repair(d,t)) return;
+    if (repairOrRegroup(d,t)) return;
     if (t.stage === "assembling" && arrived(d, t.origin)) {
       t.stage = "travelling";
       const speeds = d.participants
@@ -82,6 +82,34 @@ export function createCaveTravel(
       });
     }
     if (t.stage === "travelling" && arrived(d, t.target)) finish(d, t);
+  }
+  function regroupReady(name: string, d: DungeonState, origin: CavePoint) {
+    const s = status(name), observation = s?.dungeon;
+    if (!ports.fresh(name) || s?.map !== origin.map || !observation?.alive || !observation.ready) return false;
+    const cave = observation.cave;
+    return !!cave && cave.run === d.run && !cave.paused;
+  }
+  function displacedGather(name: string, d: DungeonState, origin: CavePoint) {
+    const command = d.commands[name];
+    return command?.action === 'gather' && command.run === d.run && command.target?.map === origin.map &&
+      command.target.x === origin.x && command.target.y === origin.y &&
+      receiptComplete(name, command) && !atPoint(name, origin);
+  }
+  function regroup(d: DungeonState, t: NonNullable<DungeonState['travel']>) {
+    if (t.stage !== 'assembling' || !d.participants.every(n => regroupReady(n,d,t.origin))) return false;
+    const displaced = d.participants.filter(n => displacedGather(n,d,t.origin));
+    if (!displaced.length) return false;
+    if ((t.assemblyRepairs || 0) >= 3) {
+      d.error = 'Cave assembly repeatedly displaced after completion. Stop travel and choose the destination again.';
+      return true;
+    }
+    t.assemblyRepairs = (t.assemblyRepairs || 0)+1;
+    ports.issue(displaced,'gather',`cave-assemble:${d.run}:${t.serial}:regroup:${t.assemblyRepairs}`,{run:d.run,target:t.origin});
+    ports.persist();
+    return true;
+  }
+  function repairOrRegroup(d: DungeonState, t: NonNullable<DungeonState['travel']>) {
+    return repair(d,t) || regroup(d,t);
   }
   function repair(d: DungeonState, t: NonNullable<DungeonState['travel']>) {
     const failed = d.participants.some(n => {

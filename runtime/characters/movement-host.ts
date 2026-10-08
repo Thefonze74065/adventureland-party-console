@@ -39,10 +39,14 @@ export interface NativeFunctions {
 }
 export interface MovementContext {
   runtime: string; revision: number; current: boolean; paused: boolean;
+  map?: string; instance?: string | number;
 }
 export interface MovementOptions {
   // Cave combat may stop direct movement without retiring the dungeon journey.
   retainOnDirectStop?: boolean;
+  // Cave combat can displace an actor off its validated shared walking edge.
+  // Repair only the local same-map connector, never the destination route.
+  repairSharedDrift?: boolean;
   relocation?: 'town' | 'door';
   owner?: {convoyId?: string; epoch?: number; commandId?: number; navigationRevision?: number; recoveryStage?: string};
   transitionComplete?: (destination: Point) => void;

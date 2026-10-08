@@ -1,7 +1,7 @@
 import { movementError, movementFailureCause, retryableMovementRequest } from './movement-error.ts';
 import { movementRelocation } from './movement-relocation.ts';
 import { isTransition, distance, geometryFingerprint, point, type Point, type PlanResult, type Issue, type Step } from '../navigation/contracts.ts';
-import { validateRoute, type ValidationPorts } from '../navigation/validation.ts';
+import { validateRoute, stepIssue, type ValidationPorts } from '../navigation/validation.ts';
 import type { MovementHost, MoveState, MovementOptions, MovementPorts, MovementContext } from './movement-host.ts';
 import { createNativePlanner } from './native-planner.ts';
 import { createMovementExecutor } from './movement-executor.ts';
@@ -9,8 +9,8 @@ import { resolveDestination } from './movement-destination.ts';
 import { movementDiagnostics } from './movement-diagnostics.ts';
 import { repairDoorApproaches } from '../navigation/door-approach.ts';
 import { planReturnCandidates } from './return-planner.ts';
-interface SegmentRepair { plot: Step[]; index: number; target: Point; started: boolean }
-interface Journey { settlingAt?: number; repair?: SegmentRepair; repaired?: boolean; firstIssue?: Issue; failureContext?: Record<string, unknown>; id: string; context: MovementContext; options: MovementOptions; native: boolean; pending: boolean; searches: number; retries: number; started: number; planningAt: number; fallback: boolean; plannerMs?: number; requestMs?: number; distance?: number; transitions?: number; importedEngine?: string }
+interface SegmentRepair { plot: Step[]; index: number; target: Point; started: boolean; instance?: string | number; retainEndpoint?: boolean }
+interface Journey { settlingAt?: number; repair?: SegmentRepair; repaired?: boolean; repairEndpoints?: string[]; firstIssue?: Issue; failureContext?: Record<string, unknown>; id: string; context: MovementContext; options: MovementOptions; native: boolean; pending: boolean; searches: number; retries: number; started: number; planningAt: number; fallback: boolean; plannerMs?: number; requestMs?: number; distance?: number; transitions?: number; importedEngine?: string }
 const failurePhases = new Map([
   ['superseded', 'Movement cancelled'],
   ['convoy-communication-hold', 'Movement paused: coordinator communication unavailable'],
@@ -107,33 +107,51 @@ export function installPartyMovement(host: MovementHost, ports: MovementPorts) {
   }
   function beginRepair(j: Journey, plot: Step[], issue: Issue): boolean {
     j.firstIssue ||= issue;
-    if (j.options.owner?.recoveryStage === 'post-relocation' || j.repaired || issue.reason !== 'collisions detected' || issue.from.map !== position().map) return false;
+    if (j.options.owner?.recoveryStage === 'post-relocation' || !repairAllowed(j,issue.to) || issue.reason !== 'collisions detected' || issue.from.map !== position().map) return false;
     const index = plot.findIndex(p => p === issue.to);
     if (index < 0 || isTransition(plot[index])) return false;
-    j.repaired = true;
+    recordRepair(j,issue.to);
     j.repair = {plot, index, target: point(issue.to), started: false};
     j.pending = false; state.searching = false;
     report(j.id, state, 'Repairing rejected walking segment', issue, 'native same-map connector; limit 3 seconds');
     return true;
   }
+  function repairEndpoint(target: Point): string { return JSON.stringify([target.map,target.x,target.y]); }
+  function recordRepair(j: Journey, target: Point): void {
+    j.repaired = true;
+    if(j.options.shared && j.options.repairSharedDrift)(j.repairEndpoints ||= []).push(repairEndpoint(target));
+  }
+  function repairAllowed(j: Journey, target: Point): boolean {
+    if(!j.options.shared || !j.options.repairSharedDrift)return !j.repaired;
+    const endpoints=j.repairEndpoints || [];
+    return endpoints.length<3 && !endpoints.includes(repairEndpoint(target));
+  }
   function repairTick(j: Journey): void {
     const repair = j.repair!;
     try {
+      if (!repairInstanceValid(j,repair)) throw Error('Repair instance changed');
       if (!repair.started) { planner.begin(repair.target, false, ports.now(), 3000); repair.started = true; j.searches++; }
       const bridge = planner.tick(ports.now());
       if (!bridge) return;
       if (distance(bridge.at(-1) || position(), repair.target) > 20) throw Error('Repair missed its connector endpoint');
       if (bridge.some(p => isTransition(p) || p.map !== position().map)) throw Error('Repair left the current map');
-      const plot = [...bridge, ...repair.plot.slice(repair.index + 1)];
+      const plot = repair.retainEndpoint ? [...bridge,repair.target,...repair.plot.slice(repair.index)]
+        : [...bridge, ...repair.plot.slice(repair.index + 1)];
       const invalid = validateRoute(validation, position(), state, plot, state.use_town, state.edge);
       if (invalid) throw Error('Repair did not validate: ' + invalid.reason);
       delete j.repair; install(plot, true);
       report(j.id, state, 'Walking segment repaired', j.firstIssue);
-    } catch (error) {
-      planner.cancel();
-      j.failureContext = {repairFailure: String(error)};
-      fallback(j, j.firstIssue!);
-    }
+    } catch (error) { repairFailed(j,error); }
+  }
+  function repairInstanceValid(j: Journey, repair: SegmentRepair): boolean {
+    const from = position(), expected = repair.instance ?? repair.target.map;
+    return !j.options.repairSharedDrift || String(from.in ?? from.map) === String(expected);
+  }
+  function repairFailed(j: Journey, error: unknown): void {
+    planner.cancel();
+    j.failureContext = {repairFailure: String(error)};
+    if (j.options.repairSharedDrift && j.options.shared) { finish(false, 'Shared connector repair failed: ' + String(error)); return; }
+    fallback(j, j.firstIssue!);
   }
   function trimUncheckedFinal(plot: Step[]): Step[] {
     // Both planners may append an exact endpoint across a thin obstacle.
@@ -210,7 +228,10 @@ export function installPartyMovement(host: MovementHost, ports: MovementPorts) {
     if (j.repair) repairTick(j); else if (j.native) nativeTick(j); else requestPlan(j);
   }
   function recover(j: Journey, error: unknown) {
-    if (j.options.shared) { finish(false, error); return; }
+    if (j.options.shared) {
+      if (!repairSharedConnector(j)) finish(false, error);
+      return;
+    }
     if (/leave transition/i.test(String(error))) {
       if (j.options.shared || j.retries >= 2) { finish(false, 'Leave transition failed: ' + String(error)); return; }
       j.retries++; j.options = {...j.options, avoidLeave: true};
@@ -223,6 +244,31 @@ export function installPartyMovement(host: MovementHost, ports: MovementPorts) {
     if (/town/i.test(String(error))) state.use_town = false;
     void Promise.resolve(host.move(host.character.real_x, host.character.real_y)).catch(() => {});
     fallback(j, { reason: `${String(error)}; recovery ${j.retries}/2`, from: position(), to: state.plot[0] || point(state) });
+  }
+  function repairSharedConnector(j: Journey): boolean {
+    const next = state.plot[0], from = position();
+    if (!j.options.repairSharedDrift || !next || isTransition(next) || !sameJourneyInstance(j,from)) return false;
+    const reason = stepIssue(validation, from, next, state.use_town);
+    const join=localWalkingJoin(from,next);
+    if (reason !== 'collisions detected' || !join || !beginRepair(j,state.plot.slice(),{reason,from,to:next})) return false;
+    j.repair!.target=join.target;
+    j.repair!.retainEndpoint=join.retainEndpoint;
+    j.repair!.instance = from.in ?? from.map;
+    state.found = false;
+    executor.cancel();
+    return true;
+  }
+  function localWalkingJoin(from: Point, next: Step): {target:Point;retainEndpoint:boolean} | undefined {
+    const edge=executor.walkingEdge();
+    if(!edge)return distance(from,next)<=150 ? {target:point(next),retainEndpoint:false} : undefined;
+    if(edge.from.map!==from.map || String(edge.from.in??edge.from.map)!==String(from.in??from.map))return;
+    const dx=next.x-edge.from.x,dy=next.y-edge.from.y,length=dx*dx+dy*dy;
+    const along=length ? Math.max(0,Math.min(1,((from.x-edge.from.x)*dx+(from.y-edge.from.y)*dy)/length)) : 0;
+    const target={map:from.map,x:edge.from.x+dx*along,y:edge.from.y+dy*along};
+    return distance(from,target)<=150 ? {target,retainEndpoint:true} : undefined;
+  }
+  function sameJourneyInstance(j: Journey, from: Point): boolean {
+    return from.map === j.context.map && String(from.in ?? from.map) === String(j.context.instance ?? j.context.map);
   }
   function tick() {
     const j = journey;
@@ -244,7 +290,7 @@ export function installPartyMovement(host: MovementHost, ports: MovementPorts) {
     delete state.in;
     Object.assign(state, target, { moving: true, found: false, searching: false, plot: [], use_town: options.town !== false, edge: tolerance });
     if (host.character.moving) void Promise.resolve(host.move(host.character.real_x, host.character.real_y)).catch(() => {});
-    executor.reset(); const context = ports.context();
+    executor.reset(); const context = {...ports.context(), map:host.character.map, instance:host.character.in ?? host.character.map};
     journey = { id: `${host.character.name}:${context.runtime}:${++sequence}`, context, options, native: !!options.native, pending: false, searches: 0, retries: 0, started: ports.now(), planningAt: ports.now(), fallback: !!options.native };
     return new Promise((resolve, reject) => { state.on_done = (done, reason, failure) => { callback?.(done); if (done) resolve({ success: true }); else reject(Object.assign(movementError(failure || reason), {movementReported: true})); }; });
   }

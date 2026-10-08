@@ -2511,6 +2511,7 @@
         travelTrack = command.cruiseSpeed ? {id:command.id,distance:0,x:character.real_x,y:character.real_y,leader:character.name===cavePartyNames()[0],prepared:false} : null;
         var journey = movement.move(point, undefined, { native: true, shared:!!command.cruiseSpeed, arrivalTolerance:command.action==='gather'?1:20, town: false, retainOnDirectStop: true,
         awaitSharedRoute:!!travelTrack && !travelTrack.leader, nativePlanningTimeoutMs:travelTrack ? 90000 : 30000,
+        repairSharedDrift:!!travelTrack,
         barrier: async function () {
           if (character.cave) return dungeonClient.canMove();
           await smartLoot(); return !departureCombatPending() && eligibleDepartureChests().length === 0;

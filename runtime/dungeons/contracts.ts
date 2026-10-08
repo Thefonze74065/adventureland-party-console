@@ -97,7 +97,7 @@ export interface CaveCommand {
   amber?: number;
 }
 export interface DungeonState {
-  travel?: { target: CavePoint; origin: CavePoint; stage: 'assembling' | 'travelling'; serial: number; repairs?:number };
+  travel?: { target: CavePoint; origin: CavePoint; stage: 'assembling' | 'travelling'; serial: number; repairs?:number; assemblyRepairs?:number };
   stairContinuation?: CavePoint;
   progress?: { enabled: boolean; target?: string; floor?: number; serial: number; message?: string };
   protectFromEvents: boolean;
