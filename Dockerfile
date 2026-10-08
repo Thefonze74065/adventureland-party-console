@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 FROM docker:28-cli AS docker-client
 FROM --platform=$BUILDPLATFORM node:24.14.0-bookworm-slim AS build
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates util-linux && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -19,7 +19,7 @@ RUN rm -rf /app/.caracal/localStorage /app/.caracal/game_files /app/.caracal/log
 RUN rm -rf /app/node_modules /app/dashboard/node_modules /app/.caracal/node_modules
 
 FROM node:24.14.0-bookworm-slim AS development
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates tini gosu && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates tini gosu util-linux && rm -rf /var/lib/apt/lists/*
 COPY --from=docker-client /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker-client /usr/local/libexec/docker/cli-plugins/docker-buildx /usr/local/libexec/docker/cli-plugins/docker-buildx
 WORKDIR /opt/party-seed
@@ -41,7 +41,7 @@ FROM node:24.14.0-bookworm-slim AS production
 ARG RELEASE_VERSION=development
 ARG RELEASE_REPOSITORY=thefonze74065/adventureland-party-console
 LABEL org.opencontainers.image.title="Adventureland Party Console" org.opencontainers.image.version=$RELEASE_VERSION org.opencontainers.image.source="https://github.com/$RELEASE_REPOSITORY"
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tini gosu && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tini gosu util-linux && rm -rf /var/lib/apt/lists/*
 COPY --from=docker-client /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker-client /usr/local/libexec/docker/cli-plugins/docker-buildx /usr/local/libexec/docker/cli-plugins/docker-buildx
 WORKDIR /app
@@ -62,7 +62,7 @@ CMD ["node", "tools/hosting/docker-production.mts"]
 
 FROM node:24.14.0-bookworm-slim AS debug-browser
 RUN npm install --prefix /opt/browser @playwright/test@1.63.0 && /opt/browser/node_modules/.bin/playwright install --with-deps chromium
-RUN apt-get update && apt-get install -y --no-install-recommends xvfb x11vnc novnc websockify && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends xvfb x11vnc novnc websockify util-linux && rm -rf /var/lib/apt/lists/*
 
 FROM debug-browser AS debug
 WORKDIR /app

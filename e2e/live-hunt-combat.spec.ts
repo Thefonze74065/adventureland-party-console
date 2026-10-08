@@ -14,7 +14,7 @@ test.describe('native Hunt travel combat and death ownership',()=>{
     },{timeout:90000,intervals:[100,250],message:'Introduce the outbound Goo during native walking, after any Town cast'}).toBe(true);
     // Seed ahead on the actual walking leg so native visibility and the party's
     // reservation exchange can precede reaching melee range on slower hosts.
-    const outbound=await spawnGoo(live,W,0,250);
+    const outbound=await spawnGoo(live,W,0,400);
     await info.attach('outbound-passing-goo-seed',{body:JSON.stringify(outbound),contentType:'application/json'});
     const outboundKill=await killedByParty(live,String(outbound.id));
     expect((await observed(live))[W].quest?.id).toBe('armadillo');
@@ -25,7 +25,7 @@ test.describe('native Hunt travel combat and death ownership',()=>{
       return hunt(s)?.stage==='returning'&&s.activeConvoy?.phase==='travel'&&
         await live.clients[W].run('!!character.moving && !(character.c && character.c.town)');
     },{timeout:90000,intervals:[100,250],message:'Introduce the return Goo during native walking, after any Town cast'}).toBe(true);
-    const returning=await spawnGoo(live,W,0,250);
+    const returning=await spawnGoo(live,W,0,400);
     await info.attach('returning-passing-goo-seed',{body:JSON.stringify(returning),contentType:'application/json'});
     const returningKill=await killedByParty(live,String(returning.id));
     await reward(live,setup.before);

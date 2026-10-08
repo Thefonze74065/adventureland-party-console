@@ -4,7 +4,7 @@ function fixture(){let account={characters:[{name:'M',type:'merchant',home:'USII
  const state={bankbois:{B:{}},statuses:{},headlessSlots:['F','B',null,null],steamMembers:['M'],nativeOwner:'M',lifecycle:{F:'starting'},activeRealm:'SR_USII',realmSwitch:{phase:'arriving'}};
  return {state,service:createRosterProjection(state,()=>account,()=>100000),replace:value=>account=value};}
 test('roster excludes BankBoi and reads account replacements without caching',()=>{
- const f=fixture();assert.deepEqual(f.service.roster().map(x=>x.name),['F','M']);assert.equal(f.service.homeRealm(),'SR_USII');
+ const f=fixture();assert.deepEqual(f.service.roster().map(x=>x.name),['F','M']);assert.equal(f.service.homeRealm(),null);
  f.replace({characters:[{name:'New',home:'SR_EUI'}]});assert.equal(f.service.owned('M'),undefined);assert.equal(f.service.homeRealm(),'SR_EUI');assert.deepEqual(f.service.roster().map(x=>x.name),['New']);
 });
 test('ownership lookup compares raw names without coercing untrusted request values',()=>{

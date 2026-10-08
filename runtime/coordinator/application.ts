@@ -6,6 +6,7 @@ import { createUpgradePreviews } from './merchant/upgrade-preview.ts';
 import { merchantVisibility } from './merchant/visibility.ts';
 import { loadCoordinatorDependencies } from "./infrastructure/dependencies.ts";
 import * as coordinatorPolicies from "./index.ts";
+import { realmOperationOwnsCharacter } from "./characters/realm-switch.ts";
 import type { CatalogDefinitions } from './status/catalog-validation.ts';
 import type { WebMiddleware, WebRouter, WebMonitor } from "./infrastructure/web-platform.ts";
 import type { CoordinatorApplicationPlatform } from "./infrastructure/application-platform.ts";
@@ -295,13 +296,16 @@ export function startCoordinatorApplication(
       participants: realmParticipants,
       current: () => realmControlPayload().currentRealm,
       home: accountHomeRealm,
-      characterHome: (name) => rosterProjection.characterHome(name),
+      characterHome: (name) => rosterProjection.owned(name)?.home || null,
+      accountCharacters: () => my_acc.response.characters.map((entry) => entry.name),
+      start: (name) => characterManager.start(name),
+      connectionCount: () => my_acc.response.characters.filter((entry) => !!entry.online).length,
       refresh: () => my_acc.updateInfo(),
     });
     const shutdownCoordinator = coordinatorPolicies.createShutdown({
       log: (message) => console.log(message),
       stopCharacters: () => characterManager.stopAll(),
-      closeStorage: () => { movementPlanner.dispose(); localStorage.close(); },
+      closeStorage: () => { persistence.flush(); movementPlanner.dispose(); localStorage.close(); },
       exit: () => process.exit(),
     });
     const { dispatcher: merchantDispatcher, idle: merchantIdle } =
@@ -917,8 +921,8 @@ export function startCoordinatorApplication(
       // Keep the original TypeError if a queued worker no longer has an account entry.
       configuredRealm,
       homeRealm: (name) => {
-        const home = ownedCharacter(name)?.home;
-        return home ? "SR_" + String(home).replace(/^SR_/, "") : null;
+        const home = accountHomeRealm() || ownedCharacter(name)?.home;
+        return home ? "SR_" + home.replace(/^SR_/, "") : null;
       },
       script: (name) => classScript("./CODE/adventure_land", ownedCharacter(name)!.type),
       watch: watchCharacterCode,
@@ -1268,7 +1272,7 @@ export function startCoordinatorApplication(
     }
 
     function persistSettings() {
-      persistence.settings();
+      persistence.scheduleSettings();
     }
 
     function persistHistory() {
@@ -1623,7 +1627,7 @@ export function startCoordinatorApplication(
     }
 
     function dispatchMerchant() {
-      if (consoleUpdate.current()) return;
+      if (consoleUpdate.current() || realmOwnsMerchant()) return;
       merchantRecovery.expire(String(party.merchantCharacter));
       if (coordinatorPolicies.pruneIneligibleCollections(party, () => Date.now())) persistSettings();
       merchantDispatcher.dispatch();
@@ -1642,8 +1646,12 @@ export function startCoordinatorApplication(
     }
 
     function dispatchMerchantIdle() {
-      if (consoleUpdate.current()) return;
+      if (consoleUpdate.current() || realmOwnsMerchant()) return;
       merchantIdle.idle();
+    }
+
+    function realmOwnsMerchant() {
+      return realmOperationOwnsCharacter(party.realmSwitch, party.merchantCharacter);
     }
 
     function activeNames() {
@@ -2068,19 +2076,13 @@ export function startCoordinatorApplication(
       return huntQuests.prepare(hunt);
     }
 
-    // The status message changes several times a second during waits; it is display-only and need not
-    // trigger a full settings save on its own.
-    function huntPersistenceKey(hunt: unknown): string {
-      return JSON.stringify(hunt && typeof hunt === "object" ? {...hunt, message: undefined} : hunt);
-    }
-
     function monsterHuntTick(_previousStatus?: unknown, _changedName?: string) {
       dungeons.reconcile();
       if (party.leader && !dungeonOwns(party)) huntTick.tick();
       for (const service of independentServices()) {
-        const before = huntPersistenceKey(service.state.monsterHunt);
+        const before = JSON.stringify({...service.state.monsterHunt, message: undefined});
         service.huntTick.tick();
-        if (before !== huntPersistenceKey(service.state.monsterHunt)) persistSettings();
+        if (before !== JSON.stringify({...service.state.monsterHunt, message: undefined})) persistSettings();
       }
     }
 
@@ -2278,7 +2280,7 @@ export function startCoordinatorApplication(
                 router.get('/party-api/console-maintenance', (_req, res) => res.json(consoleUpdate.status(party.statuses,
                   [...party.headlessSlots, ...party.steamMembers], !!party.steamSwitch && party.steamSwitch.phase !== 'complete')));
                 coordinatorPolicies.installMovementRoutes(router, movementPlanner, ownedCharacter);
-                installProductionRoutes(router, party, persistSettings, merchantLog);
+                installProductionRoutes(router, party, () => persistence.settings(), merchantLog);
                 router.post('/party-api/merchant/stand-location', standLocationRoute(party, (x,y) => canStand(x,y), persistSettings));
                 installSharedRuleRoutes(router, party, persistSettings);
                 router.post("/party-api/merchant/native-stand", coordinatorPolicies.createNativeStandRoute(party, { fulfill: fulfillStandBid, persist: persistSettings, dispatch: dispatchMerchant, stamp: stampMerchantJob }));

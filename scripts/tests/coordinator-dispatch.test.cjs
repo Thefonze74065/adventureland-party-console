@@ -2,6 +2,22 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const {dispatchRuntime,sampleJob}=require('./helpers/coordinator-dispatch.cjs');
 
+// Failure modes: a production receipt can be absent while lucky tidy/restore
+// still owns inventory; dispatch must not start banking, home travel, storage,
+// or gathering until a fresh merchant report releases that ownership.
+// Retained dispatcher isolation checks all effects without native timing races.
+test('busy merchant inventory holds every competing routine and resumes its retained queue',()=>{
+ const r=dispatchRuntime({merchantQueue:[sampleJob('restock')],gatheringModes:['fishing'],merchantHomeReturnAt:1});
+ r.party.statuses.M.upgradeInventoryBusy=true;
+ r.bankboiService.busy=()=>true;
+ let homes=0;r.ensureMerchantHome=()=>{homes++;return true;};
+ r.dispatchMerchant();
+ assert.equal(r.party.merchantQueue.length,1);assert.equal(r.party.merchantCurrent,null);
+ assert.equal(r.party.commands.M,undefined);assert.deepEqual(r.effects,[]);assert.equal(homes,0);
+ r.bankboiService.busy=()=>false;r.party.statuses.M.upgradeInventoryBusy=false;
+ r.dispatchMerchant();assert.equal(r.party.commands.M.type,'merchant-self-restock');
+});
+
 
 test('storage ownership blocks new jobs and stale targets are requeued without assigning work',async()=>{
   const r=dispatchRuntime({merchantQueue:[sampleJob('restock')]});

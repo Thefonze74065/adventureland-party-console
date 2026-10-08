@@ -10,7 +10,6 @@ function publicStateRuntime(){
   commands:{P:{id:10,type:'party-monster-travel',phase:'assemble',convoyId:'convoy',private:'omit'},Q:null},
   location:{map:'main',x:100,y:200},abtestingStrategy:null,bankSnapshot:{packs:{items0:[]}},bankVaults:[{pack:'items0'}],
   bankboiQueue:[],bankboiTransaction:null,ponty:{listings:[]},autoUpgradeMarks:{P:{}},travelPlaces:[{map:'main'}],
-  production:{attempts:{}},
   monsterChoices:[{id:'goo'}],bestiaryCatalog:[{id:'goo'}],skillCatalog:[{id:'attack'}],appearanceChoices:{eyes:[]},
   merchantCatalog:{allItems:[],buyable:[],craftable:[],exchangeable:[]},merchantQueue:[{id:'job',target:'P',reason:'restock'}],merchantCurrent:null,
   aldata:{merchants:[{id:'Trader',lastSeen:new Date(now-1000).toISOString(),serverRegion:'US',serverIdentifier:'II'},

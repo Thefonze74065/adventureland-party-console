@@ -128,16 +128,6 @@ export function createMerchantControlRoutes(state: ControlState, ports: ControlP
     ports.persist();
     return res.json({ ok: true, enabled: state.merchantForceStand });
   }
-  /** Ask the merchant to drop a lucky-slot journal its own recovery can't reconcile (#47). */
-  function clearLuckyJournal(_req: HttpRequest, res: HttpResponse): unknown {
-    const merchant = state.merchantCharacter;
-    if (!merchant) return res.status(409).json({ error: "configure a merchant first" });
-    if (state.merchantCurrent) return res.status(409).json({ error: "wait for the merchant's current job to finish" });
-    state.commands[merchant] = { id: ports.nextCommand(), type: "merchant-clear-lucky-journal" };
-    ports.log("Requested clearing the merchant's stuck lucky-slot journal", "warning");
-    ports.persist();
-    return res.json({ ok: true });
-  }
   /**
    * Manual "send the merchant to the bank": one bank exchange that deposits, withdraws pending
    * requests (bank stand/NPC sales, deliveries) and refreshes the bank snapshot (#28 2c).
@@ -157,5 +147,5 @@ export function createMerchantControlRoutes(state: ControlState, ports: ControlP
     ports.dispatch();
     return res.json({ ok: true, queued: true });
   }
-  return { cancel, clear, force, retry, clearLuckyJournal, visitBank };
+  return { cancel, clear, force, retry, visitBank };
 }

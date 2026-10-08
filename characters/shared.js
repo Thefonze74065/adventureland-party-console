@@ -347,8 +347,6 @@
   var upgrading = false;
   var activeUpgrade = null;
   var departurePending = false;
-  // A walking departure escaping attackers it can outrun (afterCombat's escape option).
-  var departureEscape = false;
   var townTraveling = false;
   var partyTownActive = false;
   var townOverrideInFlight = false;
@@ -615,12 +613,18 @@
   var lastUpgradePreview = null;
   var luckyUpgradeService = null;
   var luckySlotTracker = null;
+  var luckySlotCharacterId = null;
+  function bindLuckySlotCharacterId(id) {
+    if (typeof id !== "string" || !id || id === luckySlotCharacterId) return;
+    luckySlotCharacterId = id;
+    luckySlotTracker = null;
+  }
   function luckySlotTracking() {
     if (!luckySlotTracker) {
-      var key = "party-lucky-slot-tracking:" + character.owner + ":" + character.name;
+      var key = luckySlotCharacterId && "party-lucky-slot-tracking:" + character.owner + ":" + luckySlotCharacterId;
       luckySlotTracker = root.createPartyLuckySlotTracker({
-        read: function () { return JSON.parse(root.localStorage.getItem(key) || "null"); },
-        write: function (value) { root.localStorage.setItem(key, JSON.stringify(value)); },
+        read: function () { return key ? JSON.parse(root.localStorage.getItem(key) || "null") : null; },
+        write: function (value) { if (key) root.localStorage.setItem(key, JSON.stringify(value)); },
         now: Date.now,
         isUpgradeScroll: function (name) { return !!(G.items[name] && G.items[name].type === "uscroll"); }
       });
@@ -873,7 +877,7 @@
     if(data && currentPartyList().indexOf(String(data.id))>=0) {
       var aggressor=get_entity(data.hid || data.actor);
       var passingRule=aggressor && passiveHunting.rules[aggressor.mtype];
-      if(aggressor && aggressor.type==='monster' && !outrunConvoyAttacker(aggressor) && (!isPassingEncounter(aggressor) || returnDepartureDefense() && !(passingRule && passingRule.enabled && passingRule.keepMoving)) && !joinedEvent && !eventTargetTypes.length) {
+      if(aggressor && aggressor.type==='monster' && (!isPassingEncounter(aggressor) || returnDepartureDefense() && !(passingRule && passingRule.enabled && passingRule.keepMoving)) && !joinedEvent && !eventTargetTypes.length) {
         root.__partyDefensiveHit={target:groupedEntityReport(aggressor),at:Date.now()};
         interruptConvoyForDefense(null, null, aggressor);
         if(root.partyQueueClient)root.partyQueueClient.evidence(aggressor,'engaged');
@@ -1120,7 +1124,7 @@
     if (!item) return null;
     var copy = {};
     ["name", "level", "q", "p", "stat_type", "data", "price", "rid", "b", "m", "l", "v"].forEach(function (key) {
-      if (item[key] !== undefined) copy[key] = item[key];
+      if (item[key] != null) copy[key] = item[key];
     });
     return copy;
   }
@@ -2499,13 +2503,14 @@
         return {id:travelTrack.id,distance:travelTrack.distance,prepared:travelTrack.prepared,route:travelTrack.route};
       },
       sharedRoute: function (route, command) {
-        if (!travelTrack || travelTrack.id !== command.id || travelTrack.leader || travelTrack.prepared || !movement.state.found) return;
+        if (!travelTrack || travelTrack.id !== command.id || travelTrack.leader || travelTrack.prepared) return;
         try { movement.install(route.plot,route.identity,'cave-convoy'); preparedCaveRoute(route.plot); }
         catch(error) { movement.cancel('Cave convoy route could not be shared: '+String(error),{code:'cave-route-rejected'}); }
       },
       move: function (point, command) {
         travelTrack = command.cruiseSpeed ? {id:command.id,distance:0,x:character.real_x,y:character.real_y,leader:character.name===cavePartyNames()[0],prepared:false} : null;
         var journey = movement.move(point, undefined, { native: true, shared:!!command.cruiseSpeed, arrivalTolerance:command.action==='gather'?1:20, town: false, retainOnDirectStop: true,
+        awaitSharedRoute:!!travelTrack && !travelTrack.leader, nativePlanningTimeoutMs:travelTrack ? 90000 : 30000,
         barrier: async function () {
           if (character.cave) return dungeonClient.canMove();
           await smartLoot(); return !departureCombatPending() && eligibleDepartureChests().length === 0;
@@ -2614,10 +2619,10 @@
       upgradePreviewSession: upgradePreviewSession,
       upgradePreviewRevision: root.localStorage.getItem("party-upgrade-preview-revision:"+character.name) || "0",
       luckySlotTracking: luckySlotTracking().report(),
+      luckySlotCharacterId: luckySlotCharacterId,
       merchantEventReserved: merchantEventWorkReserved(),
-      upgradeInventoryBusy: !!(root.__merchantInventoryTidy || (luckyUpgradeService ? luckyUpgradeService.pending() :
+      upgradeInventoryBusy: !!(root.__merchantInventoryTidy || root.__partyProductionWorking || root.__partyProductionRecovery || (luckyUpgradeService ? luckyUpgradeService.pending() :
         root.localStorage.getItem("party-lucky-upgrade:" + character.name))),
-      luckyRecoveryError: root.__partyInventoryRecoveryError || null,
       steamPrimary: !parent.caracAL && !parent.no_html && !parent.is_bot,
       escape: escapeLocal,
       platform: parent.caracAL ? "caracal" : (parent.game && parent.game.platform || "browser"),
@@ -2631,7 +2636,7 @@
       combatSelection: { id: combatSelection.id, revision: combatSelection.revision,
         map: combatSelection.map, runtimeId: convoyRuntimeId, target: groupedNomination() },
       queueTiming: root.__partyQueueTiming || null,
-      groupedCombat: { approach:groupedApproachReport(),pursuitAck:groupedCombat && groupedCombat.pursuit && groupedCombat.pursuit.revoking || null, lootPending:!!(root.partyLootClient && root.partyLootClient.huntPending()), reportedAt: Date.now()+coordinatorClockOffset, protocol: 4, observationAt:root.__partyEntitiesObservedAt||0,passingEncounters:passingEncounterReport(),passingAcknowledgement:root.partyQueueClient && root.partyQueueClient.passingAcknowledgement && root.partyQueueClient.passingAcknowledgement(),huntDefense:huntTravelDefense(),returnDefense:typeof returnCombatActive==='function' && returnCombatActive() || returnDepartureDefense(),currentAttackers:currentTravelAttackers(),escaping:typeof escapingAttackers==="function"?escapingAttackers():[],travelCandidates:typeof returnCombatActive==='function' && returnCombatActive()?[]:travelStopCandidates(),currentAttackersAt:travelObservationAt(),travelCommand:localTravelCommand(), epoch: root.__partyCombatResetAt||0, claims: queueClaims(), candidates: queueCandidates(), retentions:queueRetentions(), evidence: root.partyQueueClient ? root.partyQueueClient.reportEvidence(fightDeaths) : [], handoff:root.partyQueueClient && root.partyQueueClient.handoff && root.partyQueueClient.handoff.report(), queueAck: groupedCombat && groupedCombat.queueRevision, deaths: fightDeaths, packets: fightPackets, threats: groupedThreatReports(), sightings: groupedSightings(), ack: groupedAcknowledgement(), anchorVisible: groupedAnchorVisible(), state: groupedCombat },
+      groupedCombat: { approach:groupedApproachReport(),pursuitAck:groupedCombat && groupedCombat.pursuit && groupedCombat.pursuit.revoking || null, lootPending:!!(root.partyLootClient && root.partyLootClient.huntPending()), reportedAt: Date.now()+coordinatorClockOffset, protocol: 4, observationAt:root.__partyEntitiesObservedAt||0,passingEncounters:passingEncounterReport(),passingAcknowledgement:root.partyQueueClient && root.partyQueueClient.passingAcknowledgement && root.partyQueueClient.passingAcknowledgement(),huntDefense:huntTravelDefense(),returnDefense:typeof returnCombatActive==='function' && returnCombatActive() || returnDepartureDefense(),currentAttackers:currentTravelAttackers(),travelCandidates:typeof returnCombatActive==='function' && returnCombatActive()?[]:travelStopCandidates(),currentAttackersAt:travelObservationAt(),travelCommand:localTravelCommand(), epoch: root.__partyCombatResetAt||0, claims: queueClaims(), candidates: queueCandidates(), retentions:queueRetentions(), evidence: root.partyQueueClient ? root.partyQueueClient.reportEvidence(fightDeaths) : [], handoff:root.partyQueueClient && root.partyQueueClient.handoff && root.partyQueueClient.handoff.report(), queueAck: groupedCombat && groupedCombat.queueRevision, deaths: fightDeaths, packets: fightPackets, threats: groupedThreatReports(), sightings: groupedSightings(), ack: groupedAcknowledgement(), anchorVisible: groupedAnchorVisible(), state: groupedCombat },
       dungeon: character.cave && root.installCaveRecovery ? Object.assign(dungeonRuntime().report(), { recovery: caveRecovery().report() }) : dungeonRuntime().report(),
       convoyProtocol: 4,
       movementGeometry: movement.identity,
@@ -2998,24 +3003,26 @@
     if (committedHuntEncounter(target) || typeof huntTravelDefense === "function" && huntTravelDefense() && !(rule && rule.enabled && rule.keepMoving)) return false;
     var key = passingKey(target), now = Date.now() + coordinatorClockOffset;
     if (target.dead || target.hp === 0) return false;
-    // This runs for every visible monster on every combat tick, and the coordinator's death list
-    // holds up to 512 entries. Index each list once (identity -> latest time) and reuse the index
-    // until that list is replaced, grows, or the character's realm/map/instance defaults change.
+    // Keep cache ownership inside this function: standalone runtime harnesses
+    // install it without the surrounding script. Weak keys release replaced
+    // coordinator lists; native deaths appended in place invalidate by length.
     var indexes = isPassingEncounter.indexes || (isPassingEncounter.indexes = new WeakMap());
-    var defaults = [reunionRealm(), character.map, character.in].join("|");
+    var context = JSON.stringify([reunionRealm(), character.map, String(character.in || character.map)]);
     function recent(list) {
       if (!list || !list.length) return false;
-      var index = indexes.get(list);
-      if (!index || index.length !== list.length || index.defaults !== defaults) {
-        index = { length: list.length, defaults: defaults, latest: new Map() };
-        list.forEach(function (entry) {
-          var at = Number(entry.at), entryKey = passingKey(entry);
-          // A NaN time never matches; it must not hide a valid entry for the same identity.
-          if (at === at && !(index.latest.get(entryKey) >= at)) index.latest.set(entryKey, at);
+      var cached = indexes.get(list);
+      if (!cached || cached.length !== list.length || cached.context !== context) {
+        var latest = new Map();
+        list.forEach(function(entry) {
+          var at = Number(entry.at);
+          if (Number.isNaN(at)) return;
+          var identity = passingKey(entry);
+          if (!latest.has(identity) || at > latest.get(identity)) latest.set(identity, at);
         });
-        indexes.set(list, index);
+        cached = {length:list.length,context:context,latest:latest};
+        indexes.set(list,cached);
       }
-      return index.latest.has(key) && now - index.latest.get(key) < 60000;
+      return now - cached.latest.get(key) < 60000;
     }
     if (recent(typeof fightDeaths !== 'undefined' ? fightDeaths : null) || recent(groupedCombat && groupedCombat.deaths)) return false;
     if (recent(peerPassingEncounters)) return true;
@@ -3234,34 +3241,10 @@
   function rareSearchKind() {
     return rareActive() && ["search", "converge"].indexOf(rareControlState.kind) >= 0;
   }
-  function rareUnderAttack() { return caughtBy().length > 0; }
-  // Caught outside a fight: a character escapes an attacker it is faster than by
-  // walking its existing path, and fights only one that keeps up (equal speed does).
-  function canOutrun(monster) {
-    var definition = G.monsters && G.monsters[monster.mtype] || {};
-    return Number(character.speed) > (Number(monster.speed || definition.speed) || 0);
-  }
-  // On its way (Phoenix search or converge, farming reunion), a character walks away
-  // from attackers it can outrun; the coordinator keeps them out of the party's fight.
-  function escapingAttackers() {
-    if (!(typeof rareSearchKind === "function" && rareSearchKind() || typeof reunion !== "undefined" && reunion)) return [];
-    var rare = typeof rareTarget === "function" && rareTarget();
-    return Object.values(parent.entities || {}).filter(function (e) {
-      return e && e.type === "monster" && e.visible && !e.dead && e.target === character.name && canOutrun(e) && !(rare && rare.id === e.id);
-    }).map(function (e) { return { id: String(e.id), mtype: e.mtype, map: character.map, in: character.in, server: reunionRealm() }; });
-  }
-  // Party travel keeps walking from an attacker the member it targets can outrun, rather than
-  // pausing the whole convoy to defend (caught-by-monster rule). Unknown speeds defend.
-  function outrunConvoyAttacker(monster) {
-    if (!monster || !convoyTraveling || convoyTraveling.purpose !== "party-travel") return false;
-    var victim = monster.target === character.name ? character : get_player(monster.target);
-    var definition = G.monsters && G.monsters[monster.mtype] || {};
-    return !!victim && Number(victim.speed) > (Number(monster.speed || definition.speed) || Infinity);
-  }
-  function caughtBy() {
-    return Object.values(parent.entities || {}).filter(function (e) {
-      return e && e.type === "monster" && e.visible && !e.dead && e.target === character.name && !canOutrun(e);
-    }).sort(function (a, b) { return combatDistance(a) - combatDistance(b); });
+  function rareUnderAttack() {
+    return Object.values(parent.entities || {}).some(function (e) {
+      return e && e.type === "monster" && e.visible && !e.dead && e.target === character.name;
+    });
   }
   function rareActive() {
     if (typeof unfinishedFight === "function" && unfinishedFight() &&
@@ -4507,24 +4490,37 @@
       journal.success=false;
     } else {
       if (character.q && (character.q.upgrade || character.q.compound)) throw Error("Production recovery waiting for game operation");
+      // Retain the interrupted layout before recovery clears it. An empty old
+      // source alone cannot distinguish a burned item from a relocated survivor.
+      var luckyEvidence = JSON.parse(root.localStorage.getItem("party-lucky-upgrade:" + character.name) || "null") || journal.lucky;
+      var emptyLuckyResult = luckyEvidence && luckyEvidence.phase !== "preparing" &&
+        luckyEvidence.from === journal.slots[0] && sameItemState(luckyEvidence.item, journal.item) &&
+        !character.items[luckyEvidence.to];
       if (luckyUpgradeService && luckyUpgradeService.pending()) await luckyUpgradeService.recover();
       else if (character.ctype === "merchant" && root.localStorage.getItem("party-lucky-upgrade:" + character.name)) await merchantLuckyUpgrade().recover();
       var live = character.items[journal.slots[0]];
       if (journal.commerce && (!live || live.name !== journal.item.name ||
           [(journal.item.level || 0), (journal.item.level || 0) + 1].indexOf(live.level || 0) < 0)) {
-        var previous = JSON.stringify(journal.item), upgraded = JSON.stringify(Object.assign({}, journal.item, {level: (journal.item.level || 0) + 1}));
+        var previous = JSON.stringify(fingerprint(journal.item)), upgraded = JSON.stringify(fingerprint(Object.assign({}, journal.item, {level: (journal.item.level || 0) + 1})));
         var candidates = character.items.map(function (item, slot) {
           var state = JSON.stringify(fingerprint(item));
           return state === previous || state === upgraded ? slot : -1;
         }).filter(function (slot) { return slot >= 0; });
-        if (candidates.length !== 1) throw Error("Production outcome needs review before another attempt: " + journal.item.name);
-        journal.slots[0] = candidates[0]; live = character.items[candidates[0]];
+        var possibleSurvivor = character.items.some(function (item) {
+          return item && item.name === journal.item.name &&
+            [(journal.item.level || 0), (journal.item.level || 0) + 1].indexOf(item.level || 0) >= 0;
+        });
+        if (!candidates.length && emptyLuckyResult && !live && !possibleSurvivor) journal.destroyed = true;
+        else {
+          if (candidates.length !== 1) throw Error("Production outcome needs review before another attempt: " + journal.item.name);
+          journal.slots[0] = candidates[0]; live = character.items[candidates[0]];
+        }
       }
       if (live && live.name === journal.item.name && (live.level || 0) === (journal.item.level || 0)+1) journal.success=true;
-      else if ((!live && !journal.commerce) || JSON.stringify(fingerprint(live)) === JSON.stringify(journal.item)) journal.success=false;
+      else if (journal.destroyed || (!live && !journal.commerce) || JSON.stringify(fingerprint(live)) === JSON.stringify(fingerprint(journal.item))) journal.success=false;
       else throw Error("Production outcome needs review before another attempt: " + journal.item.name);
     }
-    if (journal.commerce) journal.outcomeItem = fingerprint(character.items[journal.slots[0]]);
+    if (journal.commerce) journal.outcomeItem = journal.destroyed ? null : fingerprint(character.items[journal.slots[0]]);
     journal.phase="complete";await saveProductionJournal(journal);
     await finishProductionJournal(journal);
   }
@@ -6191,6 +6187,33 @@
   function isDashboardEquipment(item) {
     var definition = G.items[item && item.name] || {};
     return ["helmet", "pants", "chest", "weapon", "amulet", "earring", "shoes", "gloves", "ring", "shield", "belt", "source", "orb", "quiver", "cape", "misc_offhand", "tool"].includes(definition.type);
+  }
+  async function equipDashboardItem(command) {
+    if (!isDashboardEquipment(command.item)) throw new Error("item is not equipment; use its explicit Use action instead");
+    if (root.partyPorcupineEquipment) await root.partyPorcupineEquipment.manual();
+    if (root.partyKillLuckSwap) await root.partyKillLuckSwap.manual();
+    if (character.ctype === "merchant") await closeMerchantStandForTravel();
+    // Normalize old dashboard snapshots too: native drag/equip updates can add
+    // or omit null metadata without changing the selected item's identity.
+    // Resolve after preparation awaits, which can restore/move weapon inventory.
+    var slot = findItem(fingerprint(command.item));
+    if (slot < 0) throw new Error("selected equipment is no longer in inventory; refresh and try again");
+    // The native catalog owns slot selection (Loaded Die is type orb). Keep
+    // class-specific weapon and paired ring/earring selection native too.
+    var previousHands = character.ctype === "merchant" && gatheringSession
+      ? {mainhand:fingerprint(character.slots.mainhand),offhand:fingerprint(character.slots.offhand)} : null;
+    await equip(slot);
+    // Gathering owns temporary tools, but manual choices own the loadout that
+    // gets restored afterwards. Update only hands changed by this native equip;
+    // equipping armor or an orb must not save an active tool as the normal hand.
+    if (previousHands && gatheringSession) {
+      ["mainhand","offhand"].forEach(function(hand) {
+        var actual = character.slots[hand];
+        if (!sameItemState(actual, previousHands[hand]) && (!actual || ["rod","pickaxe"].indexOf(actual.name) < 0))
+          gatheringSession[hand] = fingerprint(actual);
+      });
+      root.__merchantGatheringSession = gatheringSession;
+    }
   }
   async function useDashboardItem(command) {
     var item = character.items[command.slot];
@@ -9565,27 +9588,6 @@
       catch (error) { game_log("Cosmetics: " + (error && (error.reason || error.message) || error), "red"); }
       return;
     }
-    if (command.type === "reset-lucky-slot-tracking") {
-      // Companion to the coordinator clearing its own luckySlotTracking/
-      // luckyUpgradeSlots record: this character's own browser storage holds
-      // an independent copy and replays it on the next heartbeat otherwise,
-      // reviving the data the dashboard just cleared.
-      lastCommand = command.id; root.__partyLastCommand = lastCommand;
-      luckySlotTracking().reset();
-      game_log("Cleared local lucky-slot tracking", "#F0B742");
-      return;
-    }
-    if (command.type === "merchant-clear-lucky-journal" && character.ctype === "merchant") {
-      // Operator escape hatch: handled before the lucky-slot gate below, which would only retry
-      // the same failing recovery. Items stay where they are; only the blocking journal goes.
-      lastCommand = command.id; root.__partyLastCommand = lastCommand;
-      var discarded = luckyUpgradeService ? luckyUpgradeService.discard() : { cleared: false, journal: null };
-      if (discarded.cleared) {
-        root.__partyInventoryRecoveryError = null;
-        game_log("Cleared stuck lucky-slot journal: " + JSON.stringify(discarded.journal), "#F0B742");
-      } else game_log(discarded.journal ? "Lucky-slot journal is in use; not cleared" : "No lucky-slot journal to clear", "#F0B742");
-      return;
-    }
     var returningToStand = command.type === "merchant-idle" && !command.inPlace;
     if (!returningToStand && character.ctype === "merchant" && root.__merchantInventoryTidy) await root.__merchantInventoryTidy;
     if (!returningToStand && character.ctype === "merchant" && luckyUpgradeService && luckyUpgradeService.pending()) {
@@ -9954,7 +9956,7 @@
           eventRecoveryState.phase = "town-ready";
           await saveReturnPhase(command,"event","complete");
           game_log("Event ended; returned to Town", "#c084fc");
-        }, "returning from the event", { escape: true });
+        }, "returning from the event");
         requireEventExitOwner();
         await request("/event-return-complete", {
           method: "POST",
@@ -9983,7 +9985,7 @@
       return afterCombat(async function () {
         await smart_move(command.location);
         game_log("Arrived at " + (command.label || "destination"), "#51D2E1");
-      }, "travel", { escape: true });
+      }, "travel");
     }
     if (command.type === "party-monster-travel" && command.location) {
       if (command.manualMonsterOverride) {
@@ -10026,7 +10028,7 @@
         return coordinatedMonsterTravel(command);
       }
       if(command.purpose === "party-travel" && command.phase === "assemble")
-        return afterCombat(function(){return coordinatedMonsterTravel(command);},"party travel",{ escape: true });
+        return afterCombat(function(){return coordinatedMonsterTravel(command);},"party travel");
       return coordinatedMonsterTravel(command);
     }
     if (command.type === "event-resume-travel" && command.location) {
@@ -10041,16 +10043,11 @@
         await joinEventDestination(leaderLocation);
         await smart_move(leaderLocation);
         game_log("Returned to party leader", "#51D2E1");
-      }, "returning to leader", { escape: true });
+      }, "returning to leader");
     }
     if (command.type === "use-item") return useDashboardItem(command);
     if (command.type === "equip") {
-      if (!isDashboardEquipment(command.item)) throw new Error("item is not equipment; use its explicit Use action instead");
-      if (root.partyPorcupineEquipment) await root.partyPorcupineEquipment.manual();
-      if (root.partyKillLuckSwap) await root.partyKillLuckSwap.manual();
-      if (character.ctype === "merchant") await closeMerchantStandForTravel();
-      var slot = findItem(command.item);
-      if (slot >= 0) await equip(slot);
+      await equipDashboardItem(command);
     }
     if (command.type === "equip-deliveries") {
       var equipResults = await equipDeliveredItems(command.items || []);
@@ -10066,9 +10063,9 @@
       if (typeof command.slot !== "string" || !sameItem(character.slots[command.slot], command.item))
         throw new Error("equipped item no longer matches that slot");
       await unequip(command.slot);
-      if (character.ctype === "merchant" && command.slot === "mainhand" && gatheringSession &&
-          sameItem(gatheringSession.mainhand, command.item)) {
-        gatheringSession.mainhand = null;
+      if (character.ctype === "merchant" && ["mainhand","offhand"].indexOf(command.slot) >= 0 && gatheringSession &&
+          sameItem(gatheringSession[command.slot], command.item)) {
+        gatheringSession[command.slot] = null;
         root.__merchantGatheringSession = gatheringSession;
       }
     }
@@ -10277,10 +10274,8 @@
       // telemetry itself holds dispatch. Inspect receipts before stale layouts.
       if (character.ctype === "merchant" && luckyUpgradeService && luckyUpgradeService.pending() &&
           !root.__merchantActiveJob && !root.__partyProductionWorking && !root.__merchantInventoryTidy) {
-        try { await recoverProductionJournal(); await luckyUpgradeService.recover(); root.__partyInventoryRecoveryError = null; }
+        try { await recoverProductionJournal(); await luckyUpgradeService.recover(); }
         catch (error) {
-          // Reported in status so the dashboard can show why merchant work is held.
-          root.__partyInventoryRecoveryError = { message: String(error.message || error), at: Date.now() };
           if (Date.now() - (root.__partyInventoryRecoveryLogAt || 0) > 30000) {
             root.__partyInventoryRecoveryLogAt = Date.now();
             game_log("Inventory recovery retry: " + String(error.message || error), "red");
@@ -10425,7 +10420,10 @@
         gatheringSession.atStandForCooldown = false;
       gatheringStandListings = nextStandListings;
       merchantWeapon = state.merchantWeapon || null;
-      luckyUpgradeSlot = state.luckyUpgradeSlots && state.luckyUpgradeSlots[character.name];
+      luckyUpgradeSlot = state.luckySlotLocks && Number.isInteger(state.luckySlotLocks[character.name])
+        ? state.luckySlotLocks[character.name] : state.luckySlotResume && state.luckySlotResume[character.name] ? state.luckySlotResume[character.name].slot
+        : state.luckyUpgradeSlots && state.luckyUpgradeSlots[character.name];
+      bindLuckySlotCharacterId(state.luckySlotCharacterIds && state.luckySlotCharacterIds[character.name]);
       luckySlotTracking().sync(state.luckySlotTracking && state.luckySlotTracking[character.name]);
       merchantForceStand = !!state.merchantForceStand;
       if (state.merchantStandLocation && state.merchantStandLocation.map === "main" &&
@@ -13111,8 +13109,7 @@
     return Object.values(parent.entities || {}).filter(function(e) {
       if(typeof outboundHuntTravel === 'function' && outboundHuntTravel() || typeof convoyTraveling!=='undefined' && convoyTraveling && convoyTraveling.continuousReturn===1)return e && e.type==='monster' && e.visible && !e.dead && e.hp>0 &&
         currentPartyList().indexOf(e.target)>=0 && !fightDeaths.some(function(d){return passingKey(d)===passingKey(e);});
-      // The coordinator defends against every reported attacker; party travel walks on from one it outruns.
-      return e && e.type === "monster" && departureTargetEngaged(e) && !outrunConvoyAttacker(e);
+      return e && e.type === "monster" && departureTargetEngaged(e);
     }).map(function(e) { return Object.assign({}, groupedEntityReport(e), { target: e.target, server: reunionRealm() }); });
   }
   function travelObservationAt() {
@@ -13268,7 +13265,7 @@
   function queueReport() {
     return {name:character.name,monsterHunt:monsterHuntStatus(),rareObservation:rareObservationReport(),map:character.map,in:character.in,server:reunionRealm(),x:character.x,y:character.y,hp:character.hp,max_hp:character.max_hp,lastDeath:lastDeathInfo,rip:!!character.rip,
       combatSelection:Object.assign({},combatSelection,{runtimeId:convoyRuntimeId,target:groupedNomination()}),
-      groupedCombat:{formationRecovery:root.partyQueueClient && root.partyQueueClient.formation ? root.partyQueueClient.formation.report() : undefined,approach:groupedApproachReport(),pursuitAck:groupedCombat && groupedCombat.pursuit && groupedCombat.pursuit.revoking || null,lootPending:!!(root.partyLootClient && root.partyLootClient.huntPending()),reportedAt:Date.now()+coordinatorClockOffset,protocol:4,observationAt:root.__partyEntitiesObservedAt||0,passingEncounters:passingEncounterReport(),passingAcknowledgement:root.partyQueueClient && root.partyQueueClient.passingAcknowledgement && root.partyQueueClient.passingAcknowledgement(),huntDefense:huntTravelDefense(),returnDefense:typeof returnCombatActive==='function' && returnCombatActive() || returnDepartureDefense(),currentAttackers:currentTravelAttackers(),escaping:typeof escapingAttackers==="function"?escapingAttackers():[],travelCandidates:typeof returnCombatActive==='function' && returnCombatActive()?[]:travelStopCandidates(),currentAttackersAt:travelObservationAt(),travelCommand:localTravelCommand(),epoch:root.__partyCombatResetAt||0,claims:typeof returnCombatActive==='function' && returnCombatActive()?[]:queueClaims(),candidates:typeof returnCombatActive==='function' && returnCombatActive()?[]:queueCandidates(),retentions:typeof returnCombatActive==='function' && returnCombatActive()?[]:queueRetentions(),evidence:root.partyQueueClient ? root.partyQueueClient.reportEvidence(fightDeaths) : [],deaths:fightDeaths,
+      groupedCombat:{formationRecovery:root.partyQueueClient && root.partyQueueClient.formation ? root.partyQueueClient.formation.report() : undefined,approach:groupedApproachReport(),pursuitAck:groupedCombat && groupedCombat.pursuit && groupedCombat.pursuit.revoking || null,lootPending:!!(root.partyLootClient && root.partyLootClient.huntPending()),reportedAt:Date.now()+coordinatorClockOffset,protocol:4,observationAt:root.__partyEntitiesObservedAt||0,passingEncounters:passingEncounterReport(),passingAcknowledgement:root.partyQueueClient && root.partyQueueClient.passingAcknowledgement && root.partyQueueClient.passingAcknowledgement(),huntDefense:huntTravelDefense(),returnDefense:typeof returnCombatActive==='function' && returnCombatActive() || returnDepartureDefense(),currentAttackers:currentTravelAttackers(),travelCandidates:typeof returnCombatActive==='function' && returnCombatActive()?[]:travelStopCandidates(),currentAttackersAt:travelObservationAt(),travelCommand:localTravelCommand(),epoch:root.__partyCombatResetAt||0,claims:typeof returnCombatActive==='function' && returnCombatActive()?[]:queueClaims(),candidates:typeof returnCombatActive==='function' && returnCombatActive()?[]:queueCandidates(),retentions:typeof returnCombatActive==='function' && returnCombatActive()?[]:queueRetentions(),evidence:root.partyQueueClient ? root.partyQueueClient.reportEvidence(fightDeaths) : [],deaths:fightDeaths,
         threats:groupedThreatReports(),sightings:groupedSightings(),ack:groupedAcknowledgement(),handoff:root.partyQueueClient && root.partyQueueClient.handoff && root.partyQueueClient.handoff.report(),queueAck:groupedCombat && groupedCombat.queueRevision,
         anchorVisible:groupedAnchorVisible(),state:groupedCombat}};
   }
@@ -13740,15 +13737,11 @@
     return attackers[0] || null;
   }
 
-  async function afterCombat(action, label, options) {
+  async function afterCombat(action, label) {
     var navigationOwner = farmingTravelToken;
     departurePending = true;
     var travel = travelCombatActive();
-    // A walking departure leaves attackers it can outrun behind (caught-by-monster rule) and
-    // waits only for one that keeps up. In an aggressive spawn a new attacker engages before
-    // the last dies, so waiting for all combat to end never let an event return start.
-    departureEscape = !!(options && options.escape);
-    function waiting() { return travel ? getNearestPartyAttacker() : departureCombatTarget(); }
+    function waiting() { return travel ? getNearestPartyAttacker() : engagedMonster(); }
     var target = waiting();
     if (target) game_log("Finishing combat before " + label, "#51D2E1");
     try {
@@ -13761,14 +13754,7 @@
       return await action();
     } finally {
       departurePending = false;
-      departureEscape = false;
     }
-  }
-  // While departing, fight only what must be fought first. An escaping walk ignores attackers
-  // it can outrun; turning a melee fighter back toward one would cancel its route.
-  function departureCombatTarget() {
-    if (!departureEscape) return engagedMonster();
-    return caughtBy().filter(function (monster) { return isAllowedTarget(monster); })[0] || null;
   }
 
   function inFarmArea(target, location, margin) {
@@ -15400,8 +15386,6 @@
     if (!healRange) return false;
     var safeRange = healRange - Math.min(20, Math.max(8, healRange * 0.1));
     var attackers = formationFrame.attackers;
-    // Caught outside a fight by attackers it can outrun: keep walking, don't hover.
-    if (!target && typeof canOutrun === "function" && attackers.every(canOutrun)) return false;
     var chased = attackers.length > 0;
     var reference = target || attackers.sort(function (a, b) { return combatDistance(a) - combatDistance(b); })[0];
     if (!reference) return false;
@@ -16309,7 +16293,7 @@
       if (travelCombatActive() && !huntTravelDefense() && !departureCombatPending()) return true;
       if(root.partyLootClient && root.partyLootClient.huntPending() && !departureCombatPending())return true;
       if(convoyTraveling && !joinedEvent && !eventTargetTypes.length && Object.values(parent.entities||{}).some(function(e){
-        return e && e.type==='monster' && e.visible && !e.dead && isAttackingPartyMember(e) && !outrunConvoyAttacker(e);
+        return e && e.type==='monster' && e.visible && !e.dead && isAttackingPartyMember(e);
       }))interruptConvoyForDefense();
       if (combatRecoveryActive() && root.__partyCombatRecovery.phase!=='finishing') return true;
       if (escapeOwns()) return true;
@@ -16322,7 +16306,7 @@
       var convoyBlocksCombat = !!convoyTraveling && !convoyTraveling.defensePaused;
       root.__partyCombatOwner = convoyTraveling ? "convoy:" + convoyTraveling.phase : eventTraveling ? "event-travel" : followingLeader ? "follow" : null;
       if (reunion && !reunionBlocked() || banking || stocking || upgrading || forceTraveling || townTraveling || partyTownActive || convoyBlocksCombat || gatheringActive || followingLeader || eventTraveling || (anniversaryBusy || anniversaryStaging) && !root.__partyConvoyDefense) return true;
-      if (departurePending || bankQueued) return !departureCombatTarget();
+      if (departurePending || bankQueued) return !engagedMonster();
       return false;
     },
     isConvoyTraveling: function () { return !!convoyTraveling; },
@@ -16435,8 +16419,6 @@
           (!enemy.map || enemy.map === character.map) && (enemy.in == null || character.in == null || enemy.in === character.in) &&
           enemy.target === character.name; }).sort(function (a, b) { return combatDistance(a) - combatDistance(b); })[0];
       if (!threat) return false;
-      // An attacker it can outrun is escaped by walking on, not by kiting in place.
-      if (typeof canOutrun === "function" && canOutrun(threat)) return false;
       // No attack target: only evade an attacker that can reach us shortly.
       var definition = G.monsters && G.monsters[threat.mtype] || {};
       if (combatDistance(threat) > (Number(threat.range || definition.range) || 20) +
@@ -16581,7 +16563,7 @@
       }
     },
     getLeaderTarget: function () {
-      if (departurePending || bankQueued) return departureCombatTarget();
+      if (departurePending || bankQueued) return engagedMonster();
       if (groupedFollower()) return this.getGroupedTarget();
       if (convoyTraveling) {
         var threatened = partyThreats.map(function (threat) { return get_entity(threat.id); })
@@ -16796,15 +16778,7 @@
       var target = lock && lock.id && get_entity(lock.id);
       if (target && target.visible && !target.dead && isAllowedTarget(target) &&
           (!unfinishedFight() || is_in_range(target))) return target;
-      return groupedDefensiveTarget() || (target && target.visible && !target.dead && isAllowedTarget(target) ? target : null) ||
-        caughtTarget();
-      // No fight selected: the queue never nominates an attacker that caught a
-      // character away from the party. One it cannot outrun is killed before
-      // moving on (isAllowedTarget keeps a scattered search's Phoenix on hold fire).
-      function caughtTarget() {
-        if (typeof caughtBy !== "function") return null;
-        return caughtBy().filter(function (e) { return isAllowedTarget(e); })[0] || null;
-      }
+      return groupedDefensiveTarget() || (target && target.visible && !target.dead && isAllowedTarget(target) ? target : null);
     },
     combatTargetRevision: function () {
       if (dungeonOwned()) return "dungeon:" + (character.cave && character.cave.run || character.in) + ":" + combatTargetId;

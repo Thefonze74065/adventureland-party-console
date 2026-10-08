@@ -12,6 +12,7 @@ function createRareCombat(party, members, realm) {
   return {
     grouped,
     selected: sight => same(target(), sight),
+    queued: sight => !!party.groupedCombat?.queue?.some(candidate => same(candidate, sight)),
     locked: sight => !!party.groupedCombat?.fights?.some(f => same(f, sight)),
     engaged: sight => !!party.groupedCombat?.fights?.some(f => same(f, sight) && f.state === 'engaged'),
     busy: () => !!party.groupedCombat?.fights?.length,

@@ -70,7 +70,7 @@ function statusFixture() {
   keepTracktrixLast:async()=>{},dungeonRuntime:()=>({receive(){},owns:()=>false}),
   busy:false,snapshot:()=>({}),runtimeCurrent:()=>true,dashboardSampler:null,reloadConvoyGeometry(){},
   prepareCatalog:async()=>{},applyMerchantVisibility:async()=>{},
-  luckySlotTracking:()=>({sync:()=>{}}),
+  bindLuckySlotCharacterId(){},luckySlotTracking:()=>({sync:()=>{}}),
   wakeGatheringAfterStatus:()=>{r.gatheringWakes=(r.gatheringWakes||0)+1;},
   applyEscape:async()=>{},applyNavigationIntent:async()=>{},acceptCombatControl(){},
   rareControlState:null,cancelRarePath(){},followLeader:false,followingLeader:false,

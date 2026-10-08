@@ -26,12 +26,14 @@ export type LiveGame = {
   reconnectClient(name: string): Promise<void>;
 };
 
-export const test = base.extend<{ live: LiveGame; loadout: NativeLoadout; primaryClass: 'warrior' | 'ranger'; merchantDefault: string | null; initialPosition: {map: string; x: number; y: number} | null }>({
+export const test = base.extend<{ live: LiveGame; loadout: NativeLoadout; primaryClass: 'warrior' | 'ranger'; merchantDefault: string | null; liveHeadless: boolean; staleWorkerRealm: string | null; initialPosition: {map: string; x: number; y: number} | null }>({
   loadout: ['god', {option:true}],
   primaryClass: ['warrior', {option:true}],
   merchantDefault: ['E2EMerchant', {option:true}],
   initialPosition: [null, {option:true}],
-  live: [async ({ browser, dashboard, loadout, primaryClass, merchantDefault, initialPosition }, use, testInfo) => {
+  liveHeadless: [false, {option:true}],
+  staleWorkerRealm: [null, {option:true}],
+  live: [async ({ browser, dashboard, loadout, primaryClass, merchantDefault, initialPosition, liveHeadless, staleWorkerRealm }, use, testInfo) => {
     const directory = path.join(root, '.build/e2e', `live-${randomUUID()}`);
     mkdirSync(directory, { recursive: true });
     const manifest = await game.reset();
@@ -69,7 +71,7 @@ export const test = base.extend<{ live: LiveGame; loadout: NativeLoadout; primar
     async function start() {
       coordinator = child(path.join(root, 'e2e/live-coordinator.cjs'), [], root,
         environment({ E2E_COORDINATOR_PORT: String(port), E2E_DATA_DIR: directory,
-          E2E_GAME_WEB_URL: manifest.webUrl, E2E_GAME_AUTH: manifest.auth, E2E_MERCHANT_DEFAULT: JSON.stringify(merchantDefault) }), log);
+          E2E_GAME_WEB_URL: manifest.webUrl, E2E_GAME_AUTH: manifest.auth, E2E_MERCHANT_DEFAULT: JSON.stringify(merchantDefault), E2E_ALLOW_HEADLESS: String(liveHeadless), E2E_STALE_WORKER_REALM: staleWorkerRealm || '' }), log);
       const current = coordinator;
       await new Promise<void>((resolve, reject) => {
         const details = () => existsSync(log) ? readFileSync(log, 'utf8').slice(-16000) : 'No coordinator output';
@@ -115,9 +117,11 @@ export const test = base.extend<{ live: LiveGame; loadout: NativeLoadout; primar
           const entries = readFileSync(journal, 'utf8').trim().split('\n').map(line => JSON.parse(line));
           const key = 'party_dashboard_settings_state_v1';
           const stored = Object.assign({}, ...entries);
-          const settings = JSON.parse(stored[key]);
-          const historical = restore(structuredClone(settings));
-          const allowed = new Set(['characterLocations', 'location', 'farmingPolicy', 'farmingProfiles', 'eventSelectionsByCharacter', 'activeConvoy', 'deferredEventReturns', 'eventReturn', 'monsterHunt', 'merchantDeliveries', 'npcSaleMarks', 'merchantCurrent', 'merchantCharacter', 'bankbois', 'bankboiTransaction', 'production', 'nativeStand', 'standBids', 'luckyUpgradeSlots', 'autoItemMarks', 'autoUpgradeMarks', 'autoCompounds']);
+          const decoded = (stateKey: string) => typeof stored[stateKey] === 'string'
+            ? JSON.parse(stored[stateKey]) : structuredClone(stored[stateKey] || {});
+          const settings = decoded(key);
+          const historical = await restore(structuredClone(settings));
+          const allowed = new Set(['characterLocations', 'location', 'farmingPolicy', 'farmingProfiles', 'eventSelectionsByCharacter', 'activeConvoy', 'deferredEventReturns', 'eventReturn', 'monsterHunt', 'merchantDeliveries', 'npcSaleMarks', 'merchantCurrent', 'merchantCharacter', 'bankbois', 'bankboiTransaction', 'production', 'nativeStand', 'standBids', 'luckyUpgradeSlots', 'autoItemMarks', 'autoUpgradeMarks', 'autoCompounds', 'gatheringCooldowns']);
           if (Object.keys(historical).some(key => !allowed.has(key))) throw Error('Historical seed may only patch declared recovery, Hunt, navigation and native WTB settings');
           await testInfo.attach('declared-historical-settings-seed', { body: JSON.stringify(historical), contentType: 'application/json' });
           const bankKeys = new Set(['bankbois', 'bankboiTransaction']);
@@ -125,12 +129,12 @@ export const test = base.extend<{ live: LiveGame; loadout: NativeLoadout; primar
           const selectionKeys = new Set<string>(selectionFields);
           const selectionsPatch = Object.fromEntries(Object.entries(historical).filter(([field]) => selectionKeys.has(field)));
           const settingsPatch = Object.fromEntries(Object.entries(historical).filter(([field]) => !bankKeys.has(field) && !selectionKeys.has(field)));
-          const restored: Record<string, string> = { [key]: JSON.stringify({ ...settings, ...settingsPatch }) };
+          const restored: Record<string, unknown> = { [key]: { ...settings, ...settingsPatch } };
           if (Object.keys(selectionsPatch).length)
-            restored[stateKeys.selections] = JSON.stringify({ ...JSON.parse(stored[stateKeys.selections] || '{}'), ...selectionsPatch });
+            restored[stateKeys.selections] = { ...decoded(stateKeys.selections), ...selectionsPatch };
           if (Object.keys(bankPatch).length) {
             const bankKey = 'party_dashboard_bank_state_v1';
-            restored[bankKey] = JSON.stringify({ ...JSON.parse(stored[bankKey] || '{}'), ...bankPatch });
+            restored[bankKey] = { ...decoded(bankKey), ...bankPatch };
           }
           for (const [stateKey, value] of Object.entries(restored))
             appendFileSync(journal, JSON.stringify({ [stateKey]: value }) + '\n');
@@ -230,16 +234,29 @@ export const test = base.extend<{ live: LiveGame; loadout: NativeLoadout; primar
         await attach('live-action-ledger', exchanges);
         await attach('live-blocked-external-requests', blocked);
       } finally {
-        await context.close();
-        for (const [index, page] of [...nativePages].entries()) {
-          const video = page.video();
-          if (video) await testInfo.attach(`native-game-video-${index}`, { path: await video.path(), contentType: 'video/webm' });
+        try {
+          const closed = await diagnostic(context.close());
+          if (closed) await attach('native-context-close-diagnostic', closed);
+          for (const [index, page] of [...nativePages].entries()) {
+            const video = page.video();
+            if (!video) continue;
+            const result = await diagnostic((async () => {
+              await testInfo.attach(`native-game-video-${index}`, { path: await video.path(), contentType: 'video/webm' });
+            })());
+            if (result) await attach(`native-game-video-${index}-diagnostic`, result);
+          }
+        } finally {
+          server.closeAllConnections();
+          await diagnostic(new Promise<void>(resolve => {
+            if (server.listening) server.close(() => resolve());
+            else resolve();
+          }));
+          try { if (coordinator) await stop(coordinator, true); }
+          finally {
+            for (const file of [log, dashboard.log, path.join(directory, 'state.jsonl')])
+              if (existsSync(file)) await diagnostic(testInfo.attach(path.basename(file), { path: file, contentType: 'text/plain' }));
+          }
         }
-        server.closeAllConnections();
-        if (server.listening) await new Promise<void>(resolve => server.close(() => resolve()));
-        if (coordinator) await stop(coordinator, true);
-        for (const file of [log, dashboard.log, path.join(directory, 'state.jsonl')])
-          if (existsSync(file)) await testInfo.attach(path.basename(file), { path: file, contentType: 'text/plain' });
       }
     }
   }, { timeout: 300_000 }],

@@ -93,6 +93,11 @@ container; it exposes no host port. Only its authenticated, fixed release action
 are available to the application. Users managing containers externally can omit
 the companion and AL_UPDATER_URL; the dashboard then provides notifications only.
 
+The managed Compose file rotates stdout/stderr logs for both services with Docker's
+`json-file` driver, retaining three files of up to 10 MB each. Managed console
+updates preserve that logging configuration. Existing installations must adopt
+the updated Compose file and recreate their services to apply these limits.
+
 For an existing source-build Compose installation, keep its project name and
 existing volume when adopting the release Compose file. Do not silently accept a
 new project name, which would create an empty volume. Back up the old volume first.

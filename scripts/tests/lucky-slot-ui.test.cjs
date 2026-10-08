@@ -17,7 +17,7 @@ test('slot search UI distinguishes missing evidence, inference, and verified slo
  const markup=render({tracking:{version:1,slots:{7:{totalRolls:1,sumRolls:0,rollsAbove96_3:0,perfectRolls:1}}}});
  assert.match(markup,/Leading candidate: slot 7/);assert.doesNotMatch(markup,/Statistically inferred:/);
  assert.match(markup,/No extra upgrades are queued/);
- assert.equal((markup.match(/data-slot=/g)||[]).length,42);
+ assert.equal((markup.match(/<tr\b[^>]*\bdata-slot=/g)||[]).length,42);
  assert.match(markup,/Next upgrade will test for lucky upgrade/);
 });
 test('shared Tracktrix info renders a single account-wide bonus list',()=>{

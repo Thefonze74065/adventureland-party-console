@@ -975,6 +975,13 @@ the legacy hardcoded GoldMajesty slot-7 default is retired. Statistical candidat
 `luckyUpgradeSlots` or trigger inventory tidying as if verified.
 
 `luckySlotTracking` persists per-character client streams in coordinator settings.
+The inventory lucky-slot menu can lock the current position without stopping roll
+collection. `luckySlotLocks` persists that choice; the native guarded inventory
+tidy clears occupied slots once current production and other inventory work finish.
+A full inventory reports the existing no-room error rather than discarding cargo.
+Unlocking advances to the following slot for one fresh roll through the durable
+`luckySlotResume` checkpoint, then resumes statistical discovery. Neither a manual
+lock nor a resume checkpoint declares the slot statistically verified.
 Clients retain their stream and last roll receipt locally, replay cumulative counts
 on heartbeats, and receive other clients' history before selecting a slot. Replayed
 or older counters cannot double-count or replace newer evidence. The merchant's
@@ -987,32 +994,6 @@ once it has at least 100 rolls there and a 99.9% chance of being ordinary, and t
 the dialog's "Ruled out" row/count) skip it. Elimination is never sticky — it is recomputed from
 the current evidence on every call, so a slot resumes collecting as soon as the leading candidate
 weakens enough to put it back in play (#23).
-
-Both `luckySlotTracking` and `luckyUpgradeSlots` are keyed purely by character name,
-with no link to the underlying game-server character record. Deleting a character
-and creating a new one with the same name rolls a fresh, independent lucky slot
-server-side (`node/server_functions.js`'s `player.p.item_num` is assigned once per
-character document, the first time it is read), but the coordinator still has the
-old name's evidence/verified slot on hand and will offer it to the new character as
-if it were already established. The Lucky slots dialog's "Reset tracking" button
-(`POST /party-api/command` with `type: "reset-lucky-slot-tracking"`,
-`runtime/coordinator/inventory/reset-lucky-slot-tracking.ts`) discards both fields
-for that character name so discovery restarts from zero. It is a dashboard-driven,
-opt-in action — nothing clears this automatically on roster changes, since the
-coordinator cannot distinguish a renamed-but-same character from a deleted and
-recreated one (#52).
-
-The connected character's own client independently tracks this same evidence in
-its own browser storage (`party-lucky-slot-tracking:<owner>:<name>`, keyed the
-same way — by name, not by any stable character id) and reports it on every
-heartbeat (`characters/shared.js`'s `luckySlotTracking().report()`). Clearing
-only the coordinator's copy is not enough: the character's next heartbeat would
-replay its untouched local copy right back. The reset action therefore also
-queues a one-shot `reset-lucky-slot-tracking` command for that character
-(delivered and consumed the same way as `merchant-clear-lucky-journal`), which
-the character's CODE handles by calling `luckySlotTracking().reset()`
-(`runtime/characters/lucky-slot-tracker.ts`) to abandon its local stream id and
-start collecting fresh evidence, rather than merely clearing its slot counts.
 
 Validate lucky-slot tracking/UI, lucky-upgrade recovery, heartbeat and persistence
 tests. Publish character and coordinator assets together with the full restart.
@@ -1754,30 +1735,38 @@ after the slot), or 90 minutes after the slot. The boss chase and this predictor
 while either has a trip. The move uses the dashboard realm-switch route without changing home.
 Coordinator-only restart suffices.
 
-## Stuck lucky-slot journal
+## Account-wide home realm changes
 
-While the merchant reports `upgradeInventoryBusy` with no current job, the dispatcher holds the
-queue instead of sending jobs that would only defer at the character's recovery gate, and logs the
-reason once (`luckyRecoveryError`, reported by the character's idle recovery). Both fields are
-dashboard live fields. When recovery keeps failing, the merchant card offers "Clear stuck
-lucky-slot journal" (`POST /party-api/merchant/clear-lucky-journal`): the character drops the
-journal, refusing while an upgrade is in flight, and leaves every item where it is. Character changes
-require the full restart workflow; the discard ships in the staged character generation.
-`/party-api/town-party` assigns travel commands directly rather than going through the merchant
-queue, so it bypasses that hold; it now leaves the merchant out of the travel batch while
-`upgradeInventoryBusy` is set, reporting `merchantHeld: true`, instead of being the thing that
-interrupts the swap. `/party-api/bank-party` only queues merchant work and was already covered by
-the dispatcher hold. Coordinator-only restart activates both files.
+The native home endpoint is per character and enforces a 36-hour cooldown.
+Realm switching with Set as home realm verifies every active character's own
+account home, including merchants. Characters already on that home skip another
+native request. Offline account characters temporarily start the maintained
+headless runner, one at a time, change home natively, and log out. Slot assignments
+stay intact. When account connection capacity is full, one managed headless
+participant disconnects and is verified reconnected afterward; full Steam-only
+capacity fails explicitly. Partial success and mixed homes remain visible.
 
-## Stuck production journal review
+Validate `live-home-realm.spec.ts`: native homes for all active classes, the
+account-wide confirmation, and an offline merchant's actual headless login,
+home persistence, logout, and unchanged original slots. The opt-in liveHeadless
+fixture downloads native assets only from the disposable upstream web server.
+Activate coordinator/dashboard changes using the supported coordinator-only
+restart; building alone does not reload the running service.
 
-`fullPayload()` now carries `productionPending` (id/name/level/kind, plus the journal when one
-exists) via `pendingProduction()`, piggybacking on the existing core/config poll instead of a
-separate recurring inspect call. The merchant card renders a review panel from that list whenever
-the merchant is idle (`!merchantCurrent`); an admitted in-flight attempt is ordinary work, not a
-stuck one, matching the dispatcher's own `productionHeld()` distinction. Each entry takes an
-operator-entered reason and resolves through the existing `POST /party-api/merchant/production`
-`action: "resolve-unknown"`, which the character's own recovery already treats as a completed
-receipt on its next pass — reconciling and clearing its local journal without any new client
-command. This is the dashboard UI #35 asked for. Coordinator and dashboard assets publish through
-the ordinary full restart; no character change is required.
+New or restored headless slots connect to the native account home, falling back
+to the character home when account homes differ, then the configured setup realm
+if home data is absent. A stale worker.realm or transient merchant event realm
+cannot override this login policy. Running workers and explicit realm-switch or
+home-change visitors retain their owned destination. Validate the native stale
+configuration login/restart journey in `live-home-connect.spec.ts`; activate using
+the supported coordinator-only restart.
+
+
+Lucky-slot evidence, verified positions, locks and resume positions bind to the
+account roster character ID (`CH_...` on the pinned native server), not only the
+name. A replacement ID clears that name's data; a verified same-ID rename moves
+it. Clients store new roll streams under the bound ID and report that ID before
+the coordinator merges evidence. First migration binds and preserves existing
+coordinator evidence; a same-name recreation before this upgrade cannot be
+detected retroactively. Character and coordinator assets both require the full
+supported restart. Validate lucky identity transitions and native upgrade tracking.

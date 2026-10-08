@@ -7,6 +7,7 @@ export type RealmControl = {
   activeRealm: string;
   currentRealm?: string | null;
   homeRealm?: string | null;
+  homeCharacters?: { name: string; home: string | null }[];
   split: boolean;
   merchantRealm?: string | null;
   characters: RealmCharacter[];

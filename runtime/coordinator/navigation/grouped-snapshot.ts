@@ -147,7 +147,6 @@ function evaluateParticipants(
   }));
   members = patrolMembers(state,ports,members) as typeof members;
   members = huntDefenseMembers(state,members,ports.now()) as typeof members;
-  members = withoutEscaped(members) as typeof members;
   retireEventTargets(state, members, ports.now());
   const travelling = names.some(name => travelCombatFor(state as TravelState, name));
   // Apply travel restrictions here, before death-recovery preparation. A saved
@@ -189,25 +188,6 @@ function successorActivityClear(state:GroupedState,travelling:boolean):boolean {
   const cycle=state.anniversary?.eventCycle;
   return !travelling && !state.activeConvoy && !state.eventReturn &&
     !(cycle && !cycle.returnCompletedAt && !cycle.supersededAt && !cycle.combatHandoffAt);
-}
-/**
- * A member on its way that is faster than its attacker walks on (reported as
- * `escaping`). No member's report may make that monster the party's fight, or the
- * caught member stops to fight it alone. The ordinary attacker reports stay intact
- * in the stored statuses for the other features that read them.
- */
-function withoutEscaped(members: Member[]): Member[] {
-  const escaped = members.flatMap(m => m.status?.groupedCombat?.escaping || []);
-  if (!escaped.length) return members;
-  const kept = <T extends { id?: string | number; map?: string }>(list: T[] | undefined) =>
-    list?.filter(t => !escaped.some(e => String(e.id) === String(t.id) && (!t.map || e.map === t.map)));
-  return members.map(m => {
-    const g = m.status?.groupedCombat;
-    if (!m.status || !g) return m;
-    return { ...m, status: { ...m.status, groupedCombat: { ...g,
-      threats: kept(g.threats), currentAttackers: kept(g.currentAttackers), candidates: kept(g.candidates),
-      claims: kept(g.claims), sightings: kept(g.sightings), evidence: kept(g.evidence), travelCandidates: kept(g.travelCandidates) } } };
-  });
 }
 function huntDefenseMembers(state: GroupedState, members: Member[], now: number): Member[] {
   const c=state.activeConvoy;

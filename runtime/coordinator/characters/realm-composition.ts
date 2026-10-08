@@ -20,6 +20,9 @@ type CompositionPorts = Pick<
   | "persist"
   | "label"
   | "dispatchMerchant"
+  | "start"
+  | "characterHome"
+  | "connectionCount"
 >;
 
 /** Realm transitions share command sequencing and always observe current coordinator state. */
@@ -47,8 +50,8 @@ export function createCoordinatorRealmSwitch(state: RealmState, ports: Compositi
     label: (realm) => ports.label(realm),
     leader: () => state.leader,
     dispatchMerchant: () => ports.dispatchMerchant(),
-    timeout: (ms, callback) => {
-      setTimeout(callback, ms).unref?.();
-    },
+    start: (name) => ports.start(name),
+    characterHome: (name) => ports.characterHome(name),
+    connectionCount: () => ports.connectionCount(),
   });
 }

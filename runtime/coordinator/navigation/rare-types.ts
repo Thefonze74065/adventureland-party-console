@@ -164,6 +164,7 @@ export interface Hooks {
 export interface Combat {
   grouped(): boolean;
   selected(s: Sight): boolean;
+  queued(s: Sight): boolean;
   locked(s: Sight): boolean;
   engaged(s: Sight): boolean;
   busy(): boolean;

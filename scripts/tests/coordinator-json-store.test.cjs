@@ -35,3 +35,9 @@ test('invalid shared values keep the original exception and per-document fallbac
   values.set(state.key, '{"recovered":true}');
   assert.deepEqual(store.read(state), {recovered: true});
 });
+
+test('native object snapshots coexist with legacy JSON strings',()=>{
+ const values=new Map([['snapshot',{saved:true}]]),store=createJsonStore(values,{invalid(){throw Error('invalid');}});
+ const state={key:'snapshot',decode:value=>value,empty:()=>null};assert.deepEqual(store.read(state),{saved:true});
+ values.set('snapshot','{"saved":true}');assert.deepEqual(store.read(state),{saved:true});
+});

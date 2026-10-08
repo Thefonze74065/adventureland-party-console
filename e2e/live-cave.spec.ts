@@ -4,7 +4,7 @@ const sharp: typeof import('../dashboard/node_modules/sharp') = createRequire(im
 test.use({ initialPosition: { map: 'main', x: 816, y: 1180 } });
 
 test('Cave entry closes settings, shows native choices and keeps follower maps and travel working', async ({ live, page }, info) => {
-  test.setTimeout(600_000);
+  test.setTimeout(900_000);
   page.setDefaultTimeout(20_000);
   await live.admin('Dev=true; Prod=false; G.events.dreams.disabled=false; output=true');
   // Bound encounter selection to native duels/gifts/shops; the six level-100
@@ -104,6 +104,17 @@ test('Cave entry closes settings, shows native choices and keeps follower maps a
   const target = cave.points.find((p: any) => p.kind === 'farm' && !p.done && Math.hypot(p.x - departure.characters.E2EWarrior.x, p.y - departure.characters.E2EWarrior.y) > 150);
   expect(target).toBeTruthy();
   await controls.getByRole('button', { name: target.label, exact: true }).first().click();
+  await expect.poll(async () => {
+    const view = await dungeon(), state = view.state;
+    return state.travel?.stage === 'travelling' && state.travel.target?.id === target.id &&
+      state.run === cave.run && ['E2EWarrior', 'E2EPriest'].every(name => {
+        const observation = view.members.find((member: any) => member.name === name)?.observation;
+        const command = state.commands[name];
+        return command?.target?.id === target.id && command.run === cave.run &&
+          observation?.cave?.run === cave.run && observation.cave.floor === cave.floor &&
+          observation.travel?.id === command.id && observation.travel.prepared === true;
+      });
+  }, { timeout: 120_000, message: 'The selected native Cave route must prepare for both owned commands' }).toBe(true);
   let lastNative: unknown;
   await expect.poll(async () => {
     const state = await live.state();
@@ -148,7 +159,7 @@ test('Cave entry closes settings, shows native choices and keeps follower maps a
       }
       const state = await live.state();
       return Math.max(...['E2EWarrior','E2EPriest'].map(name => Math.hypot(state.characters[name].x-second.x,state.characters[name].y-second.y)));
-    }, {timeout:180_000,message:'Both characters must navigate to Lockbreaker'}).toBeLessThan(70);
+    }, {timeout:300_000,message:'Both characters must navigate to Lockbreaker'}).toBeLessThan(70);
     await info.attach('native-cave-lockbreaker-arrival',{body:JSON.stringify({dungeon:await dungeon(),state:await live.state()}),contentType:'application/json'});
   }
   // Native encounter factory, bounded initial difficulty. Neither attacks,
@@ -201,7 +212,9 @@ test('Cave entry closes settings, shows native choices and keeps follower maps a
     const current=v.state.travel?.target?.id || (Object.values(v.state.commands).find((c:any)=>c.action==='move') as any)?.target?.id;
     if(current!==required.id)await controls.getByRole('button',{name:required.label,exact:true}).click();
     return false;
-  },{timeout:180_000,message:'Required rooms must finish through native combat and votes'}).toBe(true);
+  // Random floors can require several long trips with native combat along the
+  // corridors. Allow the final vote's acknowledged result to reach telemetry.
+  },{timeout:300_000,message:'Required rooms must finish through native combat and votes'}).toBe(true);
   const stairs=(await dungeon()).members[0].observation.cave.points.find((p:any)=>p.down);
   expect(stairs.locked).toBe(false);
   await live.admin(`output=(()=>{
@@ -219,7 +232,9 @@ test('Cave entry closes settings, shows native choices and keeps follower maps a
       await choice.getByRole('button',{name:reply.label,exact:true}).click();
     }
     return v.members.every((m:any)=>m.observation?.cave?.floor===1);
-  },{timeout:120_000,message:'Manual stairs must continue after the farewell vote and transport both members'}).toBe(true);
+  // Random native floors can put these stairs over 4,000 walking units away.
+  // Preserve the vote and actual floor assertions while allowing that route.
+  },{timeout:240_000,message:'Manual stairs must continue after the farewell vote and transport both members'}).toBe(true);
   expect(answeredFarewell).toBe(true);
   await info.attach('native-cave-floor-transition',{body:JSON.stringify({dungeon:await dungeon(),state:await live.state()}),contentType:'application/json'});
   await controls.getByRole('button', { name: 'Exit dungeon', exact: true }).click();
@@ -278,6 +293,9 @@ test('Cave shared-route pacing keeps the party together and stops the selected r
     return !!w.__partyMovement.state.moving;
   }),{timeout:10_000}).toBe(false);
   await page.goto(live.url);
+  // Walking can reveal a fresh encounter even after travel is stopped. Its
+  // native modal correctly hides background controls until the party answers.
+  await reply(await view());
   await expect(page.getByRole('region',{name:'Cave of Many Dreams controls'})).toBeVisible();
   await info.attach('native-cave-stopped-pacing',{body:await page.getByRole('region',{name:'Cave of Many Dreams controls'}).screenshot(),contentType:'image/png'});
 });

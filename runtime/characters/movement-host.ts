@@ -51,6 +51,10 @@ export interface MovementOptions {
   skipLootWait?: boolean;
   avoidLeave?: boolean; town?: boolean; native?: boolean; shared?: boolean; speed?: number;
   arrivalTolerance?: number;
+  // Assembled Cave followers consume the leader's validated route instead of
+  // duplicating its search. Large generated floors need an explicit bound.
+  awaitSharedRoute?: boolean;
+  nativePlanningTimeoutMs?: number;
   barrier?: (step: Step, index: number, completed: boolean) => Promise<boolean>;
 }
 export interface MovementPorts {

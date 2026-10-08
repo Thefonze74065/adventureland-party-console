@@ -1,11 +1,15 @@
 import { requestObject, requestText, type HttpRequest, type HttpResponse } from "./contracts.ts";
+import { aggregateSlotTracking, type LuckySlotHistory } from "../../lucky-slot-tracking.ts";
 import type { MerchantCommand } from "../merchant/work.ts";
 
 interface SettingsState {
   merchant: string | null;
+  luckySlotLocks?: Record<string, number | null>;
+  luckySlotResume?: Record<string, {slot: number; rolls: number}>;
   modes: string[];
   noTool: Record<string, boolean>;
   activity: unknown[];
+  luckySlotTracking?: LuckySlotHistory;
 }
 interface SettingsPorts {
   ownedType(name: string): string | undefined;
@@ -20,12 +24,43 @@ interface SettingsPorts {
 function gatheringMode(value: unknown): value is "fishing" | "mining" {
   return value === "fishing" || value === "mining";
 }
+function validLuckySlot(value: unknown): value is number {
+  return Number.isInteger(value) && Number(value) >= 0 && Number(value) < 42;
+}
 
 export function createMerchantSettingsRoutes(state: SettingsState, ports: SettingsPorts) {
+  function unlockLuckySlot(name: string, response: HttpResponse): boolean {
+    const locks = state.luckySlotLocks ??= {};
+    const locked = locks[name];
+    if (!validLuckySlot(locked)) {
+      response.status(409).json({error: "lucky slot is not locked"});
+      return false;
+    }
+    const slot = (locked + 1) % 42;
+    const rolls = aggregateSlotTracking(state.luckySlotTracking?.[name]).slots[slot]?.totalRolls ?? 0;
+    (state.luckySlotResume ??= {})[name] = {slot, rolls};
+    delete locks[name];
+    return true;
+  }
+  function luckySlotAction(name: string, body: Record<string, unknown>, response: HttpResponse): unknown {
+    if (name !== state.merchant) return response.status(409).json({error: "merchant is no longer configured"});
+    if (body.action === "unlock-lucky-slot") {
+      if (!unlockLuckySlot(name, response)) return;
+    } else {
+      if (!validLuckySlot(body.slot)) return response.status(400).json({error: "invalid lucky slot"});
+      (state.luckySlotLocks ??= {})[name] = body.slot;
+      delete state.luckySlotResume?.[name];
+    }
+    ports.persist();
+    return response.json({ok: true});
+  }
   function configure(request: HttpRequest, response: HttpResponse): unknown {
-    const name = requestObject(request.body).character;
+    const body = requestObject(request.body);
+    const name = body.character;
     if (typeof name !== "string" || ports.ownedType(name) !== "merchant")
       return response.status(400).json({ error: "select an owned merchant character" });
+    if (body.action === "lock-lucky-slot" || body.action === "unlock-lucky-slot")
+      return luckySlotAction(name, body, response);
     state.merchant = name;
     ports.persist();
     ports.dispatch();

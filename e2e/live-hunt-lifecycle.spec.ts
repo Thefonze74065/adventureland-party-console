@@ -13,7 +13,8 @@ test.describe('native Hunt lifecycle', () => {
     const before = await world(live);
     const destination = await start(live, W, 'booboo');
     await expect.poll(async () => (await world(live))[W].map, { timeout: 240_000 }).toBe(destination.map);
-    await expect.poll(async () => tokens((await world(live))[W]), { timeout: 240_000 }).toBe(tokens(before[W]) + 1);
+    // Native combat, the return journey and stable Daisy arrival precede claiming the reward.
+    await expect.poll(async () => tokens((await world(live))[W]), { timeout: 300_000 }).toBe(tokens(before[W]) + 1);
     const events = await live.clients[W].events();
     expect(events.some((entry: any) => entry.event === 'hit' && entry.data?.kill)).toBe(true);
     expect((await world(live))[W].map).toBe('main');

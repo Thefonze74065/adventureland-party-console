@@ -159,3 +159,21 @@ test('a withheld search assignment is accepted again when resent; replaced encou
   assert.equal(api.accept({serverNow:600,rareControl:encounter}),null,'a replaced encounter cannot return');
  } finally {api?.stop();global.setInterval=saved;}
 });
+
+test('temporary convoy communication hold suspends collection without retiring its loot identity',async()=>{
+ const saved=global.setInterval;global.setInterval=()=>0;let api,calls=0,now=100;
+ const position={realm:':USII',map:'main',in:'main',x:0,y:0};
+ const loot={...position,id:'convoy-loot',after:90};
+ try {
+  api=installLootClient({},{departureLootPorts:()=>({name:()=> 'W',quest:()=>null,
+   now:()=>++now,cancelled:()=>false,position:()=>position,defending:()=>false,
+   loot:async()=>{calls++;if(calls===1)throw {reason:'openning'};return true;},chests:()=>[],
+   socket:()=>({once(_event,fn){queueMicrotask(fn);},off(){}}),afterDraw:fn=>fn()})});
+  api.accept({serverNow:100,convoySignal:{phase:'defending',loot}});await api.convoy.tick();
+  assert.equal(api.convoy.report().error,'openning');
+  api.accept({serverNow:200,convoySignal:{phase:'communication-hold',loot}});await api.convoy.tick();
+  assert.equal(calls,1);
+  api.accept({serverNow:300,convoySignal:{phase:'defending',loot}});await api.convoy.tick();
+  assert.equal(calls,2);assert.equal(api.convoy.report().complete,true);
+ } finally {api?.stop();global.setInterval=saved;}
+});

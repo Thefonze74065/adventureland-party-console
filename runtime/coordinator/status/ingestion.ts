@@ -23,6 +23,7 @@ interface IngestionState<Report extends StatusReport> extends AppearanceState, L
 interface IngestionPorts<Report extends StatusReport> {
   now(): number;
   known(name: string): boolean;
+  characterId?(name: string): string | undefined;
   persistRoster(): void;
   identifyMerchant?(body: Report): void;
   catalogs(body: Report): void;
@@ -92,6 +93,11 @@ export function createStatusIngestion<Report extends StatusReport>(
     measureStatusStage('events', () => ports.events(body));
   }
 
+  function receiveLuckyEvidence(raw: Record<string, unknown>, name: string): void {
+    if (receiveLuckySlotTracking(state, name, raw.luckySlotTracking, ports.characterId?.(name), raw.luckySlotCharacterId))
+      measureStatusStage('persist', () => ports.persist());
+  }
+
   function handle(req: HttpRequest, res: HttpResponse): unknown {
     const receivedAt = ports.now();
     const sendJson = res.json.bind(res);
@@ -103,7 +109,7 @@ export function createStatusIngestion<Report extends StatusReport>(
       return channel.handle(raw.name, raw, res);
     // Report fields are decoded by their domain consumer; unrecognized fields remain available to the dashboard.
     const body = raw as unknown as Report;
-    if (receiveLuckySlotTracking(state, raw.name, raw.luckySlotTracking)) measureStatusStage('persist', () => ports.persist());
+    receiveLuckyEvidence(raw, raw.name);
     if (rememberCharacterAppearance(state, body, ports.now())) ports.persistRoster();
     const learned = consume(body);
     const previous = state.statuses[body.name];

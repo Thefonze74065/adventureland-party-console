@@ -342,13 +342,11 @@ function PartyInventoryPanelsConnected({ base }: { base: PartyConsoleModel }) {
                       state.realmControl?.currentRealm ||
                       "Unknown"}{" "}
                   · Home:{" "}
-                  {new Set((state.realmControl?.characters || []).map((member) => member.home).filter(Boolean)).size > 1
-                    ? "Mixed homes"
-                    : state.realmControl?.realms.find(
-                        (realm) => realm.key === state.realmControl?.homeRealm,
-                      )?.label ||
-                      state.realmControl?.homeRealm ||
-                      "Unknown"}
+                  {state.realmControl?.realms.find(
+                    (realm) => realm.key === state.realmControl?.homeRealm,
+                  )?.label ||
+                    state.realmControl?.homeRealm ||
+                    "Unknown"}
                 </p>
               </div>
               {state.realmControl?.operation &&
@@ -365,13 +363,11 @@ function PartyInventoryPanelsConnected({ base }: { base: PartyConsoleModel }) {
                 ))}
               </div>
             ) : null}
-            {new Set((state.realmControl?.characters || []).map((member) => member.home).filter(Boolean)).size > 1 ? (
-              <div className="mt-3 grid gap-1 rounded border border-amber-700 bg-amber-950/40 p-2 text-xs text-amber-100">
-                <span>Characters have different home realms; logging in off-home causes Hop Sickness.</span>
-                {state.realmControl!.characters.map((member) => (
-                  <span key={"home-" + member.name}>
-                    {member.name}: home {member.home?.replace(/^SR_/, "") || "unknown"}
-                  </span>
+            {!state.realmControl?.homeRealm && state.realmControl?.homeCharacters?.length ? (
+              <div className="mb-3 rounded border border-amber-700 bg-black p-2 text-xs text-amber-100">
+                <p>Home realms differ or are unconfirmed:</p>
+                {state.realmControl.homeCharacters.map((member) => (
+                  <p key={member.name}>{member.name}: {member.home || "unconfirmed"}</p>
                 ))}
               </div>
             ) : null}
@@ -409,7 +405,8 @@ function PartyInventoryPanelsConnected({ base }: { base: PartyConsoleModel }) {
                 disabled={
                   !realmDestination ||
                   (!state.realmControl?.split &&
-                    realmDestination === state.realmControl?.currentRealm) ||
+                    realmDestination === state.realmControl?.currentRealm &&
+                    realmDestination === state.realmControl?.homeRealm) ||
                   Boolean(
                     state.realmControl?.operation &&
                     !["complete", "failed"].includes(state.realmControl.operation.phase),
@@ -434,6 +431,7 @@ function PartyInventoryPanelsConnected({ base }: { base: PartyConsoleModel }) {
                 {(state.realmControl.operation.characters || []).map((member) => (
                   <p key={member.name}>
                     {member.name}: {member.realm || "waiting"}
+                    {state.realmControl?.operation?.setHome ? member.homeConfirmed ? " — home confirmed" : " — waiting for home confirmation" : ""}
                   </p>
                 ))}
               </div>
@@ -556,12 +554,17 @@ function PartyInventoryPanelsConnected({ base }: { base: PartyConsoleModel }) {
       >
         <DialogContent className="border-violet-700 bg-[#080b10] text-slate-100 sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Switch realm?</DialogTitle>
+            <DialogTitle>{realmSetHome ? "Change home realm?" : "Switch realm?"}</DialogTitle>
             <DialogDescription className="text-slate-300">
               This switches every active party character to{" "}
               {state.realmControl?.realms.find((realm) => realm.key === realmDestination)?.label ||
                 realmDestination}{" "}
               and gives non-merchant characters Realm Fatigue.
+              {realmSetHome && (
+                <span className="mt-2 block text-amber-100">
+                  This will change for all characters in the account including characters not currently logged in.
+                </span>
+              )}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 rounded border border-amber-700 bg-amber-950/30 p-3 text-sm text-amber-100">
@@ -589,8 +592,10 @@ function PartyInventoryPanelsConnected({ base }: { base: PartyConsoleModel }) {
                 <strong>Set as home realm</strong>
                 <br />
                 <span className="text-xs text-slate-300">
-                  After switching, one non-merchant will visit Bean in Main and request the home
-                  change. Current game data exposes no separate home-change cooldown.
+                  Every account character will request the native home change. Offline characters
+                  log in temporarily, one at a time, then log out. One headless character may
+                  briefly disconnect to make room and will reconnect afterwards. Adventure Land
+                  enforces a 36-hour home-change cooldown per character.
                 </span>
               </span>
             </label>
@@ -612,7 +617,7 @@ function PartyInventoryPanelsConnected({ base }: { base: PartyConsoleModel }) {
               onClick={() => void switchRealm()}
               className="bg-violet-600 text-white hover:bg-violet-500"
             >
-              {realmBusy ? "Starting…" : "Switch all characters"}
+              {realmBusy ? "Starting…" : realmSetHome ? "Change home realm" : "Switch all characters"}
             </Button>
           </DialogFooter>
         </DialogContent>

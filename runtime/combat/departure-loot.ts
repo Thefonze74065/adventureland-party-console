@@ -50,8 +50,10 @@ export function installLootClient(root:any,shared:any) {
     const timeout=setTimeout(()=>{socket.off('entities',observe);reject(new Error('waiting for fresh chest observation'));},3000);
     socket.once('entities',observe);
   });
+  let convoySuspended=false;
   const rare=createDepartureLoot(ports),hunt=createDepartureLoot({...ports,
-    defending:()=>mission?.encounter && ports.huntEncounterDefending ? ports.huntEncounterDefending() : ports.defending()}),convoy=createDepartureLoot(ports);
+    defending:()=>mission?.encounter && ports.huntEncounterDefending ? ports.huntEncounterDefending() : ports.defending()}),
+    convoy=createDepartureLoot({...ports,defending:()=>convoySuspended || ports.defending()});
   let convoyHold=false;
   let lastState=0,lastRare:any=null,mission:any=null,finalKill:string|null=null,finalKillAt=0;
   const activeMission=()=>mission && !['ended','failed-return','backup-travel','backup-farming'].includes(mission.stage);
@@ -80,7 +82,11 @@ export function installLootClient(root:any,shared:any) {
     accept(state:any){
       if(state.serverNow<lastState)return lastRare;
       lastState=state.serverNow;
-      convoyHold=!!(state.convoySignal?.phase==='defending' && state.convoySignal.loot);
+      // Recovery retains the coordinator's loot identity. Suspend its pass rather
+      // than retiring it, so restored defense can retry a native opening error.
+      const convoyPhase=state.convoySignal?.phase;
+      convoyHold=!!(['defending','communication-hold','observing'].includes(convoyPhase) && state.convoySignal.loot);
+      convoySuspended=convoyHold && convoyPhase!=='defending';
       convoy.accept(convoyHold?state.convoySignal.loot:null,state.serverNow);
       mission=state.monsterHunt;
       if (state.farmingPolicy && state.farmingPolicy!=='hunt' && !mission?.exitMode) mission=null;

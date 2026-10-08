@@ -9,6 +9,9 @@ import { validStandLocation, type MerchantStandLocation } from './stand-location
 interface SavedMerchant extends Partial<BankSortState> {
   luckyUpgradeSlots?: Record<string, number | null>;
   luckySlotTracking?: LuckySlotHistory;
+  luckySlotCharacterIds?: Record<string, string>;
+  luckySlotLocks?: Record<string, number | null>;
+  luckySlotResume?: Record<string, {slot: number; rolls: number}>;
   merchantCharacter?: string | null;
   merchantForceStand?: unknown;
   merchantStandLocation?: MerchantStandLocation;
@@ -33,7 +36,10 @@ export function initialMerchantRuntime<DefaultMerchant extends string | null = s
     ...initialBankSort(saved),
     merchantCharacter,
     luckyUpgradeSlots,
+    luckySlotLocks: {...saved.luckySlotLocks},
+    luckySlotResume: {...saved.luckySlotResume},
     luckySlotTracking: saved.luckySlotTracking || {},
+    luckySlotCharacterIds: {...saved.luckySlotCharacterIds},
     merchantForceStand: saved.merchantForceStand === true,
     merchantStandLocation: validStandLocation(saved.merchantStandLocation) ? {...saved.merchantStandLocation} : null,
     merchantWeapon: saved.merchantWeapon || null,

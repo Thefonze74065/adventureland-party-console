@@ -170,16 +170,11 @@ export type PartyState = {
   realmHopBlacklist?: string[];
   merchantWeapon?: { item: Item } | null;
   luckyUpgradeSlots?: Record<string, number | null>;
+  luckySlotLocks?: Record<string, number | null>;
+  luckySlotResume?: Record<string, {slot: number; rolls: number}>;
   luckySlotTracking?: LuckySlotHistory;
   merchantQueue?: MerchantJob[];
   merchantCurrent?: MerchantJob | null;
-  productionPending?: {
-    id: string;
-    name: string;
-    level: number;
-    kind: "upgrade" | "compound";
-    journal?: { phase: "prepared" | "running" | "complete" } | null;
-  }[];
   merchantActivity?: MerchantActivity[];
   combatLogs?: Record<string, CombatLogEntry[]>;
   bankSortMode?: "automatic" | "request";

@@ -1,6 +1,17 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 const {beginProduction,finishProduction,inspectProduction,resolveUnknownProduction,pendingProduction,checkpointProduction}=require('../../runtime/coordinator/inventory/production.ts');
 const source=fs.readFileSync('characters/shared.js','utf8');
+test('completed production history is bounded while unfinished and latest retries survive',()=>{
+ const f=fixture();
+ for(let i=0;i<3000;i++)f.state.production.attempts['old'+i]={name:'cap',level:1,kind:'upgrade',rules:[],completed:true};
+ const body={id:'latest',item:{name:'cap',level:0},kind:'upgrade'};
+ beginProduction(f.state,body);finishProduction(f.state,'latest',false);
+ assert.ok(Object.keys(f.state.production.attempts).length<=2048);
+ assert.equal(beginProduction(f.state,body).completed,true);
+ f.state.production.attempts.pending={name:'cap',level:1,kind:'upgrade',rules:[],journal:{id:'pending',item:{name:'cap',level:0},slots:[0],phase:'running'}};
+ assert.throws(()=>beginProduction(f.state,{...body,id:'next'}),/recovery pending/);
+ assert.equal(f.state.production.attempts.pending.journal.phase,'running');
+});
 function fixture(){
  const state={merchantCharacter:'M',production:{attempts:{}},autoUpgradeMarks:{M:{'cap@+0':{tiers:1,quantity:2}}},autoCompounds:{}};
  const storage=new Map();let lost=false;
@@ -8,6 +19,7 @@ function fixture(){
   root:{localStorage:{getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)}},fingerprint:item=>item&&({...item}),
   request:async(_path,{body})=>{if(body.action==='pending')return {pending:pendingProduction(state.production,true)};if(body.action==='checkpoint')return checkpointProduction(state,body);if(body.action==='inspect')return inspectProduction(state,body);if(body.action==='complete'){finishProduction(state,body.id,body.success);if(lost){lost=false;throw Error('response lost')}}else beginProduction(state,body);},
  });
+ vm.runInContext(source.slice(source.indexOf('  function fingerprint(item)'),source.indexOf('  async function refreshPontyListings()')),c);
  vm.runInContext(source.slice(source.indexOf('  function productionJournalKey()'),source.indexOf('  async function observedCompoundConfirmed(')),c);
  return {c,state,storage,loseReply:()=>lost=true};
 }
@@ -135,4 +147,50 @@ test('commerce recovery locates one relocated survivor and preserves its receipt
  f.c.character.items[5]={name:'cap',level:1};f.c.character.items[0]=null;
  await f.c.recoverProductionJournal();
  assert.deepEqual(JSON.parse(f.storage.get('commerce')).pendingUpgrade.outcome,{item:{name:'cap',level:1},destroyed:false});
+});
+
+// Retained isolated recovery boundary: power loss journals are historical fixtures.
+// Failure modes: empty source alone falsely implies destruction; unrelated or
+// duplicate survivors lose inventory; null metadata fences legacy receipts;
+// confirmed empty lucky result never settles and keeps commerce blocked.
+// Native randomness cannot deterministically burn an interrupted item at exactly
+// this checkpoint, so exercise durable receipt recovery without a game callback.
+test('commerce recovery settles destruction only after empty lucky result reconciliation',async()=>{
+ const f=fixture(),body={id:'burned',item:{name:'cap',level:0},kind:'upgrade'};
+ beginProduction(f.state,body);
+ f.storage.set('commerce',JSON.stringify({sequence:4,pendingUpgrade:{level:1}}));
+ const lucky={from:0,to:7,item:body.item,displaced:null,phase:'running'};
+ f.storage.set('party-lucky-upgrade:M',JSON.stringify(lucky));
+ f.storage.set('party-production:M',JSON.stringify({id:body.id,item:body.item,slots:[0],phase:'running',request:body,lucky,commerce:{key:'commerce',sequence:4}}));
+ f.c.character.items[0]=null;f.c.character.items[7]=null;
+ f.c.merchantLuckyUpgrade=()=>({recover:async()=>{f.storage.delete('party-lucky-upgrade:M');}});
+ await f.c.recoverProductionJournal();
+ assert.deepEqual(JSON.parse(f.storage.get('commerce')).pendingUpgrade.outcome,{item:null,destroyed:true});
+ assert.equal(f.state.production.attempts.burned.success,false);
+ assert.equal(f.storage.has('party-production:M'),false);
+});
+
+for(const legacy of [false,true])test('commerce legacy null metadata matches relocated survivor '+legacy,async()=>{
+ const f=fixture(),body={id:'null-survivor',item:{name:'cap',level:0,...(legacy?{p:null}:{})},kind:'upgrade'};
+ beginProduction(f.state,body);
+ f.storage.set('commerce',JSON.stringify({sequence:4,pendingUpgrade:{level:1}}));
+ f.storage.set('party-production:M',JSON.stringify({id:body.id,item:body.item,slots:[0],phase:'running',request:body,commerce:{key:'commerce',sequence:4}}));
+ f.c.character.items[0]=null;f.c.character.items[5]={name:'cap',level:1,...(!legacy?{p:null}:{})};
+ await f.c.recoverProductionJournal();
+ assert.deepEqual(JSON.parse(f.storage.get('commerce')).pendingUpgrade.outcome,{item:{name:'cap',level:1},destroyed:false});
+});
+
+for(const variant of ['preparing','changed-identity','duplicate'])test('commerce destruction recovery preserves ambiguous evidence '+variant,async()=>{
+ const f=fixture(),body={id:'ambiguous',item:{name:'cap',level:0,rid:'owned'},kind:'upgrade'};
+ beginProduction(f.state,body);
+ const lucky={from:0,to:7,item:body.item,displaced:null,phase:variant==='preparing'?'preparing':'running'};
+ f.storage.set('party-lucky-upgrade:M',JSON.stringify(lucky));
+ f.storage.set('party-production:M',JSON.stringify({id:body.id,item:body.item,slots:[0],phase:'running',request:body,lucky,commerce:{key:'commerce',sequence:4}}));
+ f.c.character.items[0]=null;f.c.character.items[7]=null;
+ if(variant==='changed-identity')f.c.character.items[5]={name:'cap',level:1,rid:'different'};
+ if(variant==='duplicate'){f.c.character.items[5]={...body.item};f.c.character.items[6]={...body.item};}
+ f.c.merchantLuckyUpgrade=()=>({recover:async()=>{f.storage.delete('party-lucky-upgrade:M');}});
+ await assert.rejects(f.c.recoverProductionJournal(),/needs review/);
+ assert.equal(f.state.production.attempts.ambiguous.completed,undefined);
+ assert.equal(f.storage.has('party-production:M'),true);
 });

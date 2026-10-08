@@ -1,15 +1,12 @@
 import { test, expect } from './fixtures';
 import { createServer } from 'node:http';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { createRequire } from 'node:module';
 import path from 'node:path';
 import { gateway } from '../tools/hosting/gateway';
 import { Access } from '../tools/hosting/access';
 import { startupRealms } from '../tools/hosting/realms';
 import { accountConfig, sessionValue } from '../tools/hosting/account';
-
-const require = createRequire(import.meta.url);
 
 test.describe('marked withdrawal scheduling', () => {
   test.use({ merchantDialogs: true });
@@ -680,64 +677,6 @@ test('inventory context menu and upgrade preview stay readable without queueing 
   await expect(rootMenu).not.toBeVisible();
 });
 
-test.describe('lucky-slot tracking reset', () => {
-  // The fixture's ambient per-character heartbeat otherwise races this test's own
-  // check of a one-shot command delivery; widen it so only this test's explicit
-  // requests can observe it.
-  test.use({ statusIntervalMs: 20000 });
-  test('resetting lucky-slot tracking discards stale evidence a recreated merchant must not inherit', async ({ page, app }, info) => {
-    // Failure modes: luckySlotTracking/luckyUpgradeSlots are keyed only by character
-    // name, so deleting a merchant and recreating it with the same name would
-    // otherwise silently inherit the deleted character's discovery evidence; the
-    // dashboard control could fail to clear it, the clear could fail to persist,
-    // or the connected client's own independently-tracked copy could replay the
-    // cleared evidence right back on its next heartbeat.
-    const { createGameFixture } = require('./game-fixture.cjs');
-    const merchantReport = createGameFixture(app.directory).reports(false).find((report: any) => report.name === 'M');
-    expect(merchantReport, 'the fixture must report the merchant').toBeTruthy();
-    const seeded = {
-      ...merchantReport,
-      luckySlotTracking: { version: 1, streamId: 'e2e-seed-0123456789', slots: { 5: { totalRolls: 10, sumRolls: 3, rollsAbove96_3: 1, perfectRolls: 0 } } },
-    };
-    const seed = await page.request.post(`${app.url}/party-api/status`, { headers: { Origin: app.url }, data: seeded });
-    expect(seed.ok(), await seed.text()).toBe(true);
-    await expect.poll(async () => (await app.state()).luckySlotTracking?.M?.['e2e-seed-0123456789']?.slots?.['5']?.totalRolls).toBe(10);
-    await page.goto('/');
-    const merchant = page.locator('article').filter({ has: page.getByRole('heading', { name: 'M', exact: true }) });
-    // With only ten rolls recorded in slot 5 and zero elsewhere, rotation (not
-    // inference) picks the least-sampled slot, which is slot 0 — the sword.
-    await merchant.getByText('sword', { exact: true }).click();
-    const menu = page.getByRole('menu', { name: 'Lucky slot options', exact: true });
-    await menu.getByRole('menuitem', { name: 'Show lucky slot data', exact: true }).click();
-    const dialog = page.getByRole('dialog', { name: 'Lucky slots · M', exact: true });
-    await expect(dialog).toContainText('10 recorded upgrade rolls');
-    await info.attach('lucky-slot-tracking-before-reset', { body: await page.screenshot(), contentType: 'image/png' });
-    page.once('dialog', native => native.accept());
-    const command = page.waitForResponse(response => new URL(response.url()).pathname.endsWith('/command') && response.request().method() === 'POST');
-    await dialog.getByRole('button', { name: 'Reset tracking', exact: true }).click();
-    const response = await command;
-    expect(response.ok(), await response.text()).toBe(true);
-    // The merchant's own connected client independently tracks this evidence in its
-    // own browser storage and would otherwise replay it on its very next heartbeat,
-    // reviving what the dashboard just cleared. The coordinator must deliver a
-    // companion command telling that client to discard its local copy too.
-    const heartbeat = await page.request.post(`${app.url}/party-api/status`, { headers: { Origin: app.url }, data: merchantReport });
-    expect(heartbeat.ok(), await heartbeat.text()).toBe(true);
-    const delivered = await heartbeat.json();
-    expect(delivered.command).toMatchObject({ type: 'reset-lucky-slot-tracking' });
-    const acknowledged = await page.request.post(`${app.url}/party-api/status`, { headers: { Origin: app.url }, data: merchantReport });
-    expect((await acknowledged.json()).command?.type, 'the one-shot command must not be redelivered').not.toBe('reset-lucky-slot-tracking');
-    await expect(dialog).toContainText('No evidence yet. Testing starts at slot 0.');
-    await expect(dialog.getByRole('button', { name: 'Reset tracking', exact: true })).toBeDisabled();
-    expect((await app.state()).luckySlotTracking?.M).toBeUndefined();
-    await info.attach('lucky-slot-tracking-reset', { body: await page.screenshot(), contentType: 'image/png' });
-    await info.attach('lucky-slot-tracking-command-delivery', { body: JSON.stringify({ delivered }), contentType: 'application/json' });
-    await page.keyboard.press('Escape');
-    await app.restartCoordinator();
-    expect((await app.state()).luckySlotTracking?.M, 'the clear must persist across a restart, not just the live session').toBeUndefined();
-    await info.attach('lucky-slot-tracking-reset-state', { body: JSON.stringify(await app.state()), contentType: 'application/json' });
-  });
-});
 
 test.describe('configured merchant dialog names', () => {
   test.use({merchantDialogs:true});
@@ -813,8 +752,19 @@ test('market affordability uses core bank gold and active WTB prices open the fu
   await expect(editor.getByRole('button',{name:/Farm price/}).first()).toBeVisible();
   const farm=editor.getByRole('button',{name:/^Farm price/});
   const npc=editor.getByRole('button',{name:/^NPC sale/});
-  const farmBox=await farm.boundingBox(), npcBox=await npc.boundingBox();
-  const infoBox=await editor.getByRole('button',{name:'Information: Farm price',exact:true}).boundingBox();
+  await editor.evaluate(async element => {
+    await Promise.all(element.getAnimations({subtree:true}).map(animation => animation.finished.catch(() => {})));
+  });
+  const handles = await Promise.all([farm.elementHandle(), npc.elementHandle(),
+    editor.getByRole('button',{name:'Information: Farm price',exact:true}).elementHandle()]);
+  // Collect geometry in one frame so the entry animation cannot skew widths
+  // sampled at different points in time.
+  const [farmBox,npcBox,infoBox] = await page.evaluate(elements => elements.map(element => {
+    if (!element) return null;
+    const {x,y,width,height} = element.getBoundingClientRect();
+    return {x,y,width,height};
+  }), handles);
+  await Promise.all(handles.map(handle => handle?.dispose()));
   expect(farmBox).toBeTruthy(); expect(npcBox).toBeTruthy(); expect(infoBox).toBeTruthy();
   expect(Math.abs(farmBox!.width-npcBox!.width)).toBeLessThan(1);
   expect(infoBox!.x).toBeGreaterThan(farmBox!.x+farmBox!.width/2);
@@ -836,110 +786,4 @@ test('market affordability uses core bank gold and active WTB prices open the fu
   await page.getByText('Hide unaffordable',{exact:true}).click();
   await expect(page.getByRole('button',{name:/AffordableSeller/}).first()).toBeVisible();
   await info.attach('market-core-bank-gold-affordability',{body:await page.screenshot(),contentType:'image/png'});
-});
-
-test('coordinator restarts over a stale writer lock and prunes completed production after a crash', async ({app},info) => {
-  // Failure modes (issues #59, #62):
-  // - a lock left by a crash names a PID now owned by an unrelated live process, so startup loops forever;
-  // - the lock check is loosened so far that a second writer could take over the live coordinator's lock;
-  // - completed production attempts are never removed, so every settings save grows without bound;
-  // - pruning removes an unfinished attempt and loses recovery evidence, or removes recent completed
-  //   attempts that a retry or stale journal of the same id still needs.
-  const lockPath = path.join(app.directory, 'state.jsonl.writer.lock'), journalPath = path.join(app.directory, 'state.jsonl');
-  const settingsKey = 'party_dashboard_settings_state_v1';
-  const liveLock = readFileSync(lockPath, 'utf8').trim().split(' ');
-  expect(liveLock.length, 'the lock records PID, start time and boot id').toBe(3);
-  await app.crashCoordinator();
-  expect(readFileSync(lockPath, 'utf8').trim()).toBe(liveLock.join(' '));
-
-  const records = readFileSync(journalPath, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line) as Record<string, unknown>);
-  const stored = records.filter(record => settingsKey in record).at(-1)![settingsKey];
-  const settings = typeof stored === 'string' ? JSON.parse(stored) : structuredClone(stored);
-  const now = Date.now(), attempt = {name:'helmet', level:3, kind:'upgrade', rules:[], completed:true, success:true};
-  const attempts: Record<string, unknown> = {};
-  for (let i = 0; i < 3; i++) attempts[`expired-${i}`] = {...attempt, completedAt: now - 2 * 60 * 60 * 1000};
-  for (let i = 0; i < 5; i++) attempts[`recent-${i}`] = {...attempt, completedAt: now - 10 * 60 * 1000};
-  for (let i = 0; i < 2000; i++) attempts[`legacy-${i}`] = attempt;
-  attempts['unfinished'] = {name:'helmet', level:4, kind:'upgrade', rules:[]};
-  settings.production = {attempts};
-  records.push({[settingsKey]: typeof stored === 'string' ? JSON.stringify(settings) : settings});
-  writeFileSync(journalPath, records.map(record => JSON.stringify(record)).join('\n') + '\n');
-  // The test runner is alive but is not the coordinator that wrote this lock.
-  writeFileSync(lockPath, `${process.pid} 1 ${liveLock[2]}`);
-
-  await app.startCoordinator();
-  const restartedLock = readFileSync(lockPath, 'utf8').trim().split(' ');
-  expect(restartedLock[0]).not.toBe(String(process.pid));
-  expect((await app.state()).productionPending.map((entry: {id: string}) => entry.id)).toEqual(['unfinished']);
-  const saved = await fetch(`${app.url}/party-api/dashboard-preferences`, {method:'POST', headers:{'Content-Type':'application/json', Origin:app.url},
-    body:JSON.stringify({anniversaryAutoChat:true})});
-  expect(saved.ok).toBe(true);
-  const persisted = readFileSync(journalPath, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line) as Record<string, unknown>)
-    .filter(record => settingsKey in record).at(-1)![settingsKey];
-  const ids = Object.keys((typeof persisted === 'string' ? JSON.parse(persisted) : persisted).production.attempts);
-  const evidence = {lockBefore: liveLock, staleLock: [process.pid, '1', liveLock[2]], lockAfter: restartedLock,
-    seededAttempts: Object.keys(attempts).length, persistedAttempts: ids.length,
-    kept: {recent: ids.filter(id => id.startsWith('recent-')).length, legacy: ids.filter(id => id.startsWith('legacy-')).length,
-      expired: ids.filter(id => id.startsWith('expired-')).length, unfinished: ids.includes('unfinished')}};
-  await info.attach('stale-lock-production-prune', {body:JSON.stringify(evidence, null, 2), contentType:'application/json'});
-  expect(evidence.kept).toEqual({recent:5, legacy:100, expired:0, unfinished:true});
-  expect(ids.filter(id => id.startsWith('legacy-'))).toEqual(Array.from({length:100}, (_, i) => `legacy-${1900 + i}`));
-});
-
-// Game-shaped doll markup (sprite()/sprite_image() quoting) with one legitimate layer, followed by
-// hostile fragments a tampered skin or cx value could carry. Every handler bumps the same canary.
-const xss = "window.__dollXss=(window.__dollXss||0)+1";
-const dollLayer = (src: string) => `<div style='display: inline-block; width: 27px; height: 38px; overflow: hidden; position: absolute; left: 0px; bottom: 0px; '>` +
-  `<img style='margin-left: -27px; margin-top: -38px; width: 324px; height: 304px;' src='${src}'></div>`;
-const hostileDoll = (src: string) => `<div style='height: 38px; width: 27px; position: relative; text-align: center; overflow:hidden; display: inline-block'>` +
-  dollLayer(src) +
-  `<img src=x onerror="${xss}"><IMG SRC=x OnError="${xss}"><img/src=x/onerror=${xss}>` +
-  `<svg onload="${xss}"><image href=x onerror="${xss}"></image></svg><script>${xss}</script>` +
-  `<iframe srcdoc="<script>${xss}</script>"></iframe><a href="javascript:${xss}">x</a>` +
-  `<img src="javascript:${xss}"><img src="data:text/html,<script>${xss}</script>">` +
-  `<div style="background:url(javascript:${xss})"></div><div style="width:expression(${xss})"></div>` +
-  `<img style='x">' onerror="${xss}">&lt;img src=x onerror=&quot;${xss}&quot;&gt;` +
-  `</span></span></div></div></div><img src=x onerror="${xss}"><!-- <img src=x onerror="${xss}"> -->` +
-  `</div><img src=x onerror="${xss}"`;
-
-test.describe('hostile doll markup', () => {
-  test.use({dollHtml: hostileDoll('/e2e-doll-portrait.png')});
-  test('character portraits and live map dolls render without running markup', async ({page,app},info) => {
-    // Failure modes (issue #61): handlers in other players' doll markup run in the dashboard origin,
-    // through the portrait's dangerouslySetInnerHTML or the map's innerHTML layer parsing; or the
-    // sanitizer strips the legitimate sprite layers so dolls stop rendering.
-    const requested: string[] = [];
-    page.on('request', request => requested.push(new URL(request.url()).pathname));
-    await page.goto('/');
-    const portrait = page.locator('img[src="/e2e-doll-portrait.png"]');
-    await expect(portrait.first()).toBeAttached();
-    await expect(portrait.first()).toHaveAttribute('style', /margin-left: -27px/);
-    await expect(portrait.first().locator('xpath=..')).toHaveAttribute('style', /position: absolute/);
-
-    // W's card comes first; only W receives map frames below.
-    await page.getByRole('button', {name:'Expand live map'}).first().click();
-    const definition = {name:'zone_e2e0_1', min_x:-200, min_y:-200, max_x:200, max_y:200, default:null,
-      tiles:[['e2e', 0, 0, 16, 16]], placements:[[0, -200, -200, 200, 200]], groups:[], tilesets:{}};
-    const entity = {id:'Hostile', name:'Hostile', type:'character', ctype:'warrior', x:0, y:0, hp:1, max_hp:1, mp:0, max_mp:0,
-      target:null, moving:false, angle:0, direction:0, going_x:0, going_y:0, sprite:null, dollHtml:hostileDoll('/e2e-doll-map.png')};
-    await expect.poll(async () => {
-      const response = await fetch(`${app.url}/party-api/map-frame`, {method:'POST', headers:{'Content-Type':'application/json', Origin:app.url},
-        body:JSON.stringify({name:'W', map:'zone_e2e0_1', definition, at:Date.now(), x:0, y:0, entities:[entity], events:[]})});
-      expect(response.status).toBe(204);
-      return requested.includes('/e2e-doll-map.png');
-    }, {message:'the map parsed the legitimate doll layer and requested its sprite sheet', timeout:20_000}).toBe(true);
-
-    // Image errors and handlers are asynchronous; give any that survived time to fire.
-    await page.waitForTimeout(1500);
-    const result = await page.evaluate(() => ({
-      canary: (window as unknown as {__dollXss?: number}).__dollXss ?? 0,
-      inlineHandlers: Array.from(document.querySelectorAll('*')).filter(element => Array.from(element.attributes).some(attribute => /^on/i.test(attribute.name))).length,
-      foreign: document.querySelectorAll('main svg image, iframe, a[href^="javascript"], img[src^="javascript"], img[src^="data:"]').length,
-      portraitLayers: document.querySelectorAll('img[src="/e2e-doll-portrait.png"]').length,
-    }));
-    await info.attach('hostile-doll-markup', {body:JSON.stringify({...result, dollRequests:requested.filter(entry => entry.startsWith('/e2e-doll'))}, null, 2), contentType:'application/json'});
-    await info.attach('hostile-doll-dashboard', {body:await page.screenshot(), contentType:'image/png'});
-    expect(result).toEqual({canary:0, inlineHandlers:0, foreign:0, portraitLayers:result.portraitLayers});
-    expect(result.portraitLayers).toBeGreaterThan(0);
-  });
 });

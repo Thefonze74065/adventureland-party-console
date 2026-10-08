@@ -6,10 +6,10 @@ interface SetupState {
   location?: { realm?: string } | null;
   headlessSlots: (string | null)[];
   lifecycle: Record<string, string | undefined>;
+  realmSwitch?: { phase: string; realm: string; participants: string[]; homeTargets?: string[] } | null;
 }
 interface SetupPorts {
   configuredRealm: string;
-  /** The character's own home realm (SR_ key), when the account reports one. */
   homeRealm(name: string): string | null;
   script(name: string): string;
   watch(name: string, worker: SetupWorker): void;
@@ -23,10 +23,20 @@ export function createWorkerSetup(
   state: SetupState,
   ports: SetupPorts,
 ) {
+  function connectionRealm(name: string, block: SetupWorker): string | undefined {
+    const switching = state.realmSwitch;
+    if (switching && ["switching", "setting-home"].includes(switching.phase)) {
+      if (switching.participants.includes(name) || switching.homeTargets?.includes(name)) return switching.realm;
+    }
+    if (block.instance) return block.realm;
+    return ports.homeRealm(name) || ports.configuredRealm;
+  }
+
   function ensure(name: string): SetupWorker {
     const block = workers[name] || (workers[name] = {});
-    block.realm =
-      block.realm || state.activeRealm || state.location?.realm || ports.configuredRealm;
+    // Running workers retain explicit event/realm travel ownership. New and
+    // restored connections use native home rather than a stale setup default.
+    block.realm = connectionRealm(name, block);
     if (block.code_watcher) {
       block.code_watcher.close();
       block.code_watcher = null;
@@ -41,10 +51,6 @@ export function createWorkerSetup(
     state.headlessSlots[slot - 1] = name;
     ports.persist();
     const block = ensure(name);
-    // A saved realm goes stale while the character is offline (realm switches only move
-    // online participants), and logging in off-home causes Hop Sickness. Spawning starts at home;
-    // deliberate errands (realm switches, merchant trips) still set block.realm themselves.
-    block.realm = ports.homeRealm(name) || state.activeRealm || block.realm;
     block.enabled = true;
     state.lifecycle[name] = block.connected ? "online" : "starting";
     if (!block.instance) ports.start(name);

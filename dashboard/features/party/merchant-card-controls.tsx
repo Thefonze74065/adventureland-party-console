@@ -3,7 +3,6 @@ import { MerchantCollectionSettings, type MerchantCollectionSettingsProps } from
 import { useClock } from "@/hooks/use-clock";
 import { MerchantActivityLog } from "@/components/merchant-activity";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Check,
   ChevronRight,
@@ -64,8 +63,6 @@ export const MerchantCardControls = memo(function MerchantCardControls({
   const logs = useQueries({ queries: [{ ...domainOptions(client, 'logs'), enabled: visible }].filter(() => activityOpen) })[0];
   const state = { ...baseState, ...logs?.data };
   const [cleanupResult, setCleanupResult] = useState<string | null>(null);
-  const [productionReviewReasons, setProductionReviewReasons] = useState<Record<string, string>>({});
-  const [productionReviewError, setProductionReviewError] = useState<string | null>(null);
   const merchant = state.merchantCharacter ? state.characters[state.merchantCharacter] : null;
   const readiness = (mode: "fishing" | "mining") => {
     const remaining = Math.max(
@@ -195,75 +192,6 @@ export const MerchantCardControls = memo(function MerchantCardControls({
           </div>
           <MerchantActivityLog entries={state.merchantActivity || []} />
         </details>
-      {merchant?.upgradeInventoryBusy && merchant.luckyRecoveryError && !state.merchantCurrent ? (
-        <div role="alert" className="grid gap-2 rounded border border-amber-600 bg-[#1a1206] p-2 text-xs text-amber-100">
-          <p className="font-semibold">Merchant work is held: inventory recovery keeps failing</p>
-          <p className="break-words font-mono text-[10px] text-amber-200">{merchant.luckyRecoveryError.message}</p>
-          <p>Clearing drops the stuck lucky-slot journal so jobs can run again. Items stay where they are; check the lucky slot afterwards.</p>
-          <Button
-            variant="outline"
-            disabled={action.isPending}
-            onClick={() => {
-              if (!confirm("Clear the merchant's stuck lucky-slot journal? Items stay where they are.")) return;
-              action.reset();
-              action.mutate({ path: '/merchant/clear-lucky-journal', body: {} });
-            }}
-            className="h-9 border-amber-400 bg-[#07100f] text-xs text-amber-100 hover:bg-amber-950 hover:text-white"
-          >
-            Clear stuck lucky-slot journal
-          </Button>
-        </div>
-      ) : null}
-      {!state.merchantCurrent && (state.productionPending || []).length ? (
-        <div role="alert" className="grid gap-2 rounded border border-orange-600 bg-[#1a1206] p-2 text-xs text-orange-100">
-          <p className="font-semibold">Merchant work is held: a production outcome needs review</p>
-          <p>
-            Recovery couldn&apos;t confirm what happened, so no further production can start until each
-            attempt below is reviewed. This never affects upgrade/compound quotas either way.
-          </p>
-          {(state.productionPending || []).map((attempt) => (
-            <div key={attempt.id} className="grid gap-1.5 rounded border border-orange-800 bg-[#0f0a04] p-2">
-              <p className="font-mono text-[10px] text-orange-200">
-                {attempt.kind} {attempt.name} +{attempt.level - 1} → +{attempt.level}
-                {attempt.journal ? ` (${attempt.journal.phase})` : " (no local journal)"}
-              </p>
-              <Textarea
-                value={productionReviewReasons[attempt.id] || ""}
-                onChange={(event) =>
-                  setProductionReviewReasons((previous) => ({ ...previous, [attempt.id]: event.target.value }))
-                }
-                placeholder="Review reason (required)"
-                className="min-h-16 border-orange-700 bg-[#07100f] text-xs text-orange-100 placeholder:text-orange-500/70 focus-visible:ring-orange-500/50"
-              />
-              <Button
-                variant="outline"
-                disabled={action.isPending || !(productionReviewReasons[attempt.id] || "").trim()}
-                onClick={() => {
-                  const reason = (productionReviewReasons[attempt.id] || "").trim();
-                  if (!reason) return;
-                  if (!confirm("Mark this production attempt reviewed? This does not undo or redo anything in-game.")) return;
-                  setProductionReviewError(null);
-                  action.reset();
-                  action.mutate(
-                    { path: '/merchant/production', body: {
-                      character: state.merchantCharacter, action: 'resolve-unknown', id: attempt.id,
-                      item: { name: attempt.name, level: attempt.level - 1 }, kind: attempt.kind, reason,
-                    } },
-                    { onError: (error) => setProductionReviewError(error instanceof Error ? error.message : 'Review failed'),
-                      onSuccess: () => setProductionReviewReasons((previous) => { const next = { ...previous }; delete next[attempt.id]; return next; }) },
-                  );
-                }}
-                className="h-9 border-orange-400 bg-[#07100f] text-xs text-orange-100 hover:bg-orange-950 hover:text-white"
-              >
-                Mark reviewed
-              </Button>
-            </div>
-          ))}
-          {productionReviewError ? (
-            <p className="break-words font-mono text-[10px] text-rose-300">{productionReviewError}</p>
-          ) : null}
-        </div>
-      ) : null}
       <div className="grid grid-cols-2 gap-2">
         <Button
           variant="outline"

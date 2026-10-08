@@ -22,6 +22,15 @@ test('Hunt blacklist full catalog scrolls and sprites select their own monster',
   // Failure modes: absolute sprites cover the modal and intercept other rows;
   // a large native catalog cannot scroll; sprite and text clicks select different
   // monsters; the one-monster console fixture hides those layout failures.
+  // Native catalog preparation follows the first successful heartbeat.
+  let catalog: Array<{id:string}> = [];
+  await expect.poll(async () => {
+    catalog = (await live.state(true)).monsterChoices || [];
+    return catalog.length;
+  }, { timeout: 90_000 }).toBeGreaterThan(30);
+  await info.attach('native-blacklist-catalog-ready', {
+    body: JSON.stringify({monsterIds: catalog.map(monster => monster.id)}), contentType: 'application/json',
+  });
   await page.goto(live.url);
   const warrior=page.locator('article').filter({has:page.getByRole('heading',{name:'E2EWarrior',exact:true})});
   await warrior.getByRole('button',{name:'Farming settings',exact:true}).click();

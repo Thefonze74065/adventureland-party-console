@@ -71,7 +71,6 @@ export function createMerchantDispatcher(state: DispatchState, ports: DispatchPo
   const realmCheck = createPartyRealmCheck(state, ports);
   let capacityBankAt = -Infinity;
   let productionHold = '';
-  let inventoryHold = '';
   let productionProbeAt = -Infinity;
   function clearCollectionCapacity(): boolean {
     if (!state.queue.some(job => ports.capacityBlocked(job))) return false;
@@ -265,26 +264,11 @@ export function createMerchantDispatcher(state: DispatchState, ports: DispatchPo
   function dispatch(): void {
     if (ports.eventReserved?.()) return;
     if (productionHeld()) return;
-    if (inventoryHeld()) return;
+    // A receipt can already be settled while its lucky layout or inventory
+    // tidy is still restoring. Hold before realm/home/storage/gathering paths
+    // so none can steal that inventory ownership between native steps.
+    if (ports.status(ports.merchant())?.upgradeInventoryBusy) return;
     dispatchReady();
-  }
-  /**
-   * An idle merchant still holding a lucky-slot/production journal would only defer every job
-   * at its own recovery gate, so hold the queue until its idle recovery (or an operator clear)
-   * releases the inventory, and say why once instead of retrying silently.
-   */
-  function inventoryHeld(): boolean {
-    const status = ports.status(ports.merchant());
-    if (state.current || !status?.upgradeInventoryBusy || !merchantAlive()) {
-      inventoryHold = '';
-      return false;
-    }
-    const reason = status.luckyRecoveryError?.message || 'lucky-slot inventory operation pending';
-    if (inventoryHold !== reason) {
-      inventoryHold = reason;
-      ports.log('Merchant work held until its inventory recovery finishes: ' + reason, 'error');
-    }
-    return true;
   }
   function dispatchReady(): void {
     if (gatheringCastActive(ports.status(ports.merchant()), ports.now())) return;

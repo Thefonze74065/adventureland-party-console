@@ -419,8 +419,7 @@ export function usePartyConsole() {
       | "auto-compound-mark"
       | "auto-exchange"
       | "merchant-weapon"
-      | "gold-target"
-      | "reset-lucky-slot-tracking",
+      | "gold-target",
     item?: Item,
     extra: Record<string, unknown> = {},
   ) {

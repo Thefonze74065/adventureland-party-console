@@ -2,7 +2,7 @@
 import { memo, useMemo } from 'react';
 import type { Char } from './char';
 import { SpriteCrop } from './sprite-crop';
-import { sanitizeDollHtml } from './safe-doll-html';
+import { sanitizeDollHtml } from './sanitize-doll-html';
 
 // Live vitals must not replace the image nodes underneath an active pointer.
 export const CharacterPortrait = memo(function CharacterPortrait({

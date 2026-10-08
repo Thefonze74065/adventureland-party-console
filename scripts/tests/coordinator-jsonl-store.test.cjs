@@ -1,6 +1,50 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const {CoordinatorJsonlStore:Store}=require('../../runtime/coordinator/persistence/jsonl-store.ts');
 const {syncBuiltinESMExports}=require('node:module');
+const {spawn}=require('node:child_process');
+const {once}=require('node:events');
+test('Linux stat token parsing uses field 22 after the full command name',()=>{
+ const {linuxProcessStart}=require('../../runtime/coordinator/persistence/process-lock.ts');
+ assert.equal(linuxProcessStart('82 (worker (name) here) S '+Array.from({length:18},(_,i)=>String(i+4)).join(' ')+' 999 23'),'999');
+ assert.equal(linuxProcessStart('malformed'),undefined);
+});
+
+test('abruptly terminated process releases stale ownership on next journal open',async t=>{
+ const [main,rotation]=fixture(t);
+ const script=`const {CoordinatorJsonlStore}=require('./runtime/coordinator/persistence/jsonl-store.ts');const s=new CoordinatorJsonlStore(process.argv[1],process.argv[2]);s.set('saved',{value:7});process.send('ready');setInterval(()=>{},1000);`;
+ const child=spawn(process.execPath,['--experimental-strip-types','-e',script,main,rotation],{stdio:['ignore','pipe','pipe','ipc']});
+ t.after(()=>{if(child.exitCode===null)child.kill('SIGKILL');});
+ await once(child,'message');
+ assert.throws(()=>new Store(main,rotation),/live writer/);
+ const exited=once(child,'exit');child.kill('SIGKILL');await exited;
+ const restored=new Store(main,rotation);try{assert.deepEqual(restored.get('saved'),{value:7});}finally{restored.close();}
+});
+
+test('legacy live PID and malformed ownership locks are preserved conservatively',t=>{
+ const [main,rotation]=fixture(t),lock=main+'.writer.lock';
+ for(const value of [String(process.pid),'', '{broken',JSON.stringify({version:1,pid:process.pid})]){
+  fs.writeFileSync(lock,value);assert.throws(()=>new Store(main,rotation),/live writer|unverifiable/);
+  assert.equal(fs.readFileSync(lock,'utf8'),value);fs.unlinkSync(lock);
+ }
+});
+
+test('Linux process token distinguishes a reused live PID and previous boot', {skip:process.platform!=='linux'},t=>{
+ const [main,rotation]=fixture(t),s=new Store(main,rotation),lock=main+'.writer.lock';
+ const identity=JSON.parse(fs.readFileSync(lock,'utf8'));s.close();
+ for(const patch of [{start:'0'},{boot:'previous-boot'}]){
+  fs.writeFileSync(lock,JSON.stringify({...identity,...patch}));
+  const recovered=new Store(main,rotation);recovered.close();
+ }
+ fs.writeFileSync(lock,JSON.stringify({...identity,namespace:'foreign-namespace'}));
+ const recovered=new Store(main,rotation);recovered.close();
+});
+
+test('Linux advisory guard persists its inode and prevents a second file-description writer', {skip:process.platform!=='linux'},t=>{
+ const [main,rotation]=fixture(t),first=new Store(main,rotation),guard=main+'.writer.guard';
+ const inode=fs.statSync(guard).ino;assert.throws(()=>new Store(main,rotation),/live writer/);
+ first.close();assert.equal(fs.statSync(guard).ino,inode);
+ const next=new Store(main,rotation);next.close();assert.equal(fs.statSync(guard).ino,inode);
+});
 function fixture(t){fs.mkdirSync('.build/store-tests',{recursive:true});const dir=fs.mkdtempSync(path.resolve('.build/store-tests/run-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));return [path.join(dir,'state.jsonl'),path.join(dir,'state.new.jsonl')];}
 test('loads a journal beyond the V8 string limit without reading it into one string',t=>{
  const [main,rotation]=fixture(t),fd=fs.openSync(main,'w');

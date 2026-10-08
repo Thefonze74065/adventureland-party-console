@@ -58,9 +58,7 @@ export interface MerchantWork extends MerchantJob {
 }
 
 export interface ServiceStatus extends Partial<Pick<Entity, 'rip'>> {
-  /** A lucky-slot/production operation owns the merchant's inventory (see lucky-upgrade.ts). */
   upgradeInventoryBusy?: boolean;
-  luckyRecoveryError?: { message?: string; at?: number } | null;
   gatheringPhase?: string;
   gatheringAttemptId?: string;
   seenAt: number;

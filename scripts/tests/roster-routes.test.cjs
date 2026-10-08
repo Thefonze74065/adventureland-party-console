@@ -1,6 +1,21 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { installRosterRoutes } = require('../../runtime/roster/routes.ts');
+const {createCoordinatorOwnershipPorts}=require('../../runtime/coordinator/characters/ownership.ts');
+
+for(const [scenario,expected] of [['unrelated merchant',200],['added character busy',502],['bankboi transaction',502]])
+test('spawn admission during '+scenario,async()=>{
+ const ownership={steamMembers:[],headlessSlots:['Merchant',null,null,null],nativeOwner:null,steamSwitch:null,
+  statuses:{Merchant:{seenAt:100,runtime:'headless'}},bankbois:{},bankboiTransaction:scenario==='bankboi transaction'?{}:null,
+  merchantCharacter:'Merchant',merchantCurrent:{id:'running-job'},leader:null,lifecycle:{}};
+ if(scenario==='added character busy')ownership.statuses.Ranger={seenAt:100,upgrading:true};
+ const realPorts=createCoordinatorOwnershipPorts(ownership,{}, {now:()=>100,id:()=>'',save(){},owned:()=>({}),configuredRealm:'SR_USII',roster:()=>[]});
+ const f=fixture({validateParticipants:realPorts.validateParticipants});f.state.native=null;f.state.steam=[];f.state.slots=['Merchant',null,null,null];
+ try{
+  const response=await f.request('/slots/:slot/spawn',{character:'Ranger'},'2');assert.equal(response.code,expected);
+  assert.equal(f.state.slots[1],expected===200?'Ranger':null);assert.equal(f.online.has('Ranger'),expected===200);
+ }finally{f.installed.dispose();}
+});
 
 function fixture(overrides = {}) {
   const state = { native: 'Priest', slots: ['Mage', 'Warrior', 'Merchant', null], handoff: null };

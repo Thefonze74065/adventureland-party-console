@@ -50,9 +50,6 @@ function createGameFixture(directory) {
       gameParty: ['W', 'P'], threats: [], conditions: [], slots: {},
       monsterHunt: name === 'W' ? { id: 'goo', count: 10, remainingMs: 600000, server: 'USII' } : null,
       navigationState: 'idle', standOpen: name === 'M',
-      // Doll scenarios put W on a generated instance map: its live-map definition travels with
-      // the frames, because this fixture has no game map files for /party-api/maps/main.
-      ...(process.env.E2E_DOLL_HTML && name === 'W' ? { characterDollHtml: process.env.E2E_DOLL_HTML, map: 'zone_e2e0_1', in: 'zone_e2e0_1' } : {}),
       items: Array.from({ length: 42 }, (_, slot) => (name === 'M' || name === 'W' && process.env.E2E_PLAYER_INVENTORY === 'true') && slot === 0
         ? { slot, item: { name: 'sword', level: 0 }, meta: itemMeta('sword') } : name === 'M' && slot === 1
         ? { slot, item: { name: 'gem0', q: 1 }, meta: itemMeta('gem0') } : name === 'M' && slot === 2

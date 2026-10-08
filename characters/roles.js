@@ -2664,10 +2664,11 @@
       }, 3e3);
       socket.once("entities", observe);
     });
+    let convoySuspended = false;
     const rare = createDepartureLoot(ports), hunt = createDepartureLoot({
       ...ports,
       defending: () => mission?.encounter && ports.huntEncounterDefending ? ports.huntEncounterDefending() : ports.defending()
-    }), convoy = createDepartureLoot(ports);
+    }), convoy = createDepartureLoot({ ...ports, defending: () => convoySuspended || ports.defending() });
     let convoyHold = false;
     let lastState = 0, lastRare = null, mission = null, finalKill = null, finalKillAt = 0;
     const activeMission = () => mission && !["ended", "failed-return", "backup-travel", "backup-farming"].includes(mission.stage);
@@ -2702,7 +2703,9 @@
       accept(state) {
         if (state.serverNow < lastState) return lastRare;
         lastState = state.serverNow;
-        convoyHold = !!(state.convoySignal?.phase === "defending" && state.convoySignal.loot);
+        const convoyPhase = state.convoySignal?.phase;
+        convoyHold = !!(["defending", "communication-hold", "observing"].includes(convoyPhase) && state.convoySignal.loot);
+        convoySuspended = convoyHold && convoyPhase !== "defending";
         convoy.accept(convoyHold ? state.convoySignal.loot : null, state.serverNow);
         mission = state.monsterHunt;
         if (state.farmingPolicy && state.farmingPolicy !== "hunt" && !mission?.exitMode) mission = null;

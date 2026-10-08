@@ -652,6 +652,12 @@
     if (!Number.isFinite(tolerance) || tolerance < 1) throw Error("Arrival tolerance must be at least 1");
     return tolerance;
   }
+  function nativePlanningTimeout(options) {
+    const timeout = options.nativePlanningTimeoutMs ?? 3e4;
+    if (!Number.isFinite(timeout) || timeout < 1e3 || timeout > 12e4)
+      throw Error("Native planning timeout must be between 1 and 120 seconds");
+    return timeout;
+  }
   function finalApproach(plot, from, to, options) {
     if (options?.arrivalTolerance === void 0 || options.shared) return plot;
     const remaining = distance(plot.at(-1) || from, to);
@@ -820,8 +826,13 @@
       return last2 && previous && !isTransition(last2) && last2.map === previous.map && !validation.walk(previous, last2) && distance(previous, state) <= state.edge ? plot.slice(0, -1) : plot;
     }
     function nativeTick(j) {
+      if (j.options.awaitSharedRoute) {
+        if (ports.now() - j.started > nativePlanningTimeout(j.options) + 3e4)
+          throw Error("Shared route preparation timed out");
+        return;
+      }
       if (!state.searching) {
-        planner.begin(point(state), state.use_town, ports.now());
+        planner.begin(point(state), state.use_town, ports.now(), nativePlanningTimeout(j.options));
         state.searching = true;
         j.searches++;
       }
@@ -1029,6 +1040,7 @@
         throw Error(`${issue.reason} between ${JSON.stringify(issue.from)} and ${JSON.stringify(issue.to)}; native regroup required`);
       }
       if (journey) journey.importedEngine = plannerEngine;
+      planner.cancel();
       return install(plot, true);
     }
     const service = {

@@ -21,6 +21,12 @@ function arrivalTolerance(options: MovementOptions): number {
   if (!Number.isFinite(tolerance) || tolerance < 1) throw Error('Arrival tolerance must be at least 1');
   return tolerance;
 }
+function nativePlanningTimeout(options: MovementOptions): number {
+  const timeout = options.nativePlanningTimeoutMs ?? 30000;
+  if (!Number.isFinite(timeout) || timeout < 1000 || timeout > 120000)
+    throw Error('Native planning timeout must be between 1 and 120 seconds');
+  return timeout;
+}
 function finalApproach(plot: Step[], from: Point, to: Point, options?: MovementOptions): Step[] {
   // Precision callers need the final approach that coarse planner nodes omit.
   // The caller validates this connector with native collision rules too.
@@ -139,7 +145,12 @@ export function installPartyMovement(host: MovementHost, ports: MovementPorts) {
       ? plot.slice(0, -1) : plot;
   }
   function nativeTick(j: Journey) {
-    if (!state.searching) { planner.begin(point(state), state.use_town, ports.now()); state.searching = true; j.searches++; }
+    if (j.options.awaitSharedRoute) {
+      if (ports.now() - j.started > nativePlanningTimeout(j.options) + 30000)
+        throw Error('Shared route preparation timed out');
+      return;
+    }
+    if (!state.searching) { planner.begin(point(state), state.use_town, ports.now(), nativePlanningTimeout(j.options)); state.searching = true; j.searches++; }
     const plot = planner.tick(ports.now());
     if (plot) install(plot, true);
   }
@@ -266,6 +277,7 @@ export function installPartyMovement(host: MovementHost, ports: MovementPorts) {
       throw Error(`${issue.reason} between ${JSON.stringify(issue.from)} and ${JSON.stringify(issue.to)}; native regroup required`);
     }
     if (journey) journey.importedEngine = plannerEngine;
+    planner.cancel();
     return install(plot, true);
   }
   const service = { state, move, stop,

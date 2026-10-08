@@ -30,3 +30,21 @@ test('explicit Use consumes the selected item and rejects stale slots or unsuppo
  await assert.rejects(context.useDashboardItem({slot:0,item:{name:'sword'}}),/no supported Use/);
  assert.deepEqual(calls,[0]);
 });
+
+// Manual equipment recovery isolation: native items can omit null metadata
+// present in a previously rendered inventory command. Missing stock must report
+// a failed selection instead of silently acknowledging an equip that never ran.
+test('manual orb equip normalizes legacy null metadata and reports missing inventory',async()=>{
+ const {context}=fixture();context.G.items.cave_loaded_die={type:'orb'};
+ context.character.items=[{name:'cave_loaded_die',level:0}];
+ context.root={};context.fingerprint=item=>item&&Object.fromEntries(Object.entries(item).filter(([,value])=>value!=null));
+ context.findItem=wanted=>context.character.items.findIndex(item=>item&&Object.keys(wanted).every(key=>item[key]===wanted[key]));
+ const calls=[];context.equip=async slot=>calls.push(slot);
+ const {namedFunction}=require('./helpers/named-function.cjs');
+ vm.runInContext(namedFunction(source,'equipDashboardItem'),context);
+ await context.equipDashboardItem({item:{name:'cave_loaded_die',level:0,p:null}});
+ assert.deepEqual(calls,[0]);
+ context.character.items=[];
+ await assert.rejects(context.equipDashboardItem({item:{name:'cave_loaded_die',level:0}}),/no longer.*inventory/);
+ assert.deepEqual(calls,[0]);
+});

@@ -13,7 +13,10 @@ interface Ports {
   log(slot: number): void;
 }
 const copy = (item: Item | null): Item | null => item && JSON.parse(JSON.stringify(item));
-const same = (a: Item | null, b: Item | null) => JSON.stringify(a) === JSON.stringify(b);
+// Normalize both sides so journals saved before null metadata was omitted still
+// match native inventory. Non-null identity fields remain exact comparisons.
+const identity = (item: Item | null) => item && Object.fromEntries(Object.entries(item).filter(([,value]) => value != null));
+const same = (a: Item | null, b: Item | null) => JSON.stringify(identity(a)) === JSON.stringify(identity(b));
 const level = (item: Item) => Number(item.level || 0);
 function describe(error: unknown): string { return error instanceof Error ? error.message : JSON.stringify(error); }
 function reconcileScroll(j: Journal, current: Item | null): void {
@@ -148,17 +151,6 @@ export function createLuckyUpgrade(ports: Ports) {
     ports.write(null);
     return true;
   }
-  /**
-   * Operator escape hatch for a journal that recovery can't reconcile. Items stay wherever they
-   * are now (nothing is lost, the upgraded item may simply remain in the lucky slot); only the
-   * journal that blocks every merchant job is dropped. Refused while an upgrade is in flight.
-   */
-  function discard(): { cleared: boolean; journal: Journal | null } {
-    if (active || ports.busy()) return { cleared: false, journal: ports.read() };
-    const journal = ports.read();
-    if (journal) ports.write(null);
-    return { cleared: !!journal, journal };
-  }
   function runInput(from: number, scroll: number, lucky: unknown, offering?: number) {
     if (active) throw failure('another upgrade owns the inventory');
     const to = validSlot(lucky) ? Number(lucky) : from;
@@ -226,6 +218,6 @@ export function createLuckyUpgrade(ports: Ports) {
     // ever swapping two occupied cells while packing the bag.
     await swapConfirmed(target, empty, () => !ports.item(target) && same(ports.item(empty), displaced));
   }
-  return {run, recover, retireSettled, discard, tidy, pending: () => active || !!ports.read()};
+  return {run, recover, retireSettled, tidy, pending: () => active || !!ports.read()};
 }
 (globalThis as unknown as {createPartyLuckyUpgrade: typeof createLuckyUpgrade}).createPartyLuckyUpgrade = createLuckyUpgrade;

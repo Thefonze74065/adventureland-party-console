@@ -1,9 +1,11 @@
 .caracal/
 node_modules/
 .build/
+.worktrees/
 dist/
 characters/generated/
 characters/manifest.json
+characters/manifest.json.*.tmp
 characters/build-history.json
 
 # Local credentials and generated runtime data must never be committed.

@@ -8,9 +8,12 @@ type SettingsPorts = Parameters<typeof createMerchantSettingsRoutes>[1];
 type RoutinePorts = Parameters<typeof createRoutinePriorityRoute>[1];
 interface ConfigurationState extends BankSortState {
   merchantCharacter: string | null;
+  luckySlotLocks?: Record<string, number | null>;
+  luckySlotResume?: Record<string, {slot: number; rolls: number}>;
   gatheringModes: string[];
   gatheringNoTool: Record<string, boolean>;
   merchantActivity: unknown[];
+  luckySlotTracking?: import("../../lucky-slot-tracking.ts").LuckySlotHistory;
   nextCommandId: number;
   commands: Record<string, MerchantCommand | undefined>;
   merchantCurrent: { id: string } | null;
@@ -38,6 +41,11 @@ export function createCoordinatorMerchantConfiguration(
       set merchant(value) {
         state.merchantCharacter = value;
       },
+      get luckySlotTracking() { return state.luckySlotTracking; },
+      get luckySlotResume() { return state.luckySlotResume; },
+      set luckySlotResume(value) { state.luckySlotResume = value; },
+      get luckySlotLocks() { return state.luckySlotLocks; },
+      set luckySlotLocks(value) { state.luckySlotLocks = value; },
       get modes() {
         return state.gatheringModes;
       },

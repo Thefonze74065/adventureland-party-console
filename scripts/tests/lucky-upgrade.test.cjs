@@ -12,6 +12,17 @@ function fixture(options={}) {
   if(!options.survive)items[slot].level++;return {slot};};
  return {items,swaps,logs,calls,service,action,ports,get journal(){return journal;},setBusy:v=>busy=v,setCurrent:v=>current=v};
 }
+// Historical journal metadata can gain or lose null properties on native drag.
+// Preserve actual non-null identity mismatches; normalize both legacy evidence
+// and current inventory before comparing, including result and displaced fields.
+for(const legacy of [false,true])test('persisted lucky journal tolerates native null metadata '+legacy,async()=>{
+ const f=fixture({occupant:{name:'tracker'}});
+ f.items[2]={name:'tracker',...(!legacy?{p:null}:{})};
+ f.items[7]={name:'sword',level:4,rid:'exact',...(!legacy?{p:null}:{})};
+ f.ports.write({from:2,to:7,item:{name:'sword',level:3,rid:'exact',...(legacy?{p:null}:{})},displaced:{name:'tracker',...(legacy?{p:null}:{})},phase:'running'});
+ await f.service.recover();
+ assert.equal(f.journal,null);assert.equal(f.items[2].level,4);assert.equal(f.items[7].name,'tracker');
+});
 for(const occupant of [null,{name:'hpot0',q:200},{name:'sword',level:3,rid:'other'}])test('upgrade in slot 7 and restore displaced '+JSON.stringify(occupant),async()=>{
  const f=fixture({occupant});await f.service.run(2,4,7,f.action);
  assert.deepEqual(f.calls,[[7,4]]);assert.equal(f.items[2].level,4);assert.deepEqual(f.items[7],occupant);assert.equal(f.journal,null);

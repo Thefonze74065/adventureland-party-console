@@ -25,8 +25,9 @@ export function createCoordinatorPersistence(
   state: PersistedCoordinator,
   storage: KeyValueStorage,
 ) {
+  let settingsTimer: ReturnType<typeof setTimeout> | undefined;
   function write(key: string, value: unknown): void {
-    storage.set(key, JSON.stringify(value));
+    storage.set(key, structuredClone(value));
   }
   function roster(): void {
     write(stateKeys.roster, selectSnapshot(state, rosterFields));
@@ -35,6 +36,8 @@ export function createCoordinatorPersistence(
     write(stateKeys.bank, selectSnapshot(state, bankFields));
   }
   function settings(): void {
+    clearTimeout(settingsTimer);
+    settingsTimer = undefined;
     write(stateKeys.selections, selectSnapshot(state, selectionFields));
     write(stateKeys.settings, settingsSnapshot(state));
   }
@@ -44,5 +47,13 @@ export function createCoordinatorPersistence(
   function aldata(): void {
     write(stateKeys.aldata, authSnapshot(state.aldata));
   }
-  return { roster, bank, settings, history, aldata };
+  function scheduleSettings(): void {
+    if (settingsTimer) return;
+    settingsTimer = setTimeout(settings, 1000);
+    settingsTimer.unref();
+  }
+  function flush(): void {
+    if (settingsTimer) settings();
+  }
+  return { roster, bank, settings, scheduleSettings, flush, history, aldata };
 }

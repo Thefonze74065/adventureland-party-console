@@ -7,6 +7,37 @@ function fixture(initial=null){let saved=initial,now=1000;
  const ports={read:()=>saved,write:value=>saved=structuredClone(value),now:()=>now,isUpgradeScroll:name=>/^scroll[0-3]$/.test(name)};
  return {ports,tracker:createLuckySlotTracker(ports),advance:ms=>now+=ms,get saved(){return saved;}};
 }
+
+test('account ID bindings retain migration evidence and reset all lucky state for same-name recreation',()=>{
+ const {receiveLuckySlotTracking}=require('../../runtime/coordinator/status/lucky-slot-tracking.ts');
+ const f=fixture();f.tracker.observe(event());const report=f.tracker.report();
+ const state={luckySlotTracking:{M:{[report.streamId]:report}},luckyUpgradeSlots:{M:7},luckySlotLocks:{M:7},luckySlotResume:{M:{slot:8,rolls:1}}};
+ assert.equal(receiveLuckySlotTracking(state,'M',null,'CH_old'),true);
+ assert.equal(state.luckyUpgradeSlots.M,7);assert.equal(state.luckySlotCharacterIds.M,'CH_old');
+ assert.equal(receiveLuckySlotTracking(state,'M',report,'CH_old','CH_old'),false);
+ assert.equal(receiveLuckySlotTracking(state,'M',report,'CH_new','CH_old'),true);
+ for(const key of ['luckySlotTracking','luckyUpgradeSlots','luckySlotLocks','luckySlotResume'])assert.equal(state[key].M,undefined);
+ assert.equal(receiveLuckySlotTracking(state,'M',report,'CH_new','CH_old'),false);
+ assert.equal(receiveLuckySlotTracking(state,'M',report,'CH_new','CH_new'),true);
+});
+
+test('verified account ID rename moves its own evidence and positions',()=>{
+ const {receiveLuckySlotTracking}=require('../../runtime/coordinator/status/lucky-slot-tracking.ts');
+ const state={luckySlotCharacterIds:{Old:'CH_same'},luckySlotTracking:{Old:{}},luckyUpgradeSlots:{Old:7},luckySlotLocks:{Old:6},luckySlotResume:{Old:{slot:8,rolls:1}}};
+ receiveLuckySlotTracking(state,'New',null,'CH_same');
+ assert.equal(state.luckyUpgradeSlots.New,7);assert.equal(state.luckySlotLocks.New,6);assert.deepEqual(state.luckySlotResume.New,{slot:8,rolls:1});
+ assert.equal(state.luckySlotCharacterIds.Old,undefined);assert.equal(state.luckyUpgradeSlots.Old,undefined);
+});
+
+test('client lucky tracking uses account ID storage and never reloads name-only history',()=>{
+ const vm=require('node:vm'),fs=require('node:fs'),source=fs.readFileSync('characters/shared.js','utf8');
+ const keys=[],stored=new Map(),context=vm.createContext({character:{owner:'owner',name:'M'},Date,JSON,
+ root:{localStorage:{getItem(key){keys.push(key);return stored.get(key)},setItem(key,value){stored.set(key,value)}},createPartyLuckySlotTracker:createLuckySlotTracker},G:{items:{scroll0:{type:'uscroll'}}}});
+ vm.runInContext(source.slice(source.indexOf('  var luckySlotTracker = null;'),source.indexOf('  function luckySlotRollListener(')),context);
+ context.bindLuckySlotCharacterId('CH_old');context.luckySlotTracking().observe(event());
+ context.bindLuckySlotCharacterId('CH_new');assert.deepEqual(JSON.parse(JSON.stringify(context.luckySlotTracking().report().slots)),{});
+ assert.deepEqual(keys,['party-lucky-slot-tracking:owner:CH_old','party-lucky-slot-tracking:owner:CH_new']);
+});
 test('records reversed digits by physical slot, including zero and high rolls',()=>{
  const f=fixture();f.tracker.observe(event(0));f.tracker.observe(event(41,[9,9,9,9]));f.tracker.observe(event(7,[0,0,0,0]));
  assert.deepEqual(f.tracker.report().slots,{
@@ -67,32 +98,8 @@ test('durable coordinator evidence survives replay, restart, and native/headless
  const {initialMerchantRuntime}=require('../../runtime/coordinator/merchant/initial-runtime.ts');
  assert.deepEqual(initialMerchantRuntime(restored,'M').luckySlotTracking,restored.luckySlotTracking);
  const {createCoordinatorPersistence}=require('../../runtime/coordinator/persistence/writer.ts');const writes=new Map();
- createCoordinatorPersistence({...restored,aldata:{}},{set:(key,value)=>writes.set(key,JSON.parse(value))}).settings();
+ createCoordinatorPersistence({...restored,aldata:{}},{set:(key,value)=>writes.set(key,structuredClone(value))}).settings();
  assert.deepEqual(writes.get('party_dashboard_settings_state_v1').luckySlotTracking,restored.luckySlotTracking);
-});
-test('resetting coordinator-side lucky-slot state clears both discovery evidence and a verified slot, scoped to one character',()=>{
- const {receiveLuckySlotTracking,resetLuckySlotTracking}=require('../../runtime/coordinator/status/lucky-slot-tracking.ts');
- const state={luckyUpgradeSlots:{M:30,Other:12}};const a=fixture();a.tracker.observe(event(7));
- receiveLuckySlotTracking(state,'M',a.tracker.report());receiveLuckySlotTracking(state,'Other',a.tracker.report());
- assert.equal(resetLuckySlotTracking(state,'M'),true);
- assert.equal(state.luckySlotTracking.M,undefined);assert.equal(state.luckyUpgradeSlots.M,undefined);
- assert.ok(state.luckySlotTracking.Other);assert.equal(state.luckyUpgradeSlots.Other,12);
- assert.equal(resetLuckySlotTracking(state,'M'),false);
-});
-test('reset abandons the stream id so a coordinator-cleared history cannot be replayed back',()=>{
- const f=fixture();f.tracker.observe(event(7));
- const before=f.tracker.report();
- f.tracker.reset();
- const after=f.tracker.report();
- assert.deepEqual(after.slots,{});
- assert.notEqual(after.streamId,before.streamId);
- assert.deepEqual(f.saved.slots,{});
- assert.equal(f.tracker.select(),0);
- // Simulates the coordinator handing back the old stream's history (e.g. a stale
- // heartbeat response still in flight): keyed under the abandoned stream id, it
- // must not be merged onto the tracker's new, reset stream.
- f.tracker.sync({[before.streamId]:before});
- assert.deepEqual(f.tracker.report().slots,{});
 });
 test('a high roll moves exploration to an untested slot without waiting for a verified slot',()=>{
  const f=fixture();assert.equal(f.tracker.select(),0);f.tracker.observe(event(7,[9,9,9,9]));assert.equal(f.tracker.select(),0);
@@ -124,13 +131,13 @@ test('rotating search converges on a simulated lucky slot using only scheduled a
 });
 test('shared runtime records listener packets, persists data and ignores retired runtime packets',()=>{
  const fs=require('node:fs'),vm=require('node:vm');const source=fs.readFileSync('characters/shared.js','utf8');
- const start=source.indexOf('  function luckySlotTracking()');
+ const start=source.indexOf('  var luckySlotTracker = null;');
  const storage=new Map();let current=true;
  const context=vm.createContext({G:{items:{scroll0:{type:'uscroll'}}},luckySlotTracker:null,root:{createPartyLuckySlotTracker:createLuckySlotTracker,localStorage:{getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value)}},character:{name:'FonzeMerch',owner:'account'},runtimeCurrent:()=>current,Date});
  // Extract the two tracker functions without unrelated initialization.
  const functions=source.slice(start,source.indexOf('\n  }',source.indexOf('  function luckySlotRollListener',start))+4);
- vm.runInContext(functions,context);context.luckySlotRollListener(event());
+ vm.runInContext(functions,context);context.bindLuckySlotCharacterId('CH_Fonze');context.luckySlotRollListener(event());
  assert.equal(context.luckySlotTracking().report().slots[7].totalRolls,1);
- assert.ok(storage.has('party-lucky-slot-tracking:account:FonzeMerch'));
+ assert.ok(storage.has('party-lucky-slot-tracking:account:CH_Fonze'));
  current=false;context.luckySlotRollListener(event(0));assert.equal(context.luckySlotTracking().report().slots[0],undefined);
 });

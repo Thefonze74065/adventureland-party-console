@@ -200,6 +200,7 @@ test.describe('real server, native clients, maintained character runtime', () =>
 
   for (const restart of [false, true]) {
     test(`Goobrawl interrupts Hunt and real event evacuation resumes it${restart ? ' across coordinator restart' : ''}`, async ({ live }, info) => {
+      test.setTimeout(360_000);
       const encounter = await seedSmallGoobrawl(live);
       await info.attach('goobrawl-initial-encounter', { body: JSON.stringify(encounter), contentType: 'application/json' });
       await party(live);
@@ -216,7 +217,9 @@ test.describe('real server, native clients, maintained character runtime', () =>
       await evidence(live, info, 'inside-live-goobrawl');
       if (restart) await live.restartCoordinator();
       await live.admin(`timers.goobrawl=new Date(0);output=true`);
-      await expect.poll(async () => { const state=await observed(live);return [W,P].every(name=>state[name].map==='main'); }, { timeout: 120_000 }).toBe(true);
+      // Timer expiry leaves native survivors to kill before the ended-event
+      // grace period and real transporter evacuation can begin.
+      await expect.poll(async () => { const state=await observed(live);return [W,P].every(name=>state[name].map==='main'); }, { timeout: 180_000 }).toBe(true);
       const combat = (await Promise.all([W,P].map(name => live.clients[name].events()))).flat();
       expect(combat.some((event: any) => survivors.some((monster: any) => String(monster.id) === String(event.data?.id)) &&
         (event.event === 'death' || event.event === 'hit' && event.data?.kill)), 'Native clients must kill an observed event monster').toBe(true);

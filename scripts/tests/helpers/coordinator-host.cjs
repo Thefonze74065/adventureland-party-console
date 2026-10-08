@@ -46,7 +46,7 @@ async function run(now, overrides = {}, bundled = false, launcherDirectory) {
   }
   const clock=now===undefined?Date:class extends Date {constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}};
   const hostModule={exports:{}};
-  const context=vm.createContext({module:hostModule,exports:hostModule.exports,require:stubRequire,Date:clock,__dirname:launcherDirectory || path.resolve('.caracal/standalones'),Buffer,URL,URLSearchParams,console:logger,
+  const context=vm.createContext({module:hostModule,exports:hostModule.exports,require:stubRequire,Date:clock,__dirname:launcherDirectory || path.resolve('.caracal/standalones'),Buffer,URL,URLSearchParams,structuredClone,console:logger,
     performance,fetch:async()=>({ok:true,json:async()=>[],text:async()=>'',headers:{get(){return null;}}}),
     process:{env:{AL_SESSION:'fixture'},pid:process.pid,kill:process.kill,on(name,handler){listeners.push(name);signals.set(name,handler);},exit(){exited();},stdout:{},stderr:{}},
     setTimeout(callback,ms){timers.push(['timeout',ms]);return {unref(){}};},clearTimeout(){},

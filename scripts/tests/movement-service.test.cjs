@@ -6,6 +6,22 @@ const {createPlannerService}=require('../../runtime/coordinator/navigation/plann
 const {createNative}=require('../../tools/game/pathfinder-benchmark/native.cjs');
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 
+test('a Cave follower waits without searching, then validates and executes the shared route',async()=>{
+ const r=fixture(), p=r.service.move({map:'main',x:100,y:0},undefined,{native:true,shared:true,awaitSharedRoute:true});
+ await r.ticks(5);assert.equal(r.searches,0);assert.equal(r.service.state.found,false);
+ assert.throws(()=>r.service.install([{map:'main',x:100,y:0}],{version:0,fingerprint:'wrong'}),/geometry mismatch/);
+ r.service.install([{map:'main',x:100,y:0}],r.service.identity,'cave-convoy');
+ await r.ticks(8);await p;assert.equal(r.c.real_x,100);assert.equal(r.searches,0);r.dispose();
+});
+
+test('a Cave search uses its declared longer budget while preserving a finite deadline',async()=>{
+ const r=fixture();r.host.__partyNativeMovement.start=()=>{r.host.smart.searching=true;};
+ const p=r.service.move({map:'main',x:100,y:0},undefined,{native:true,shared:true,nativePlanningTimeoutMs:90000});
+ const failed=assert.rejects(p,/90 seconds/);
+ await r.ticks(1);r.setNow(32000);await r.ticks(1);assert.equal(r.service.state.moving,true);
+ r.setNow(92000);await r.ticks(1);await failed;r.dispose();
+});
+
 test('route import refreshes and normalizes the game version, retaining strict fingerprint validation',()=>{
  const r=fixture();r.host.parent.__partyClientVersion='17139';
  assert.throws(()=>r.service.install([],{version:17139,fingerprint:'incorrect'}),/expected.*incorrect.*actual.*17139/);

@@ -30,10 +30,9 @@ export function reconcileQueue(old: Group | undefined | null, members: Member[],
     (e.startedAt??e.at)<=(r.rejectedAt??r.until-120000)) && !old?.fights.some(f=>identity(f)===identity(e)&&f.state==='engaged');
   const deaths: Death[]=[...(old?.deaths||[]),...reports.flatMap(m=>m.status!.groupedCombat?.deaths||[])];
   const tombstones=[...new Map(deaths.filter(d=>d.at<=now+500).map(d=>[identity(d),d])).values()].slice(-512);
+  const tombstoneIds = new Set(tombstones.map(identity));
   const lostTargets=[...((old?.lostTargets||[]).filter(t=>t.retiredAt>=resetAt))];
   const retired=(t:Target & {server:string|undefined},at?:number)=>lostTargets.some(l=>identity(l)===identity(t)&&(at===undefined||at<=l.retiredAt));
-  // Up to 512 tombstones are checked against every candidate, fight and claim: index them once.
-  const tombstoneIds=new Set(tombstones.map(identity));
   const dead=(t: Target & {server:string|undefined})=>passing.has(passingIdentity(t)) || tombstoneIds.has(identity(t));
   const claims=releaseResetFights(old?.fights||[],reports,reconcileClaims(old?.claims||[],reports,now,resetAt),now).filter(c=>!tombstoneIds.has(identity(c)));
   const claimFor=(t: Target & {server:string|undefined})=>claims.find(c=>identity(c)===identity(t));

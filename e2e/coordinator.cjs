@@ -64,6 +64,14 @@ const logger = {
   error: (...args) => { startupError = new Error(args.map(String).join(' ')); console.error(...args); },
 };
 const adapters = {
+  // Map references resolve against the launcher directory. Read the same pinned
+  // catalog from this scenario, without modifying the installed game cache.
+  'node:fs': { ...fs, readFileSync(file, ...args) {
+    const installedCatalog = path.resolve(launcherDirectory, '../game_files', String(version), 'data.js');
+    const scenarioFile = typeof file === 'string' && path.resolve(file) === installedCatalog
+      ? path.join(directory, 'game_files', String(version), 'data.js') : file;
+    return fs.readFileSync(scenarioFile, ...args);
+  } },
   '../config': { characters: {}, merchant: process.env.E2E_MERCHANT_CONNECTED === 'false' ? null : 'M', watch_CODE: false, enable_TYPECODE: false,
     web_app: { party_dashboard: true, port } },
   '../account_info': async () => account,
@@ -119,15 +127,11 @@ async function main() {
   }
   await heartbeat(true);
   // Serial recurring reports avoid overlapping samples while retaining real coordinator timers.
-  // A scenario that must observe one specific heartbeat's response (e.g. a
-  // one-shot command delivery) can widen this via E2E_STATUS_INTERVAL_MS so
-  // this ambient loop cannot win that race.
-  const statusIntervalMs = Number(process.env.E2E_STATUS_INTERVAL_MS) || 1000;
   async function refresh() {
-    try { await heartbeat(); setTimeout(refresh, statusIntervalMs).unref(); }
+    try { await heartbeat(); setTimeout(refresh, 1000).unref(); }
     catch (error) { console.error(error); process.exit(1); }
   }
-  setTimeout(refresh, statusIntervalMs).unref();
+  setTimeout(refresh, 1000).unref();
   console.log(JSON.stringify({ event: 'e2e-coordinator-ready', port, directory, simulated: ['account', 'game'] }));
   if (process.send) process.send({ type: 'ready', port });
 }

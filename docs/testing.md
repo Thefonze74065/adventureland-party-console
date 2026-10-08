@@ -617,6 +617,10 @@ conditions. The discovery pass found 87 files containing Hunt-related references
 its 920 declarations include unrelated cases in mixed suites and are not a claim
 of 920 separate Hunt scenarios. Every discovered file is represented in a ledger.
 
+The [Cave route preparation failure modes](testing-cave-route-failures.md)
+document the retained planner-admission and bounded-wait checks. Native Cave
+E2E remains authoritative for generated terrain, pacing, votes and arrival.
+
 These existing exceptions run with `npm run test:unit`, or
 `npm run test:unit:ci` for the strict TAP report. Both limit Node to two test workers
 (`--test-concurrency=2`) to avoid competing with native game clients and bundlers.
@@ -701,3 +705,18 @@ speed, armor, and resistance. These scenarios validate workflow behavior rather
 than normal player combat difficulty or natural gear progression.
 
 The native Cave regression is in live-cave.spec.ts. Run npm test -- -- --project=live --grep 'Cave entry closes'. It seeds the party beside Dorr, uses native entry and votes, captures both participant maps, verifies both characters reach selected rooms, stops and restarts manual travel, inspects the shop item, and checks exit confirmation through the dashboard. Artifacts include native-cave-entry, native-cave-choice, participant cave-map screenshots, native-cave-manual-travel, and native-cave-exit. Fixture reset destroys only generated runs belonging entirely to its test account, preventing a prior failed run from becoming a resume visit.
+
+## Native merchant skill scenario timing
+
+The merchant mass-skill and passive-recovery scenario budgets 600 seconds for
+four real bank/NPC work journeys, companion reconnection, and its final recovery
+job. In native CI run 37732652077, the first four jobs all completed in approximately
+66, 49, 54, and 48 seconds; real companion reconnection took another 96 seconds.
+The former 360-second total interrupted the final job after 31 seconds while its
+fresh native movement report showed ongoing travel to the NPC. Ordinary jobs still
+have a 150-second completion deadline, and HP/MP potion recovery must happen within
+20 seconds. The final two-item recovery batch alone has a 180-second completion
+deadline: run 37740967977 recorded actual completion after 163 seconds, with
+native upgrade successes on both items and NPC travel to replenish the second
+scroll. Other jobs retain their 150-second deadlines. Native actions and outcome
+assertions remain unchanged.

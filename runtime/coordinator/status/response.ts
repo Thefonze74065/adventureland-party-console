@@ -74,7 +74,9 @@ export function createHeartbeatResponse(state: HeartbeatState, ports: HeartbeatR
   function attachLuckySlot(name: string, command: HeartbeatState['commands'][string] | null): void {
     if (!command || name !== state.merchantCharacter) return;
     const slots = state.luckyUpgradeSlots as Record<string, number | null> | undefined;
-    command.luckyUpgradeSlot = slots?.[name] ?? null;
+    const locks = state.luckySlotLocks as Record<string, number | null> | undefined;
+    const resume = state.luckySlotResume as Record<string, {slot: number}> | undefined;
+    command.luckyUpgradeSlot = locks?.[name] ?? resume?.[name]?.slot ?? slots?.[name] ?? null;
   }
 
   function liveEvent(name: string, names: string[]): string | null {

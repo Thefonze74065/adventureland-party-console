@@ -7,6 +7,28 @@ from the commits merged into `main`.
 
 ### Added
 
+- Manual merchant weapon equips update the saved weapon preference, and manual
+  hand changes replace gathering's saved loadout. Temporary gathering tools
+  continue to work; cooldown restoration and restarts preserve the chosen gear.
+
+- The lucky-slot details table provides Lock/Unlock buttons in its rightmost
+  column; the leading candidate row turns green above 95% model confidence.
+  Merchants can lock the lucky-slot position while continuing
+  to record rolls and probabilities. Guarded cleanup preserves displaced cargo;
+  unlocking tests the next position before resuming discovery. Locks and the
+  next-roll checkpoint survive coordinator restarts. Changes refresh inventory
+  and settings immediately; resumed positions remain tests until verified (#23).
+
+- Home-realm confirmation warns that every account character is affected.
+  Active characters confirm individually; offline characters log in sequentially
+  and return offline. Original assignments are preserved and temporarily paused
+  headless workers reconnect. Mixed homes and per-character progress are visible;
+  cooldowns and full native-session capacity produce explicit errors. Requests
+  refresh native home data before skipping already-matching characters. Successful
+  native acknowledgements and fresh character status confirm changes while the
+  account database catches up; temporary merchants keep exclusive command
+  ownership until their home change and logout finish (#52).
+
 - Debug consoles can open and control their actual game browser through a private
   viewer on the same port, with Debug browser labels instead of Steam.
 
@@ -48,6 +70,89 @@ from the commits merged into `main`.
   Persisted action receipts prevent blind retries after lost entry or spending replies.
 
 ### Fixed
+
+- Native Cave cruise checks wait for the selected owned route to prepare before
+  applying the motion deadline, preserving displacement and native cruise checks.
+- Native merchant checks allow bank travel before the injected lucky return fault,
+  generated reward-box exchange chains, and the final recovery batch's two
+  upgrades and NPC scroll trips, preserving item, reward, and recovery assertions.
+- Hunt travel preserves pending loot through temporary communication and
+  observation holds, suspends collection until defense resumes, and retries
+  native chest-opening errors so the original Hunt can finish and claim rewards.
+
+- Native passing-combat validation seeds encounters at the existing reservation
+  lookahead limit, allowing peer admission before the walking party passes them.
+  Both outbound and return native kill and Daisy reward checks remain required.
+
+- Native blacklist validation waits for the discovered monster catalog before
+  checking scrolling, sprite inspection, and persisted selection, recording
+  the native monster IDs as evidence.
+- Native Goobrawl validation allows surviving arena monsters to finish fighting
+  before evacuation, including the coordinator restart case, while retaining
+  native kill and resumed Hunt checks.
+
+- Rare encounters remain owned while waiting in the combat queue behind an
+  existing party fight. Tiny P field deployment can finish and combat resumes
+  without falsely rejecting the rare when it temporarily loses the queue head.
+
+- Cave followers validate and reuse the leader's route without duplicate native
+  pathfinding. Large Cave floors allow a bounded 90-second leader search and
+  120-second follower wait; ordinary navigation retains its 30-second limit.
+  Native pacing checks resolve newly revealed encounter votes first; room-completion
+  checks allow cumulative native travel and combat before the final farewell vote.
+- Allow the native merchant skill and recovery E2E enough time for four bank/NPC
+  journeys and a real companion reconnect, preserving individual job deadlines.
+- Allow the native BooBoo reward check to finish return travel and the stable
+  arrival confirmation before requiring the exact Hunt token reward.
+- Native headless E2Es load the server's complete client script manifest and
+  retry transient asset-read failures with bounded timeouts. Evidence collection
+  is bounded, and teardown closes the isolated gateway and coordinator even
+  when native video capture fails.
+- Recovery fixtures accept current object snapshots and legacy JSON strings,
+  and the bundle harness supplies Node's native snapshot-cloning API.
+  Console map previews use each scenario's pinned catalog; UI checks wait for
+  hydration, dialog animations, and fresh native status after restart. Generated
+  Cave routes retain their native vote/floor checks with bounded travel time.
+- Restore missing optional native tooling records in the dashboard lockfile so
+  clean Linux/Docker installations succeed with all pinned versions unchanged.
+- Recover burned commerce-upgrade items only after lucky-layout reconciliation
+  proves an empty result and no old/new-level survivor remains. Ambiguous layouts
+  still require review. Normalize null item metadata in current inventory and
+  legacy journals, and hold competing merchant dispatch throughout production,
+  recovery and lucky-slot restoration (#47).
+- Allow unrelated character logins while merchant jobs are running, retaining
+  the joining character's ownership checks and global BankBoi lock (#48).
+- Connect new and restored headless slots to the native home realm rather than
+  stale saved realm configuration. Preserve explicit realm-operation destinations
+  and running workers' event travel (#50).
+- Bind lucky-slot evidence, verified positions, locks and resume checkpoints to
+  stable account character IDs. Same-name recreation clears old state; renames
+  retain it. Client streams use ID-scoped storage to prevent stale reimport.
+  First migration preserves legacy evidence; earlier recreations cannot be
+  detected retroactively (#55).
+- Normalize legacy null metadata in manual equipment selections and report
+  missing gear instead of silently skipping Equip. Loaded Die uses the native
+  orb slot; its menu regression checks displaced-orb conservation and restart.
+- Cache passing-encounter/death identities per list and context, and build one
+  retained-tombstone identity set per combat reconciliation. Preserve timestamp,
+  duplicate and death-precedence behavior while removing repeated scans (#57).
+- Bound completed production receipts to 2,048 while preserving unfinished
+  journals. Coalesce ordinary settings saves over one second, keep production
+  checkpoints immediate, flush orderly shutdowns, omit Hunt message-only writes,
+  and store object snapshots with legacy JSON-string compatibility (#59).
+- Rotate managed console and updater Docker logs to three 10 MB files each.
+  Existing services need recreation with the updated Compose file; subsequent
+  managed updates preserve the limits (#60).
+- Sanitize doll markup before portrait, equipment comparison and map rendering.
+  Rebuild approved tags, attributes and native crop styles with a pure-data HTML
+  parser; reject handlers, unsafe image schemes and executable CSS (#61).
+- Release Linux journal ownership automatically after crashes with an advisory
+  flock guard. Retain process identity metadata, protect competing writers across
+  containers, and conservatively handle unverifiable legacy locks. Coordinator
+  Docker images include util-linux (#62).
+- Stream E2E Docker logs directly to their artifact with bounded memory and
+  collect only the current run during teardown, so large retained logs cannot
+  prevent cleanup or report generation.
 
 - Cave recovery releases a completed dungeon hold before manual Town or farming
   travel. Parties already outside the cave can resume movement instead of

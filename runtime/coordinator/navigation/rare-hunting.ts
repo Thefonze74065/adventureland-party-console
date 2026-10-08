@@ -900,7 +900,10 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
       }
       else return now() - e.start >= 10000;
     }
-    return !combat.selected(e.target) && !combat.locked(e.target) && !dead(e);
+    // A pending party fight takes precedence over planned rare nominations.
+    // Losing the queue head does not abandon a rare still awaiting its turn.
+    const queued = combat.queued(e.target) && !claimed(e.target);
+    return !combat.selected(e.target) && !queued && !combat.locked(e.target) && !dead(e);
   }
   function lostClaim(e: Encounter) {
     return !e.engaged && !combat.locked(e.target) && claimed(e.target);

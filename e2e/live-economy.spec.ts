@@ -119,7 +119,7 @@ test('lucky upgrade preserves party deliveries across preparation and interrupte
   });
   try {
     const order = await live.post('/merchant/order', { buys: [{ id: 'helmet', quantity: 1, level: 1 }], crafts: [] });
-    await expect.poll(() => live.clients[merchant].run('!!globalThis.__e2eDeliveryRestoreFault'), { timeout: 90_000 }).toBe(true);
+    await expect.poll(() => live.clients[merchant].run('!!globalThis.__e2eDeliveryRestoreFault'), { timeout: 150_000 }).toBe(true);
     await expect.poll(async () => (await live.state()).merchantQueue.some((job: any) => job.commerceOrderId === order.jobId)).toBe(true);
     await live.restartCoordinator();
     holdRecovery = false;
@@ -138,7 +138,10 @@ test('lucky upgrade preserves party deliveries across preparation and interrupte
 });
 
 test('merchant mass skills use both tiers and passive recovery restores critical HP and MP during work', async ({ live }, info) => {
-  test.setTimeout(360_000);
+  // Native CI observed four completed bank/NPC jobs taking 217 seconds and
+  // companion reconnection taking 96 seconds. Budget the final job separately;
+  // keep the 20-second recovery assertion and ordinary job deadlines intact.
+  test.setTimeout(600_000);
   // Failure modes: commerce omits production buffs; ++ crosses the MP reserve;
   // exchange waits forever on a legacy skill promise; busy work fences recovery;
   // missing potions prevent free recovery or overlapping pulses consume twice.
@@ -194,7 +197,9 @@ test('merchant mass skills use both tiers and passive recovery restores critical
   }, { timeout: 20_000, message: 'Production must not block native HP/MP potion recovery' }).toBe(true);
   hold = false;
   await context.unroute('**/merchant/checkpoint');
-  await jobFinished(live, recovery.jobId);
+  // Native CI completed this two-item recovery batch in 163 seconds, including
+  // a bank visit and replenishing the second scroll through real NPC travel.
+  await jobFinished(live, recovery.jobId, 180_000);
   await record(live, info, 'merchant-mass-skills-and-recovery', before, { highSkills, skills, depleted });
 });
 
@@ -335,12 +340,12 @@ async function catalog(live: LiveGame, id: string) {
     { timeout: 120_000, message: `Native merchant must publish the ${id} NPC catalog entry` }).toBe(true);
 }
 
-async function jobFinished(live: LiveGame, id?: string) {
+async function jobFinished(live: LiveGame, id?: string, timeout = 150_000) {
   await expect.poll(async () => {
     const state = await live.state();
     const jobs = [state.merchantCurrent, ...(state.merchantQueue || [])].filter(Boolean);
     return id ? !jobs.some(job => job.id === id) : jobs.length === 0;
-  }, { timeout: 150_000, message: 'Requested merchant work must leave both active and queued state' }).toBe(true);
+  }, { timeout, message: 'Requested merchant work must leave both active and queued state' }).toBe(true);
 }
 
 async function restartAndObserve(live: LiveGame) {
@@ -361,6 +366,7 @@ test.describe('real merchant economy and durable work', () => {
   test.setTimeout(420_000);
 
   test('native exchanges bank default rewards, chain marked boxes and sell rewards across restart', async ({ live }, info) => {
+    test.setTimeout(720_000);
     // Failure modes: rewards bypass merchant rules; nested boxes are banked;
     // marks expire after one batch; later stock is not exchanged after restart;
     // locked stock is counted; no-rule rewards are stranded in inventory.
@@ -396,7 +402,7 @@ test.describe('real merchant economy and durable work', () => {
       return quantity(observed.characters[merchant].items, 'gem0') === 0 &&
         quantity(observed.characters[merchant].items, 'armorbox') === 1 && quantity(observed.characters[merchant].items, 'weaponbox') === 0 &&
         rewardIds.filter(id => !['armorbox', 'weaponbox'].includes(id)).every(id => quantity(observed.characters[merchant].items, id) === 0);
-    }, { timeout: 240_000, message: 'Native marked stock and exchange rewards must finish their selected actions' }).toBe(true);
+    }, { timeout: 420_000, message: 'Native marked stock and exchange rewards must finish their selected actions' }).toBe(true);
     const firstBatch = await economy(live);
     expect(firstBatch.characters[merchant].items.find(item => item?.name === 'armorbox')).toMatchObject({ l: 'l', q: 1 });
     expect(bankQuantity(firstBatch, 'armorbox')).toBe(0);

@@ -34,6 +34,9 @@ const weaponTypes = new Set([
   "axe",
   "basher",
 ]);
+export function merchantWeaponCompatible(definition: {type?: string; wtype?: string}): boolean {
+  return definition.type === 'weapon' && weaponTypes.has(definition.wtype || '');
+}
 type Request = Record<string, unknown>;
 function failure(message: string, status = 400): CommandOutcome {
   return { status, body: { error: message } };
@@ -41,7 +44,7 @@ function failure(message: string, status = 400): CommandOutcome {
 export function createMerchantItemCommands(state: MerchantItemState, ports: Ports) {
   function weapon(body: Request, entry: Entry): CommandOutcome {
     const definition = entry.meta?.definition || {};
-    if (definition.type !== "weapon" || !weaponTypes.has(definition.wtype || ""))
+    if (!merchantWeaponCompatible(definition))
       return failure("select a normal merchant-compatible weapon");
     state.merchantWeapon = body.remove === true ? null : { item: requestObject(body.item) };
     ports.persist();
