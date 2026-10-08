@@ -28,6 +28,7 @@ import { MerchantCraftRecipe } from "./merchant-craft-recipe";
 import { MerchantExchangeItem } from "./merchant-exchange-item";
 import { Sprite } from "./sprite";
 import { upgradeEstimate } from "./upgrade-estimate";
+import { maxUpgradeLevel } from "../../../runtime/upgrade-estimate";
 
 export function MerchantCommerceDialog({
   mode,
@@ -290,7 +291,8 @@ export function MerchantCommerceDialog({
       ...old,
       [id]: {
         quantity: old[id]?.quantity || 1,
-        level: Math.max(0, Math.min(13, level)),
+        // The game's chance table stops at +12; past it an upgrade can never succeed (#63).
+        level: Math.max(0, Math.min(buyableById[id] ? maxUpgradeLevel(buyableById[id]) : 12, level)),
       },
     }));
   const submit = async () => {
@@ -479,7 +481,8 @@ export function MerchantCommerceDialog({
                 (buyCart[item.id]?.level || 0) > 0 &&
                 (item as MerchantBuyItem).upgradeable ? (
                   <p className="ml-10 w-full font-mono text-[10px] text-violet-300">
-                    90% budget: {estimates[item.id]!.attempts} base items ·{" "}
+                    90% budget{estimates[item.id]!.approximate ? " (approx.)" : ""}:{" "}
+                    {estimates[item.id]!.attempts.toLocaleString()} base items ·{" "}
                     {estimates[item.id]!.scrolls.map((count, grade) =>
                       count ? `${count} scroll${grade}` : "",
                     )

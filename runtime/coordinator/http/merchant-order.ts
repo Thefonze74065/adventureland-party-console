@@ -141,15 +141,29 @@ export function createMerchantOrderRoute(state: MerchantOrderState, ports: Merch
     };
   }
 
-  function handle(req: HttpRequest, res: HttpResponse): unknown {
-    const body = requestObject(req.body),
-      choices = catalog();
-    if (!state.merchantCharacter)
-      return res.status(409).json({ error: "configure a merchant first" });
+  /** The order's lines with their budgets, or the reason the order is refused. */
+  function validated(
+    body: Record<string, unknown>,
+    choices: ReturnType<typeof catalog>,
+  ): { status: number; error: string } | { buys: OrderLine[]; crafts: OrderLine[] } {
+    if (!state.merchantCharacter) return { status: 409, error: "configure a merchant first" };
     const { buys, crafts } = orderLines(body, choices);
-    if (!buys || !crafts || (!buys.length && !crafts.length))
-      return res.status(400).json({ error: "invalid empty order" });
-    estimate(buys, choices.buyable);
+    if (!buys || !crafts || (!buys.length && !crafts.length)) return { status: 400, error: "invalid empty order" };
+    try {
+      estimate(buys, choices.buyable);
+    } catch (error) {
+      // A target past the item's chance table can never succeed (#63).
+      if (error instanceof RangeError) return { status: 400, error: error.message };
+      throw error;
+    }
+    return { buys, crafts };
+  }
+
+  function handle(req: HttpRequest, res: HttpResponse): unknown {
+    const choices = catalog(),
+      order = validated(requestObject(req.body), choices);
+    if ("error" in order) return res.status(order.status).json({ error: order.error });
+    const { buys, crafts } = order;
     const existing = duplicate({buys, crafts, sources: {}, bank: [], requirements: [], materialBuys: []});
     if (existing) return res.json({ok: true, jobId: existing.id, duplicate: true});
     const protection = craftProtection(state);
