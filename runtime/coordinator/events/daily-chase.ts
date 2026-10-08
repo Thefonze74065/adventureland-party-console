@@ -1,4 +1,5 @@
 import { requestObject, type HttpRequest, type HttpResponse } from "../http/contracts.ts";
+import { savedReturn, type ChaseReturn } from "./chase-return.ts";
 
 /**
  * Predictive realm hopping for scheduled events (issue #46). Each game server shuffles its
@@ -54,6 +55,7 @@ export interface DailyChaseState {
   /** Game version the observations were gathered under; an update restarts and reshuffles every realm. */
   gameVersion: number;
   trip: DailyChaseTrip | null;
+  returning: ChaseReturn | null;
   retryAt: number;
   lastError: string | null;
   upcoming: DailyUpcoming[];
@@ -115,6 +117,7 @@ export function initialDailyChase(saved: unknown): DailyChaseState {
     observations: (requestObject(value.observations) as DailyChaseState["observations"]) || {},
     gameVersion: Number.isSafeInteger(value.gameVersion) ? Number(value.gameVersion) : 0,
     trip: (value.trip as DailyChaseTrip | null | undefined) || null,
+    returning: savedReturn(value.returning),
     retryAt: 0,
     lastError: null,
     upcoming: [],
@@ -245,6 +248,20 @@ export function createDailyChase(party: DailyChaseParty, ports: DailyChasePorts)
     return false;
   }
 
+  /** Go home, keeping the return pending until the switch succeeds; a refusal is retried. */
+  async function goHome(from: string, to: string): Promise<void> {
+    party.dailyChase.returning = { from, to };
+    ports.persist();
+    if (await travel(to)) { party.dailyChase.returning = null; ports.persist(); }
+  }
+  /** Retry after the delay; drop the return once home or after a manual move elsewhere. */
+  async function resumeReturn(pending: ChaseReturn): Promise<void> {
+    const current = ports.currentRealm();
+    if (!current) return;
+    if (current !== pending.from) { party.dailyChase.returning = null; return ports.persist(); }
+    if (ports.now() >= party.dailyChase.retryAt) await goHome(pending.from, pending.to);
+  }
+
   async function startTrip(now: number): Promise<void> {
     const chase = party.dailyChase, current = ports.currentRealm();
     if (now < chase.retryAt || !current || ports.paused()) return;
@@ -263,7 +280,7 @@ export function createDailyChase(party: DailyChaseParty, ports: DailyChasePorts)
     ports.persist();
     if (!trip.returnRealm || trip.returnRealm === current) return;
     ports.log("Event prediction: " + reason + "; returning home", "info");
-    await travel(trip.returnRealm);
+    await goHome(current, trip.returnRealm);
   }
 
   async function followTrip(trip: DailyChaseTrip, now: number): Promise<void> {
@@ -298,10 +315,11 @@ export function createDailyChase(party: DailyChaseParty, ports: DailyChasePorts)
     await collect(now);
     chase.upcoming = upcoming(now);
     if (!chase.enabled) {
-      if (chase.trip) { chase.trip = null; ports.persist(); }
+      if (chase.trip || chase.returning) { chase.trip = null; chase.returning = null; ports.persist(); }
       return;
     }
     if (ports.realmSwitchBusy()) return;
+    if (chase.returning) return resumeReturn(chase.returning);
     if (chase.trip) await followTrip(chase.trip, now);
     else await startTrip(now);
   }
@@ -325,7 +343,7 @@ export function createDailyChase(party: DailyChaseParty, ports: DailyChasePorts)
         return res.status(400).json({ error: "leadMinutes must be between 14 and 120" });
       chase.leadMinutes = lead;
     }
-    if (!chase.enabled) chase.trip = null;
+    if (!chase.enabled) { chase.trip = null; chase.returning = null; }
     ports.log("Event prediction " + (chase.enabled ? "enabled (" + chase.leadMinutes + " min lead" + (chase.otherRegions ? ", other regions" : "") + ")" : "disabled"), "info");
     ports.persist();
     return res.json({ ok: true, dailyChase: chase });

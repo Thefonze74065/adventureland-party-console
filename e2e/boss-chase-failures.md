@@ -25,4 +25,5 @@ in the disposable E2E server, so `scripts/tests/boss-chase-stall.test.cjs` drive
 6. **No way back.** A strong player who brings the ETK under 120 minutes makes
    the boss eligible again after that wait; the party returns.
 7. **Return switch refused.** Travel failure keeps the existing retry delay and
-   error reporting; the trip is already cleared, so it is not resumed.
+   error reporting. Revised: not resuming the return stranded the party off home;
+   see `e2e/chase-return-failures.md`.

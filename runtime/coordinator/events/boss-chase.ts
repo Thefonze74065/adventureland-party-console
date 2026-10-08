@@ -1,4 +1,5 @@
 import { requestObject, type HttpRequest, type HttpResponse } from "../http/contracts.ts";
+import { savedReturn, type ChaseReturn } from "./chase-return.ts";
 
 /**
  * Moves the whole party to a realm where ALData reports a live event boss (Franky, Ice Golem,
@@ -43,6 +44,7 @@ export interface BossChaseState {
   enabled: boolean;
   minEtaMinutes: number;
   trip: BossChaseTrip | null;
+  returning: ChaseReturn | null;
   retryAt: number;
   lastError: string | null;
   checkedAt: number;
@@ -102,6 +104,7 @@ export function initialBossChase(saved: unknown): BossChaseState {
     enabled: value.enabled === true,
     minEtaMinutes: Number.isFinite(minEta) && minEta >= 0 ? minEta : defaultBossChaseMinEtaMinutes,
     trip: (value.trip as BossChaseTrip | null | undefined) || null,
+    returning: savedReturn(value.returning),
     retryAt: 0,
     lastError: null,
     checkedAt: 0,
@@ -190,6 +193,20 @@ export function createBossChase(party: BossChaseParty, ports: BossChasePorts) {
     return false;
   }
 
+  /** Go home, keeping the return pending until the switch succeeds; a refusal is retried. */
+  async function goHome(from: string, to: string): Promise<void> {
+    party.bossChase.returning = { from, to };
+    ports.persist();
+    if (await travel(to)) { party.bossChase.returning = null; ports.persist(); }
+  }
+  /** Retry after the delay; drop the return once home or after a manual move elsewhere. */
+  async function resumeReturn(pending: ChaseReturn): Promise<void> {
+    const current = ports.currentRealm();
+    if (!current) return;
+    if (current !== pending.from) { party.bossChase.returning = null; return ports.persist(); }
+    if (ports.now() >= party.bossChase.retryAt) await goHome(pending.from, pending.to);
+  }
+
   async function followTrip(trip: BossChaseTrip, live: LiveBoss[]): Promise<void> {
     const current = ports.currentRealm();
     if (!ports.hopAllowed(trip.realm)) return endBlacklisted(trip, current);
@@ -203,7 +220,7 @@ export function createBossChase(party: BossChaseParty, ports: BossChasePorts) {
     party.bossChase.trip = null;
     ports.persist();
     ports.log("Boss chase: " + trip.realm + " is blacklisted for realm hopping; ending the chase", "info");
-    if (current === trip.realm && trip.returnRealm && trip.returnRealm !== current) await travel(trip.returnRealm);
+    if (current === trip.realm && trip.returnRealm && trip.returnRealm !== current) await goHome(current, trip.returnRealm);
   }
   /** Arrival never happened (failed switch) or the party was moved elsewhere by hand. */
   function leftRealm(trip: BossChaseTrip): void {
@@ -219,9 +236,9 @@ export function createBossChase(party: BossChaseParty, ports: BossChasePorts) {
     party.bossChase.trip = null;
     ports.persist();
     const home = trip.returnRealm;
-    if (!home || home === current) return;
+    if (!home || !current || home === current) return;
     ports.log("Boss chase: " + bossNames[trip.boss] + " is gone from " + trip.realm + "; returning home", "info");
-    await travel(home);
+    await goHome(current, home);
   }
 
   /**
@@ -242,7 +259,7 @@ export function createBossChase(party: BossChaseParty, ports: BossChasePorts) {
     ports.log("Boss chase: " + bossNames[boss.boss] + " on " + trip.realm + " won't die in time (" +
       (eta === null ? "no HP drain" : "~" + Math.round(eta) + " min left") + "); leaving it", "info");
     const home = trip.returnRealm;
-    if (home && home !== trip.realm) await travel(home);
+    if (home && home !== trip.realm) await goHome(trip.realm, home);
   }
 
   function pick(live: LiveBoss[], current: string): (LiveBoss & { eta: number }) | null {
@@ -325,10 +342,11 @@ export function createBossChase(party: BossChaseParty, ports: BossChasePorts) {
   async function tick(): Promise<void> {
     const chase = party.bossChase;
     if (!chase.enabled) {
-      if (chase.trip) { chase.trip = null; ports.persist(); }
+      if (chase.trip || chase.returning) { chase.trip = null; chase.returning = null; ports.persist(); }
       return;
     }
     if (ports.realmSwitchBusy()) return;
+    if (chase.returning) return resumeReturn(chase.returning);
     // Keep watching the chased boss even if its selection changes mid-trip.
     const bosses = chasedBosses.filter((boss) => ports.selected(chasedBossEvents[boss]) || chase.trip?.boss === boss);
     if (!bosses.length) { chase.sightings = []; chase.respawns = []; return; }
@@ -357,7 +375,7 @@ export function createBossChase(party: BossChaseParty, ports: BossChasePorts) {
         return res.status(400).json({ error: "minEtaMinutes must be between 0 and 600" });
       chase.minEtaMinutes = minEta;
     }
-    if (!chase.enabled) chase.trip = null;
+    if (!chase.enabled) { chase.trip = null; chase.returning = null; }
     ports.log("Boss chase " + (chase.enabled ? "enabled (min " + chase.minEtaMinutes + " min left)" : "disabled"), "info");
     ports.persist();
     return res.json({ ok: true, bossChase: chase });

@@ -1709,6 +1709,9 @@ chase realm ends the chase. Respawning seasonal bosses are also chased ahead of 
 dead one with `estimatedRespawn`, and the party leaves 13–16 minutes before a respawn elsewhere (so Hop
 Sickness clears first) unless a selected boss is live or respawning within 30 minutes on the current
 realm. It waits up to 10 minutes past the estimate, then follows the live boss as usual or returns home.
+A return home stays pending (`bossChase.returning`) until its switch succeeds: a refused switch is
+retried after the 5-minute retry delay, no new trip starts meanwhile, and the return is dropped if
+the party is moved elsewhere by hand or the chase is disabled (`e2e/chase-return-failures.md`).
 Coordinator-only restart suffices.
 
 ## Scheduled event realm prediction
@@ -1732,8 +1735,9 @@ at its next slot, and another realm is predicted to have one. It moves `leadMinu
 minimum 14) before the slot so Hop Sickness clears first. Other regions' slots are chased only with
 `otherRegions`. It returns home after two quiet checks once the event has ended (at least 5 minutes
 after the slot), or 90 minutes after the slot. The boss chase and this predictor pause each other
-while either has a trip. The move uses the dashboard realm-switch route without changing home.
-Coordinator-only restart suffices.
+while either has a trip or a pending return home. The move uses the dashboard realm-switch route
+without changing home. Like the boss chase, its return home stays pending (`dailyChase.returning`)
+and is retried until the switch succeeds. Coordinator-only restart suffices.
 
 ## Account-wide home realm changes
 

@@ -1108,7 +1108,8 @@ export function startCoordinatorApplication(
       ...chasePorts,
       fetchLive: (bosses) => aldataFetch("/monsters/" + bosses.join(",")),
       realmExists: (realm) => !!my_acc.resolve_realm(realm),
-      paused: () => !!party.dailyChase.trip,
+      // Each chase waits while the other has a trip or still owes the party its return home.
+      paused: () => !!party.dailyChase.trip || !!party.dailyChase.returning,
     });
     const dailyChase = coordinatorPolicies.createDailyChase(party, {
       ...chasePorts,
@@ -1127,7 +1128,7 @@ export function startCoordinatorApplication(
           return [{ realm: "SR_" + status.server.replace(/^SR_/, ""), live }];
         }),
       realms: () => realmControlPayload().realms.filter((realm) => !realm.pvp).map((realm) => realm.key),
-      paused: () => !!party.bossChase.trip,
+      paused: () => !!party.bossChase.trip || !!party.bossChase.returning,
     });
     bossChase.start((callback, milliseconds) => setInterval(callback, milliseconds));
     dailyChase.start((callback, milliseconds) => setInterval(callback, milliseconds));
