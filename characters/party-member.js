@@ -169,12 +169,14 @@
   }
   function createMovementExecutor(host, state, validation, now, townReady = () => true, lootCollected = () => true) {
     let issued, index = 0, barrierPending = false, barrierReady = false, lastBarrier = 0, waitingBarrier = false;
+    let walkingEdge;
     let sampledAt = now(), sampledPhase = "idle";
     let lootWaitAt;
     let durations = {};
     const position = () => ({ map: host.character.map, in: host.character.in, x: host.character.real_x, y: host.character.real_y });
     function reset() {
       issued = void 0;
+      walkingEdge = void 0;
       index = 0;
       barrierPending = false;
       barrierReady = false;
@@ -235,7 +237,10 @@
       if (!transitionReady(current, options, !!transition)) return false;
       notifyTransition(current, options);
       state.plot.shift();
-      if (transition) index++;
+      if (transition) {
+        walkingEdge = void 0;
+        index++;
+      } else rememberWalkingEdge({ ...p, x: current.step.x, y: current.step.y }, state.plot[0]);
       issued = void 0;
       barrierReady = false;
       return true;
@@ -319,6 +324,7 @@
     }
     function sendObserved(captured) {
       const version = captured.sendVersion = (captured.sendVersion || 0) + 1;
+      if (version === 1) captureWalkingEdge(captured);
       try {
         void Promise.resolve(send(captured)).then((result) => {
           if (issued !== captured || captured.sendVersion !== version) return;
@@ -330,6 +336,13 @@
       } catch (error) {
         if (issued === captured) rejected(captured, error);
       }
+    }
+    function captureWalkingEdge(current) {
+      if (walkingEdge?.to === current.step) return;
+      rememberWalkingEdge(position(), current.step);
+    }
+    function rememberWalkingEdge(from, next) {
+      walkingEdge = next && !isTransition(next) && from.map === next.map && validation.walk(from, next) ? { from: { ...from }, to: next } : void 0;
     }
     function rejected(current, error) {
       const reason = error && typeof error === "object" && "reason" in error ? String(error.reason) : String(error);
@@ -363,6 +376,7 @@
         if (reason) throw Error(`${reason} between ${p.map} (${p.x}, ${p.y}) and ${next.map} (${next.x}, ${next.y})`);
         if (isTransition(next) || distance(p, next) > 1) break;
         state.plot.shift();
+        rememberWalkingEdge({ ...p, x: next.x, y: next.y }, state.plot[0]);
       }
     }
     function lootReady(step) {
@@ -420,6 +434,7 @@
         reissued: !!issued?.reissued
       }),
       transition: () => issued && isTransition(issued.step) ? issued.step.town ? "town" : "transport" : null,
+      walkingEdge: () => walkingEdge?.to === state.plot[0] ? walkingEdge : void 0,
       remaining: () => state.plot.map((p) => ({ ...p }))
     };
   }
@@ -786,19 +801,32 @@
     }
     function beginRepair(j, plot, issue) {
       j.firstIssue ||= issue;
-      if (j.options.owner?.recoveryStage === "post-relocation" || j.repaired || issue.reason !== "collisions detected" || issue.from.map !== position().map) return false;
+      if (j.options.owner?.recoveryStage === "post-relocation" || !repairAllowed(j, issue.to) || issue.reason !== "collisions detected" || issue.from.map !== position().map) return false;
       const index = plot.findIndex((p) => p === issue.to);
       if (index < 0 || isTransition(plot[index])) return false;
-      j.repaired = true;
+      recordRepair(j, issue.to);
       j.repair = { plot, index, target: point(issue.to), started: false };
       j.pending = false;
       state.searching = false;
       report(j.id, state, "Repairing rejected walking segment", issue, "native same-map connector; limit 3 seconds");
       return true;
     }
+    function repairEndpoint(target) {
+      return JSON.stringify([target.map, target.x, target.y]);
+    }
+    function recordRepair(j, target) {
+      j.repaired = true;
+      if (j.options.shared && j.options.repairSharedDrift) (j.repairEndpoints ||= []).push(repairEndpoint(target));
+    }
+    function repairAllowed(j, target) {
+      if (!j.options.shared || !j.options.repairSharedDrift) return !j.repaired;
+      const endpoints = j.repairEndpoints || [];
+      return endpoints.length < 3 && !endpoints.includes(repairEndpoint(target));
+    }
     function repairTick(j) {
       const repair = j.repair;
       try {
+        if (!repairInstanceValid(j, repair)) throw Error("Repair instance changed");
         if (!repair.started) {
           planner.begin(repair.target, false, ports.now(), 3e3);
           repair.started = true;
@@ -808,17 +836,28 @@
         if (!bridge) return;
         if (distance(bridge.at(-1) || position(), repair.target) > 20) throw Error("Repair missed its connector endpoint");
         if (bridge.some((p) => isTransition(p) || p.map !== position().map)) throw Error("Repair left the current map");
-        const plot = [...bridge, ...repair.plot.slice(repair.index + 1)];
+        const plot = repair.retainEndpoint ? [...bridge, repair.target, ...repair.plot.slice(repair.index)] : [...bridge, ...repair.plot.slice(repair.index + 1)];
         const invalid = validateRoute(validation, position(), state, plot, state.use_town, state.edge);
         if (invalid) throw Error("Repair did not validate: " + invalid.reason);
         delete j.repair;
         install(plot, true);
         report(j.id, state, "Walking segment repaired", j.firstIssue);
       } catch (error) {
-        planner.cancel();
-        j.failureContext = { repairFailure: String(error) };
-        fallback(j, j.firstIssue);
+        repairFailed(j, error);
       }
+    }
+    function repairInstanceValid(j, repair) {
+      const from = position(), expected = repair.instance ?? repair.target.map;
+      return !j.options.repairSharedDrift || String(from.in ?? from.map) === String(expected);
+    }
+    function repairFailed(j, error) {
+      planner.cancel();
+      j.failureContext = { repairFailure: String(error) };
+      if (j.options.repairSharedDrift && j.options.shared) {
+        finish(false, "Shared connector repair failed: " + String(error));
+        return;
+      }
+      fallback(j, j.firstIssue);
     }
     function trimUncheckedFinal(plot) {
       if (journey?.options.shared) return plot;
@@ -926,7 +965,7 @@
     }
     function recover(j, error) {
       if (j.options.shared) {
-        finish(false, error);
+        if (!repairSharedConnector(j)) finish(false, error);
         return;
       }
       if (/leave transition/i.test(String(error))) {
@@ -952,6 +991,31 @@
       void Promise.resolve(host.move(host.character.real_x, host.character.real_y)).catch(() => {
       });
       fallback(j, { reason: `${String(error)}; recovery ${j.retries}/2`, from: position(), to: state.plot[0] || point(state) });
+    }
+    function repairSharedConnector(j) {
+      const next = state.plot[0], from = position();
+      if (!j.options.repairSharedDrift || !next || isTransition(next) || !sameJourneyInstance(j, from)) return false;
+      const reason = stepIssue(validation, from, next, state.use_town);
+      const join = localWalkingJoin(from, next);
+      if (reason !== "collisions detected" || !join || !beginRepair(j, state.plot.slice(), { reason, from, to: next })) return false;
+      j.repair.target = join.target;
+      j.repair.retainEndpoint = join.retainEndpoint;
+      j.repair.instance = from.in ?? from.map;
+      state.found = false;
+      executor.cancel();
+      return true;
+    }
+    function localWalkingJoin(from, next) {
+      const edge = executor.walkingEdge();
+      if (!edge) return distance(from, next) <= 150 ? { target: point(next), retainEndpoint: false } : void 0;
+      if (edge.from.map !== from.map || String(edge.from.in ?? edge.from.map) !== String(from.in ?? from.map)) return;
+      const dx = next.x - edge.from.x, dy = next.y - edge.from.y, length = dx * dx + dy * dy;
+      const along = length ? Math.max(0, Math.min(1, ((from.x - edge.from.x) * dx + (from.y - edge.from.y) * dy) / length)) : 0;
+      const target = { map: from.map, x: edge.from.x + dx * along, y: edge.from.y + dy * along };
+      return distance(from, target) <= 150 ? { target, retainEndpoint: true } : void 0;
+    }
+    function sameJourneyInstance(j, from) {
+      return from.map === j.context.map && String(from.in ?? from.map) === String(j.context.instance ?? j.context.map);
     }
     function tick() {
       const j = journey;
@@ -993,7 +1057,7 @@
       if (host.character.moving) void Promise.resolve(host.move(host.character.real_x, host.character.real_y)).catch(() => {
       });
       executor.reset();
-      const context = ports.context();
+      const context = { ...ports.context(), map: host.character.map, instance: host.character.in ?? host.character.map };
       journey = { id: `${host.character.name}:${context.runtime}:${++sequence}`, context, options, native: !!options.native, pending: false, searches: 0, retries: 0, started: ports.now(), planningAt: ports.now(), fallback: !!options.native };
       return new Promise((resolve, reject) => {
         state.on_done = (done, reason, failure) => {
