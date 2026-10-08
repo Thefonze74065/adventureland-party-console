@@ -97,12 +97,14 @@ A run that misses an expectation lists it in `report.expect` and exits 1.
 
 ## Pins and maintenance
 
-`setup.mts` pins ChronAL and the three game repositories it installs to exact commits, and
-applies `patches/chronal.patch`: two fixes to ChronAL's fake socket.io server for the
-pinned game (reported as MtlSnkAI/chronal#1), an export of its window builder, and a
-`login` option to start a character's thread from this tool's own worker script. The game
-moves quickly; when ChronAL or the game is updated, move the pins together and re-run a
-scenario before trusting results.
+`setup.mts` pins ChronAL (0.10.0) and the three game repositories it installs to exact
+commits. The game commits are the ones that ChronAL release is tested with (its
+`upstream.json`). No patches are needed: since 0.9.0 ChronAL itself exports its window
+builder, lets `login` start a character's thread from this tool's own worker script, and
+supports the current game's socket.io calls (MtlSnkAI/chronal#1, #2). Moving the pin
+force-checks-out ChronAL and reinstalls its dependencies. The game moves quickly; when
+ChronAL or the game is updated, move the pins together and re-run a scenario before
+trusting results.
 
 ## Limits
 

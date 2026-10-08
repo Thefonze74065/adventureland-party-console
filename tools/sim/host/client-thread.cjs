@@ -106,6 +106,8 @@ function serve() {
       const m = receiveMessageOnPort(port);
       if (!m) throw new Error("[sim] command missing");
       if (m.message.t === "q") reply({ value: character ? character.state.query(m.message.expr) : undefined });
+      // A recorded run asks a reloaded page's thread to resume its recording; this host records nothing.
+      else if (m.message.t === "rec_open") reply({});
       else if (m.message.t === "stop") return reply({}), process.exit(0);
       else reply({ err: "unsupported command " + m.message.t });
     }
