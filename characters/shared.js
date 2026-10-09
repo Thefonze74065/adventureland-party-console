@@ -15714,9 +15714,23 @@
   }
   function terrainRecoveryGoals(reference,desired) {
     if(!reference)return [];
-    var radius=Math.max(desired,formationMonsterSafety(reference)+12),goals=[];
+    // The reach is an edge distance, but the circle is centred on the target: widen it
+    // by both hitboxes in each direction, or a large target (Phoenix, 61x55) swallows
+    // every point and a melee mover gets no goals at all.
+    var reach=Math.max(desired,formationMonsterSafety(reference)+12),goals=[];
+    var own=formationBody(character),target=formationBody(reference);
     for(var i=0;i<16;i++) {
-      var angle=i*Math.PI/8,p={x:reference.x+Math.cos(angle)*radius,y:reference.y+Math.sin(angle)*radius};
+      var angle=i*Math.PI/8,cos=Math.cos(angle),sin=Math.sin(angle);
+      // Solve for the centre distance whose box-to-box gap equals the reach. Positions
+      // are feet: a point above the target clears its height, one below clears ours.
+      var low=0,high=reach+(own.awidth+target.awidth)/2+Math.max(own.aheight,target.aheight);
+      for(var step=0;step<24;step++) {
+        var radius=(low+high)/2;
+        var across=Math.max(0,Math.abs(cos)*radius-(own.awidth+target.awidth)/2);
+        var along=Math.max(0,Math.abs(sin)*radius-(sin<0?target.aheight:own.aheight));
+        if(Math.hypot(across,along)<reach)low=radius;else high=radius;
+      }
+      var p={x:reference.x+cos*high,y:reference.y+sin*high};
       if(terrainRecoverySafe(p,true))goals.push(p);
     }
     goals.sort(function(a,b){return Math.hypot(a.x-character.x,a.y-character.y)-Math.hypot(b.x-character.x,b.y-character.y);});
