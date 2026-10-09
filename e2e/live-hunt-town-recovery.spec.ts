@@ -32,17 +32,12 @@ for (const {restart, lateTransport} of [{restart:false,lateTransport:false},{res
     const destination = candidates.find(area => contains(area, { map: 'main', x: 520, y: 710 }, 0));
     expect(destination).toBeTruthy();
     if (!destination) throw new Error('Pinned native Bee incident area is unavailable');
-    // Reach this region with real native navigation before assigning the
-    // initially completed quests. This scenario covers return recovery, not kills.
-    for (const character of fighters) await live.post('/command', {
-      character, type: 'character-travel', location: { map: 'main', x: 520, y: 710 }, label: 'Native Town recovery incident origin',
-    });
-    await expect.poll(async () => {
-      const current = await world(live);
-      return fighters.every(name => !current[name].quest && contains(destination, current[name], 0));
-    }, { timeout: 150_000, message: 'Both native fighters must reach the incident Bee region before quest setup' }).toBe(true);
     // This scenario injects one follower cast interruption. Ambient Bee attacks
     // must not independently interrupt the leader's prerequisite successful cast.
+    // CI failure inventory: the first fighter genuinely arrives, then Bee aggro
+    // causes native kiting outside the region before the slower fighter arrives.
+    // Declare peaceful initial Bees before travel, rather than after a rendezvous
+    // that incidental combat can prevent. Keep actual walking/arrival assertions.
     const peacefulBees = await live.admin(`output=(()=>{
       const original=globalThis.__e2eHuntRareOriginal||={};
       original.bee||=JSON.parse(JSON.stringify(G.monsters.bee));
@@ -53,6 +48,15 @@ for (const {restart, lateTransport} of [{restart:false,lateTransport:false},{res
       return {original:original.bee,monsters:before};
     })()`);
     await info.attach('town-initial-peaceful-bees', {body:JSON.stringify(peacefulBees),contentType:'application/json'});
+    // Reach this region with real native navigation before assigning the
+    // initially completed quests. This scenario covers return recovery, not kills.
+    for (const character of fighters) await live.post('/command', {
+      character, type: 'character-travel', location: { map: 'main', x: 520, y: 710 }, label: 'Native Town recovery incident origin',
+    });
+    await expect.poll(async () => {
+      const current = await world(live);
+      return fighters.every(name => !current[name].quest && contains(destination, current[name], 0));
+    }, { timeout: 150_000, message: 'Both native fighters must reach the incident Bee region before quest setup' }).toBe(true);
     await party(live);
     await live.post('/hunt-settings', { character: W, preferredSpawns: { bee: JSON.stringify([destination.map, destination.x, destination.y]) } });
     await quests(live, info, { [W]: { id: 'bee', count: 0 }, [P]: { id: 'bee', count: 0 } });

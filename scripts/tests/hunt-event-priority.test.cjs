@@ -10,7 +10,7 @@ function fixture() {
     huntTurnInPriority: false, convoyTraveling: null, runtimeCurrent: () => true, navigationIntent:{revision:0},
     request: async () => ({ allowed: true }), escapeOwns: () => false,
     eventPollBusy: false, eventsEnabled: true, anniversaryBusy: false, anniversaryStaging: false,
-    joinedEvent: null, eventTraveling: false, banking: false, stocking: false, upgrading: false,
+    joinedEvent: null, eventTraveling: false, eventReturnPending: false, banking: false, stocking: false, upgrading: false,
     departurePending: false, bankQueued: false, eventMissingSince: 0, eventTargetTypes: [], root: {},
     G: { maps: { main: {}, goobrawl: { event: 'goobrawl' } }, events: { goobrawl: { join: true } } },
     activeCombatEvent: () => ({ name: 'goobrawl', types: ['goo'], state: {}, kind: 'pve' }),
@@ -19,7 +19,8 @@ function fixture() {
     smart_move: async point => { actions.push(['move', point.map]); }, game_log() {},
     sharedPartyWalk: async point => { actions.push(['move', point.map]); },
   });
-  vm.runInContext(permissionCode + pollCode, r);
+  const exitOwnerCode=source.slice(source.indexOf('  function eventExitOwnsMovement('),source.indexOf('  function reunionBlocked('));
+  vm.runInContext(permissionCode + pollCode + exitOwnerCode, r);
   return { r, actions };
 }
 

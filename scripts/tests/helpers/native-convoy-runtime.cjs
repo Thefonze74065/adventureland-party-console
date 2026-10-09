@@ -24,7 +24,7 @@ function runtime(options = {}) {
     game: { graphics: false },
     setTimeout, clearTimeout, encodeURIComponent, Promise, Math, Number, String, Error, Date: class extends Date { static now() { return now; } },
     character, runtimeGeneration: 1, runtimeCurrent: () => true, convoyRuntimeId: 'runtime-1',
-    navigationIntent: { revision: 0, cancelled: false }, convoyTraveling: null,
+    navigationIntent: { revision: 0, cancelled: false }, convoyTraveling: null, reunionRealm: () => 'USI',
     convoySignal: { id: 'test', epoch: 7, commandId: 2, runtimeId: 'runtime-1', phase: 'prepare', validUntil: 5000 },
     anniversaryWithTimeout: promise => promise, farmingEntryPoint: x => x, partyLocation: null, followingLeader: true, coordinatorClockOffset: 50, eventRecoveryState: {},
     setInterval: fn => { timers.push(fn); },

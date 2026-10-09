@@ -75,6 +75,24 @@ function fixture() {
     advance(ms) { time += ms; }, offline(name) { online = online.filter(value => value !== name); } };
 }
 
+test('Halloween point returns keep their owned convoy until actual shared arrival radius',()=>{
+ for(const event of ['mrgreen','mrpumpkin','slenderman']) {
+  const t=fixture(),owner={...t.cycle(),event};
+  t.nav.dispatch(owner,'event-return',t.nav.members());
+  const convoy=t.party.activeConvoy;
+  for(const name of t.nav.members())Object.assign(t.party.statuses[name],{map:cave.map,x:cave.x+107.55,y:cave.y});
+  assert.equal(t.nav.reconcile(owner,'event-return'),false,event);
+  assert.equal(t.party.activeConvoy,convoy,event);
+  for(const name of t.nav.members())t.party.statuses[name].x=cave.x+90;
+  assert.equal(t.nav.reconcile(owner,'event-return'),true,event);
+ }
+});
+test('unrelated return proximity keeps its established legacy policy',()=>{
+ const t=fixture(),owner=t.cycle();t.nav.dispatch(owner,'anniversary-return',t.nav.members());
+ for(const name of t.nav.members())Object.assign(t.party.statuses[name],{map:cave.map,x:cave.x+150,y:cave.y});
+ assert.equal(t.nav.reconcile(owner,'anniversary-return'),true);
+});
+
 test('leader focus clear invalidates every party waypoint and preserves independent and merchant work', () => {
   const t = fixture();
   t.party.characterLocations.F = { ...forest };

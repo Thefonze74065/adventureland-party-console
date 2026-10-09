@@ -112,6 +112,9 @@ async function main() {
   const configuredCharacters = Object.fromEntries(account.response.characters.map(character =>
     [character.name, { enabled: false, realm: process.env.E2E_STALE_WORKER_REALM || realm.key, version }]));
   const adapters = {
+    // Use this test build's catalog without publishing assets into the live
+    // installation. Native gameplay and coordinator selection remain real.
+    '../../dashboard/lib/event-policy.cjs': require(path.join(root, '.build/shared/event-policy.cjs')),
     '../config': { characters: configuredCharacters, merchant: JSON.parse(process.env.E2E_MERCHANT_DEFAULT || '"E2EMerchant"'), watch_CODE: false, enable_TYPECODE: false,
       web_app: { party_dashboard: true, expose_CODE: true, port } },
     '../account_info': async () => account,

@@ -7,6 +7,79 @@ from the commits merged into `main`.
 
 ### Added
 
+- Native Cave validation resumes the selected destination after its matching
+  native vote resolves, including retained vote receipts, and reports verified
+  journey stages explicitly.
+- Native Cave validation measures accepted-generation assembly and route
+  preparation separately from physical boss arrival, retaining bounded phase
+  deadlines and real arrival checks for both characters.
+- The native merchant recovery scenario budgets its final two-item bank/NPC
+  batch separately, while retaining the rapid potion recovery and skill checks.
+- Reuse validated walking return routes after communication recovery when Town
+  is disabled, while rejecting changed realm, instance, runtime, navigation,
+  destination or geometry and forbidden shortcuts. Freshness holds still stop
+  movement and resumed routes pass full installation validation.
+- Add native evidence for walking-route reuse after interrupted heartbeat
+  delivery, including the actual stop, fresh resume and Daisy reward.
+- Prevent Tiny P from escaping an unprotected ranged attack after it moves beyond
+  a deployed field generator; preserve eligible melee attacks.
+- Recovering Halloween attendees follow fresh party boss sightings when a living
+  boss has moved from its initial server coordinates.
+- The native Town recovery fixture establishes peaceful initial Bees before
+  actual party travel, so unrelated aggro cannot disrupt its setup rendezvous.
+- Announced Halloween attendance keeps its original bounded spawn deadline across
+  coordinator restarts and temporary heartbeat gaps instead of returning early.
+- The native merchant equipment regression retires inherited gathering sessions
+  before declaring fixture cooldowns available, preserving real tool/equip checks.
+- Steam CODE reload retires the old runner before replacing its iframe and
+  removes older leaked Party Console response callbacks, preventing repeated
+  null `character` and server-event-state errors without logging out the game.
+- Escape holds show their failure reason and a Resume automation button, so a
+  preserved recovery hold can be released without restarting the coordinator.
+- Scheduled boss reports use the coordinator clock, so client clock differences
+  do not change staging eligibility or renew the fixed missed-spawn deadline.
+- Retained event regression fixtures load the current workflow helpers and pinned
+  game geometry consistently with CI. Optional boss-sighting and game-data
+  fields preserve existing heartbeat and ordinary attack behavior when absent.
+- Halloween point returns keep their owned checkpoint route until the same
+  100-unit arrival used by shared navigation, avoiding early cancellation.
+- Halloween deselection exits living boss combat through a bounded Town attempt
+  and owned walking with moving defense, rather than waiting for the boss to die.
+- Cave native E2E entry checks now retain accepted room responses in a durable
+  ledger and retry guarded requests before verifying actual room arrival.
+- Keep ranged characters already fighting a freshly observed event boss out of a
+  recovering party member's walking rendezvous, so death recovery can rejoin
+  combat without waiting for an unnecessary walking request.
+- Added opt-in Slenderman, Mr. Green, and Mr. Pumpkin character events without
+  changing existing selections. Green/Pumpkin spawn countdowns support staging
+  one minute early and returning to saved work after a two-minute missed spawn.
+- Slenderman attendance uses local and fresh party sightings, bounded discovery
+  across Halloween, Spookytown, and Cave, and the existing magical reflection
+  protections. Unproductive searches release attendance and saved-work recovery.
+- Windows full restarts build and publish shared event policies alongside the
+  character runtime, so newly selectable events are accepted by the coordinator.
+- Physical fighters can attack reflection monsters when the native player
+  payload omits damage type, using their equipped weapon and class definitions.
+  Magical attacks and offensive skills retain their reflection protection.
+- Event exits release characters that already supplied a verified Town receipt
+  from the remaining walking rendezvous, preventing recovery from waiting on a
+  finished participant while preserving the saved checkpoint and cycle owner.
+
+- Steam handoff stores its generic bootstrap in a free native CODE slot from
+  1–100 instead of an unsupported UUID slot. Occupied slots and original CODE
+  cache stay intact; unavailable or full slot inventories fail before release.
+
+- An already connected local Steam client refreshes its managed bridge before
+  handoff after a hosting restart, without relaunching the game. Connected remote
+  clients remain usable without access to a desktop on the console machine.
+
+- Steam handoff errors preserve native API reasons instead of displaying
+  `[object Object]`; diagnostics omit unrelated account and session fields.
+
+- Steam primary handoff ignores incomplete browser setup drafts, preserving the
+  saved desktop launcher choices. Setup restores those saved choices when this
+  browser has none, so an empty setup visit cannot disable same-machine launch.
+
 - Manual merchant weapon equips update the saved weapon preference, and manual
   hand changes replace gathering's saved loadout. Temporary gathering tools
   continue to work; cooldown restoration and restarts preserve the chosen gear.
@@ -71,6 +144,10 @@ from the commits merged into `main`.
 
 ### Fixed
 
+- Preserve progress in large Cave native route searches: extend the 90-second
+  initial bound while the same BFS advances, with a 240-second hard limit and
+  a 270-second follower wait. Stalled, reset, or unavailable progress keeps the
+  original deadline; ordinary travel and local repair bounds are unchanged.
 - Cave travel can reconnect up to three distinct retained walking endpoints
   after separate combat displacements. Each connector keeps its three-second
   native limit and complete route validation; repeated endpoints and a fourth
@@ -112,12 +189,23 @@ from the commits merged into `main`.
   travel, while still requiring both characters to physically reach the room.
   Stairs approach uses that same bound for native combat and reassembly before
   the farewell, with separate vote acknowledgement and floor-transition checks.
-  Waypoint E2Es verify the actual UI request and retry only observed heartbeat
-  suppression, retaining accepted-target checks and a submission evidence ledger.
+  Duel validation allows bounded native combat to finish and retains health and
+  target evidence. The full journey budget accommodates its separate phases
+  without changing native expiry, kills, ally survival, or room completion.
+  Failure evidence includes bounded native planner progress, readiness holds,
+  and destination collision geometry for investigating route preparation.
+  Map selection checks acknowledge placement mode before clicking terrain,
+  preventing a suppressed Add action from reusing a previous waypoint. Guarded
+  local activation retries remain bounded and require an enabled, error-free UI.
+  Waypoint E2Es verify the actual UI request and retry observed heartbeat
+  suppression or a guarded unsent click, retaining accepted-target checks and
+  a submission evidence ledger. Pending requests stay observed across retries.
   Freshness-rejection retries additionally verify the requested run and floor,
   live participants, and the observed report gap before another UI submission.
 - Explain disabled Cave waypoint actions with an accessible report-waiting
   status, keeping map selections intact while current-run reports recover.
+  Reserve space for that status so heartbeat transitions cannot shift the map
+  beneath the pointer during waypoint selection.
 - Keep the same-run Cave map and waypoint selection open during heartbeat gaps,
   while disabling waypoint actions until every participant has a fresh, alive,
   matching-floor observation. Changing run or floor clears the old selection.

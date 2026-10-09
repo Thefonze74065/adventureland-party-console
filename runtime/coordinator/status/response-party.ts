@@ -1,4 +1,4 @@
-import type { EntityReference, HeartbeatState, HeartbeatStatus } from "./response-types.ts";
+import type { EntityReference, HeartbeatState, HeartbeatStatus, SlendermanSighting } from "./response-types.ts";
 
 const positionFields = [
   "ctype",
@@ -25,6 +25,7 @@ function position(name: string, status: HeartbeatStatus) {
   return {
     name,
     ...Object.fromEntries(positionFields.map((field) => [field, status[field]])),
+    ...(status.eventCombatSighting ? { eventCombatSighting: status.eventCombatSighting } : {}),
     kiting: !!status.combat?.kiting,
     team: status.eventTeam || null,
     activeEvent: status.activeEvent || status.joinedEvent || null,
@@ -41,12 +42,36 @@ function uniqueReferences(entries: (EntityReference | null | undefined)[]): Enti
   });
 }
 
+function freshSightingTime(value: number | undefined, now: number): boolean {
+  return typeof value === 'number' && Number.isFinite(value) && value >= now - 3000 && value <= now + 1000;
+}
+
+function sightingScope(report: HeartbeatStatus, sighting: SlendermanSighting, server: string | undefined): boolean {
+  return !!server && report.server === server && sighting.server === server &&
+    report.map === sighting.map && report.in === sighting.in;
+}
+
+function sightingPosition(sighting: SlendermanSighting): boolean {
+  return typeof sighting.id === 'string' && !!sighting.id && typeof sighting.map === 'string' &&
+    !!sighting.map && Number.isFinite(sighting.x) && Number.isFinite(sighting.y);
+}
+
 export function partyResponse(
   state: HeartbeatState,
   names: string[],
   leader: HeartbeatStatus | null | undefined,
+  recipientServer?: string,
 ) {
+  const now = Date.now();
+  const sightings = names.flatMap(name => {
+    const report = state.statuses[name], sighting = report?.slendermanSighting;
+    if (!report || !sighting || !sightingScope(report, sighting, recipientServer) ||
+        !freshSightingTime(report.seenAt, now) || !freshSightingTime(sighting.observedAt, now) ||
+        !sightingPosition(sighting)) return [];
+    return [sighting];
+  }).sort((a, b) => b.observedAt - a.observedAt);
   return {
+    ...(sightings[0] ? { partySlendermanSighting: sightings[0] } : {}),
     desiredPartyMembers: names.filter(
       (name) =>
         (name === state.leader || state.followers[name]) &&

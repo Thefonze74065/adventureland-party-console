@@ -1,6 +1,17 @@
 import type { MerchantCommand } from "../merchant/work.ts";
 import type { Catalog } from "../../../dashboard/lib/farming-zones.ts";
 
+/** Application sighting protocol: normalized IDs/maps and coordinator-clock time. */
+export interface SlendermanSighting {
+  id: string;
+  map: string;
+  in: string | number;
+  x: number;
+  y: number;
+  server: string;
+  observedAt: number;
+}
+
 export interface HeartbeatStatus {
   [field: string]: unknown;
   name: string;
@@ -18,6 +29,7 @@ export interface HeartbeatStatus {
   threats?: EntityReference[];
   target?: EntityReference | null;
   serverLiveEvents?: { name: string }[];
+  slendermanSighting?: SlendermanSighting | null;
 }
 export interface EntityReference {
   id?: string;

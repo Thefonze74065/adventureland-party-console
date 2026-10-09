@@ -4,7 +4,7 @@ const sharp: typeof import('../dashboard/node_modules/sharp') = createRequire(im
 test.use({ initialPosition: { map: 'main', x: 816, y: 1180 } });
 
 test('Cave entry closes settings, shows native choices and keeps follower maps and travel working', async ({ live, page }, info) => {
-  test.setTimeout(1_500_000);
+  test.setTimeout(2_700_000);
   page.setDefaultTimeout(20_000);
   await live.admin('Dev=true; Prod=false; G.events.dreams.disabled=false; output=true');
   // Bound encounter selection to native duels/gifts/shops; the six level-100
@@ -100,10 +100,13 @@ test('Cave entry closes settings, shows native choices and keeps follower maps a
     const expectedFloor=Number(expectedMap.split('_').at(-1));
     const expectedRun=expectedMap.slice(5,expectedMap.lastIndexOf('_'));
     const set=fullMap.getByRole('button',{name:'Set waypoint',exact:true});
-    const attempts:{submitted:boolean;status?:number;error?:string;heartbeatDisabled?:boolean}[]=[];
+    const attempts:{submitted:boolean;status?:number;error?:string;heartbeatDisabled?:boolean;noEffect?:boolean}[]=[];
+    const nomination=await fullMap.getByText(/^-?\d+, -?\d+$/).innerText();
     const heartbeatSnapshot=()=>fullMap.evaluate(element=>({
         disabled:Array.from(element.querySelectorAll('button')).find(button=>button.textContent?.trim()==='Set waypoint')?.disabled,
         waiting:Array.from(element.querySelectorAll('output')).some(status=>status.textContent==='Waiting for fresh participant reports.'),
+        error:Array.from(element.querySelectorAll('[role=alert]')).some(alert=>!!alert.textContent?.trim()),
+        nomination:Array.from(element.querySelectorAll('span')).find(span=>/^-?\d+, -?\d+$/.test(span.textContent?.trim()||''))?.textContent?.trim(),
       }));
     const staleHeartbeat=async(snapshot:Awaited<ReturnType<typeof heartbeatSnapshot>>)=>{
       expect(snapshot.disabled,'A suppressed waypoint must be disabled in the same DOM snapshot as its freshness reason').toBe(true);
@@ -120,39 +123,54 @@ test('Cave entry closes settings, shows native choices and keeps follower maps a
     };
     const isWaypoint=(request:import('@playwright/test').Request)=>request.method()==='POST'&&
       new URL(request.url()).pathname==='/party-api/daily-dungeons'&&request.postDataJSON()?.action==='waypoint';
+    const requests:{request:import('@playwright/test').Request;response?:Promise<{status:number;body:any;request:any}>}[]=[];
+    const requested=(request:import('@playwright/test').Request)=>{if(isWaypoint(request))requests.push({request});};
+    const responded=(reply:import('@playwright/test').Response)=>{
+      const entry=requests.find(entry=>entry.request===reply.request());
+      if(entry)entry.response=reply.json().then(body=>({status:reply.status(),body,request:reply.request().postDataJSON()}));
+    };
+    page.on('request',requested);page.on('response',responded);
+    let consumed=0;
     try{
       await expect.poll(async()=>{
-        let submitted=false,response:Promise<{status:number;body:any;request:any}>|undefined;
-        const requested=(request:import('@playwright/test').Request)=>{if(isWaypoint(request))submitted=true;};
-        const responded=(reply:import('@playwright/test').Response)=>{
-          if(isWaypoint(reply.request()))response=reply.json().then(body=>({status:reply.status(),body,request:reply.request().postDataJSON()}));
-        };
-        page.on('request',requested);page.on('response',responded);
-        try{
+        let submitted=requests.length>consumed;
+        const response=()=>requests[consumed]?.response;
           const initial=await heartbeatSnapshot();
-          if(initial.disabled){
+          submitted=requests.length>consumed;
+          if(!submitted&&initial.disabled){
             expect(await staleHeartbeat(initial),'A disabled waypoint without a request must correspond to stale native reports').toBe(true);
-            attempts.push({submitted:false,heartbeatDisabled:true});return false;
+            if(requests.length===consumed){attempts.push({submitted:false,heartbeatDisabled:true});return false;}
+            submitted=true;
           }
-          await set.click();
+          if(!submitted)await set.click();
           let suppressed:Awaited<ReturnType<typeof heartbeatSnapshot>>|undefined;
           await expect.poll(async()=>{
-            if(response)return true;
+            submitted=requests.length>consumed;
+            if(response())return true;
             if(submitted)return false;
             const snapshot=await heartbeatSnapshot();
-            if(submitted)return !!response;
-            if(snapshot.disabled&&snapshot.waiting){suppressed=snapshot;return true;}
-            return false;
+            submitted=requests.length>consumed;
+            if(submitted)return !!response();
+            suppressed=snapshot;
+            return snapshot.disabled&&snapshot.waiting || !snapshot.disabled&&!snapshot.error&&snapshot.nomination===nomination;
           },{timeout:10_000}).toBe(true);
           if(!submitted){
-            expect(suppressed,'A suppressed click must retain its simultaneous disabled/waiting DOM evidence').toBeDefined();
-            expect(await staleHeartbeat(suppressed!),'A suppressed waypoint click must correspond to stale native reports').toBe(true);
-            // A POST arriving while the live identity check ran must still finish,
-            // rather than being duplicated as a suppressed click.
-            if(!submitted){attempts.push({submitted:false,heartbeatDisabled:true});return false;}
+            expect(suppressed).toBeDefined();
+            if(suppressed!.disabled){
+              expect(await staleHeartbeat(suppressed!)).toBe(true);
+            }else{
+              expect(suppressed!.error).toBe(false);expect(suppressed!.nomination).toBe(nomination);
+              const view=await dungeon();
+              expect(view.state.phase).toBe('active');expect(view.state.run).toBe(expectedRun);
+              expect(view.members.every((m:any)=>m.observation?.alive&&m.observation.cave?.run===expectedRun&&
+                m.observation.cave.floor===expectedFloor&&!m.observation.cave.paused)).toBe(true);
+            }
+            submitted=requests.length>consumed;
+            if(!submitted){attempts.push({submitted:false,heartbeatDisabled:!!suppressed!.disabled,noEffect:!suppressed!.disabled});return false;}
           }
-          await expect.poll(()=>!!response,{timeout:10_000,message:'A submitted waypoint must receive its own response before any retry'}).toBe(true);
-          const result=await response!;
+          await expect.poll(()=>!!response(),{timeout:10_000,message:'A submitted waypoint must receive its own response before any retry'}).toBe(true);
+          const result=await response()!;
+          consumed++;
           expect(result.request.map).toBe(expectedMap);
           expect(result.request.run).toBe(expectedRun);
           attempts.push({submitted:true,status:result.status,error:result.body.error});
@@ -171,11 +189,48 @@ test('Cave entry closes settings, shows native choices and keeps follower maps a
           expect(result.status,'Waypoint submission must be accepted; other errors are not retried').toBe(200);
           await expect(fullMap).not.toBeVisible();
           return true;
-        }finally{page.off('request',requested);page.off('response',responded);}
       },{timeout:60_000,message:'The actual UI waypoint request must receive fresh native acceptance'}).toBe(true);
-    }finally{await info.attach('native-cave-waypoint-submission-ledger',{body:JSON.stringify(attempts),contentType:'application/json'});}
+    }finally{
+      page.off('request',requested);page.off('response',responded);
+      await info.attach('native-cave-waypoint-submission-ledger',{body:JSON.stringify({attempts,consumed,requests:requests.map(entry=>({body:entry.request.postDataJSON(),responseObserved:!!entry.response}))}),contentType:'application/json'});
+    }
   };
-  await fullMap.getByRole('button', {name:'Add waypoint',exact:true}).click();
+  const activateWaypoint=async(expectedMap:string)=>{
+    const parts=expectedMap.split("_");
+    const expectedRun=parts[1],expectedFloor=Number(parts[2]);
+    const attempts:unknown[]=[];
+    const snapshot=()=>fullMap.evaluate(element=>({
+      adding:element.textContent?.includes('Click the map to place your waypoint.'),
+      disabled:Array.from(element.querySelectorAll('button')).find(button=>button.textContent?.trim()==='Add waypoint')?.disabled,
+      waiting:Array.from(element.querySelectorAll('output')).some(status=>status.textContent==='Waiting for fresh participant reports.'),
+      error:Array.from(element.querySelectorAll('[role=alert]')).some(alert=>!!alert.textContent?.trim()),
+    }));
+    try{
+      await expect.poll(async()=>{
+        const before=await snapshot();
+        if(before.adding)return true;
+        if(!before.disabled){
+          expect(before.error,'Add activation may not retry an unrelated rendered error').toBe(false);
+          await fullMap.getByRole('button',{name:'Add waypoint',exact:true}).click();
+        }
+        let observed=before;
+        await expect.poll(async()=>{
+          observed=await snapshot();
+          return observed.adding || observed.disabled&&observed.waiting || !observed.disabled&&!observed.error;
+        },{timeout:10_000,message:'Add waypoint must activate placement or show its freshness hold'}).toBe(true);
+        attempts.push(observed);
+        if(observed.adding)return true;
+        if(observed.disabled)expect(observed.waiting).toBe(true);
+        else expect(observed.error).toBe(false);
+        const view=await dungeon();
+        expect(view.state.phase).toBe('active');expect(view.state.run).toBe(expectedRun);
+        expect(view.members.every((m:any)=>m.observation?.alive&&m.observation.cave?.run===expectedRun&&
+          m.observation.cave.floor===expectedFloor&&!m.observation.cave.paused)).toBe(true);
+        return false;
+      },{timeout:60_000,message:'Native map must visibly acknowledge waypoint placement mode'}).toBe(true);
+    }finally{await info.attach('native-cave-add-waypoint-activation',{body:JSON.stringify(attempts),contentType:'application/json'});}
+  };
+  await activateWaypoint(before.characters.E2EWarrior.map);
   const bounds=await (await page.request.get(live.url+'/party-api/maps/'+before.characters.E2EWarrior.map)).json();
   const mapBox=(await fullMap.locator('canvas').boundingBox())!;
   const fit=Math.min(mapBox.width/(bounds.max_x-bounds.min_x+100),mapBox.height/(bounds.max_y-bounds.min_y+100));
@@ -266,7 +321,7 @@ test('Cave entry closes settings, shows native choices and keeps follower maps a
     const previous=(await dungeon()).state;
     const previousIds=new Set([previous.travel?.target?.id,...Object.values(previous.commands).map((c:any)=>c.target?.id)]);
     await controls.getByRole('button',{name:'View full map',exact:true}).click();
-    await fullMap.getByRole('button',{name:'Add waypoint',exact:true}).click();
+    await activateWaypoint(safe.target.map);
     const box=(await fullMap.locator('canvas').boundingBox())!;
     const scale=Math.min(box.width/(bounds.max_x-bounds.min_x+100),box.height/(bounds.max_y-bounds.min_y+100));
     await fullMap.locator('canvas').click({position:{x:box.width/2+(safe.target.x-(bounds.min_x+bounds.max_x)/2)*scale,y:box.height/2+(safe.target.y-(bounds.min_y+bounds.max_y)/2)*scale}});
@@ -357,30 +412,193 @@ test('Cave entry closes settings, shows native choices and keeps follower maps a
   },{timeout:120_000,message:'Both resumed waypoint moves must finish at the validated endpoint before native farm assembly'}).toBe(true);
   await controls.getByRole('button', { name: 'Stop travel', exact: true }).click();
   await waitForStoppedTravel();
-  await controls.getByRole('button',{name:farm.label,exact:true}).first().click();
+  const roomChoices=new Map<string,{initial:string|undefined;resumed:Set<string>}>();
+  const acceptRoom=async(point:{id:string;label:string;map:string})=>{
+    if(!roomChoices.has(point.id))roomChoices.set(point.id,{initial:(await dungeon()).members[0].observation.cave.choice?.id,resumed:new Set()});
+    const expectedRun=point.map.slice(5,point.map.lastIndexOf('_')),expectedFloor=Number(point.map.split('_').at(-1));
+    const requests:{request:import('@playwright/test').Request;response?:Promise<{status:number;body:any;request:any}>}[]=[],attempts:unknown[]=[];
+    let consumed=0,acceptedState:any;
+    const match=(request:import('@playwright/test').Request)=>request.method()==='POST'&&new URL(request.url()).pathname==='/party-api/daily-dungeons'&&
+      request.postDataJSON()?.action==='move'&&request.postDataJSON()?.target===point.id;
+    const requested=(request:import('@playwright/test').Request)=>{if(match(request))requests.push({request});};
+    const responded=(reply:import('@playwright/test').Response)=>{
+      const entry=requests.find(entry=>entry.request===reply.request());
+      if(entry)entry.response=reply.json().then(body=>({status:reply.status(),body,request:reply.request().postDataJSON()}));
+    };
+    const identity=async()=>{
+      const view=await dungeon();expect(view.state.phase).toBe('active');expect(view.state.run).toBe(expectedRun);
+      expect(view.members.every((m:any)=>m.observation?.alive&&m.observation.cave?.run===expectedRun&&m.observation.cave.floor===expectedFloor&&!m.observation.cave.paused)).toBe(true);
+      return view;
+    };
+    page.on('request',requested);page.on('response',responded);
+    try{
+      await expect.poll(async()=>{
+        if(requests.length===consumed){
+          await identity();
+          if(requests.length===consumed){
+            const button=controls.getByRole('button',{name:point.label,exact:true}).first();
+            if(!await button.isEnabled()){attempts.push({submitted:false,disabled:true});return false;}
+            await button.click();
+          }
+        }
+        let noEffect=false;
+        await expect.poll(async()=>{
+          if(requests[consumed]?.response)return true;
+          if(requests.length>consumed)return false;
+          const snapshot=await controls.evaluate((element,label)=>({
+            enabled:Array.from(element.querySelectorAll('button')).find(button=>button.textContent?.trim()===label)?.disabled===false,
+            error:Array.from(element.querySelectorAll('[role=alert]')).map(alert=>alert.textContent?.trim()).filter(Boolean),
+          }),point.label);
+          if(requests.length>consumed)return !!requests[consumed]?.response;
+          if(snapshot.error.length)throw Error('Unaccepted room selection: '+snapshot.error.join('; '));
+          noEffect=snapshot.enabled;return noEffect;
+        },{timeout:10_000,message:'Room selection must receive its own response or remain an enabled no-effect control'}).toBe(true);
+        if(noEffect&&requests.length===consumed){
+          await identity();
+          if(requests.length===consumed){attempts.push({submitted:false,noEffect:true});return false;}
+        }
+        await expect.poll(()=>!!requests[consumed]?.response,{timeout:10_000,message:'A pending room move must receive its own response before retry'}).toBe(true);
+        const result=await requests[consumed++].response!;
+        expect(result.request.run).toBe(expectedRun);expect(result.request.target).toBe(point.id);
+        attempts.push({submitted:true,status:result.status,error:result.body.error});
+        if(result.status===409&&result.body.error==='Fresh matching dungeon run required'){await identity();return false;}
+        expect(result.status,'Room selection must be accepted; unrelated errors are not retried').toBe(200);
+        const accepted=result.body.state;expect(accepted.run).toBe(expectedRun);
+        const targets=[accepted.travel?.target,...Object.values(accepted.commands).filter((c:any)=>c.action==='move'&&c.run===expectedRun).map((c:any)=>c.target)];
+        expect(targets.some((target:any)=>target?.id===point.id&&target.map===point.map),'Accepted native room response must acknowledge the exact chosen target').toBe(true);
+        acceptedState=accepted;
+        return true;
+      },{timeout:60_000,message:'Native room selection must receive an owned accepted action'}).toBe(true);
+    }finally{
+      page.off('request',requested);page.off('response',responded);
+      await info.attach('native-cave-room-selection-acceptance',{body:JSON.stringify({point,attempts,consumed,requests:requests.map(entry=>({body:entry.request.postDataJSON(),responseObserved:!!entry.response}))}),contentType:'application/json'});
+    }
+    return acceptedState;
+  };
+  const continueRoomChoice=async(point:{id:string;label:string;map:string})=>{
+    let view=await dungeon();
+    const observation=view.members[0]?.observation,c=observation?.cave,encounter=c?.choice,tracked=roomChoices.get(point.id);
+    if(!encounter||!tracked||encounter.id===tracked.initial||tracked.resumed.has(encounter.id))return;
+    expect(view.state.run).toBe(cave.run);expect(c.run).toBe(cave.run);expect(c.floor).toBe(cave.floor);
+    const ledger:any={point,choice:encounter.id,before:view.state};
+    try{
+      if(!encounter.resolved){
+        const reply=encounter.options.find((o:any)=>!o.unavailable&&!o.cost&&!o.amber);
+        expect(reply,'Native interruption must offer a free UI reply').toBeTruthy();
+        await choice.getByRole('button',{name:reply.label,exact:true}).click();
+        await expect.poll(async()=>{
+          const current=(await dungeon()).members[0]?.observation?.cave?.choice;
+          return current?.id===encounter.id&&current.resolved;
+        },{timeout:30_000,message:'The same native interruption must acknowledge the actual UI reply'}).toBe(true);
+        ledger.reply=reply.id;
+      }
+      view=await dungeon();
+      if(!view.members.every((m:any)=>m.fresh&&m.observation?.cave?.run===cave.run&&m.observation.cave.floor===cave.floor)||
+          view.members[0].observation.cave.paused)return;
+      const settledVotes=Object.entries(view.state.commands).every(([name,command]:[string,any])=>{
+        const nativeChoice=view.members.find((m:any)=>m.name===name)?.observation?.cave?.choice;
+        return command.action==='vote'&&command.run===cave.run&&command.choice===encounter.id&&
+          nativeChoice?.id===encounter.id&&nativeChoice.resolved;
+      });
+      if(!settledVotes)return;
+      expect(view.members[0].observation.cave.choice?.id).toBe(encounter.id);
+      if(await shopResult.isVisible())await page.keyboard.press('Escape');
+      const accepted=await acceptRoom(point);
+      tracked.resumed.add(encounter.id);ledger.accepted=accepted;
+      return accepted;
+    }finally{
+      await info.attach('native-cave-choice-continuation',{body:JSON.stringify(ledger),contentType:'application/json'});
+    }
+  };
+  await acceptRoom(farm);
+  const farmCombatSamples:unknown[]=[];
+  let farmSampledAt=0;
+  try {
   await expect.poll(async()=>{
     const s=await live.state();
+    if(Math.max(...['E2EWarrior','E2EPriest'].map(name=>Math.hypot(s.characters[name].x-farm.x,s.characters[name].y-farm.y)))>=70)
+      await continueRoomChoice(farm);
+    if(Date.now()-farmSampledAt>=5_000&&farmCombatSamples.length<125){
+      farmSampledAt=Date.now();
+      const native=await Promise.all(['E2EWarrior','E2EPriest'].map(name=>live.clients[name].frame.evaluate(()=>{
+        const p=window as any,w=(document.getElementById('maincode') as HTMLIFrameElement).contentWindow as any;
+        const c=w.character,control=w.__partyGroupedCombat,entity=control?.target?.id?w.get_entity(control.target.id):null;
+        const clock=w.__partyTravelTransport?.clock,now=Date.now(),selected=w.sharedRoutine?.getDungeonTarget?.();
+        const raw=entity?Object.fromEntries(['id','type','visible','dead','hp','map','in','x','y','real_x','real_y','range','target','cave'].map(key=>[key,entity[key]])):null;
+        return {at:now,name:c.name,map:c.map,in:c.in,x:c.real_x,y:c.real_y,cave:c.cave,
+          clock,adjustedAge:control?now+(clock?.offset||0)-control.seenAt:null,
+          control:control?Object.fromEntries(['key','seenAt','target','committed','selection','members','caveScope'].map(key=>[key,control[key]])):null,
+          entity:raw,selected:selected?.id||null,knownDead:entity?!!w.partyRoleRunner?.isKnownDead(entity.id):null,
+          nativeWalk:entity?w.can_move_to(entity.x,entity.y):null,
+          attackAllowed:entity?!!w.sharedRoutine?.groupedAttackAllowed?.(entity):null,
+          runtime:w.__partyDungeonRuntime?.report(),occupied:w.sharedRoutine?.isOccupied?.()};
+      })));
+      farmCombatSamples.push({at:farmSampledAt,native,characters:Object.fromEntries(['E2EWarrior','E2EPriest'].map(name=>[name,{dungeon:s.characters[name].dungeon,movement:s.characters[name].movement}]))});
+    }
     return Math.max(...['E2EWarrior','E2EPriest'].map(name=>Math.hypot(s.characters[name].x-farm.x,s.characters[name].y-farm.y)));
   },{timeout:600_000,message:'Both characters must reach the original native farm after manual waypoint travel'}).toBeLessThan(70);
+  console.log('[Cave verified] Both characters arrived at the original native farm');
+  }finally{await info.attach('native-cave-farm-combat-samples',{body:JSON.stringify(farmCombatSamples),contentType:'application/json'});}
   await controls.getByRole('button',{name:'Stop travel',exact:true}).click();
   await waitForStoppedTravel();
   await info.attach('native-cave-manual-travel', { body: JSON.stringify({ dungeon: await dungeon(), state: await live.state() }), contentType: 'application/json' });
   const second = (await dungeon()).members[0].observation.cave.points.find((p: any) => p.kind === 'boss' && !p.done);
   if (second) {
-    await controls.getByRole('button', {name:second.label, exact:true}).click();
+    const accepted=await acceptRoom(second);
+    let serial=accepted.travel?.serial;
+    expect(Number.isSafeInteger(serial),'Accepted boss move must identify its owned travel generation').toBe(true);
+    const ownedBoss=(view:any)=>view.state.run===cave.run && view.state.travel?.serial===serial &&
+      view.state.travel.target?.id===second.id && ['E2EWarrior','E2EPriest'].every(name=>{
+        const member=view.members.find((m:any)=>m.name===name),command=view.state.commands[name];
+        return member?.fresh && member.observation?.cave?.run===cave.run && member.observation.cave.floor===cave.floor &&
+          command?.action==='move' && command.run===cave.run && command.target?.id===second.id && command.target.map===second.map;
+      });
+    const continueBoss=async()=>{const next=await continueRoomChoice(second);if(next){expect(Number.isSafeInteger(next.travel?.serial)).toBe(true);serial=next.travel.serial;}};
+    await expect.poll(async()=>{await continueBoss();return ownedBoss(await dungeon());},{timeout:300_000,message:'Accepted boss generation must dispatch owned moves after native assembly'}).toBe(true);
+    await expect.poll(async()=>{
+      await continueBoss();
+      const view=await dungeon();
+      return ownedBoss(view) && ['E2EWarrior','E2EPriest'].every(name=>{
+        const member=view.members.find((m:any)=>m.name===name),travel=member.observation?.travel;
+        return travel?.id===view.state.commands[name].id && travel.prepared===true;
+      });
+    },{timeout:270_000,message:'The accepted boss generation must prepare both owned routes before physical arrival'}).toBe(true);
+    console.log('[Cave verified] Owned boss route prepared');
+    await info.attach('native-cave-boss-owned-preparation',{body:JSON.stringify({accepted,prepared:await dungeon()}),contentType:'application/json'});
+    const planningSamples: unknown[] = [];
+    let sampledAt = 0;
+    let planningGeometry: unknown;
+    try {
     await expect.poll(async () => {
-      const encounter = (await dungeon()).members[0].observation.cave.choice;
-      if (encounter && !encounter.resolved) {
-        const reply = encounter.options.find((o: any) => !o.unavailable && !o.cost && !o.amber);
-        expect(reply, 'Encounter must have a free native reply').toBeTruthy();
-        await choice.getByRole('button',{name:reply.label,exact:true}).click();
-        await expect(choice).not.toBeVisible({timeout:30_000});
-        expect(Object.values((await dungeon()).state.commands).some((c: any) => c.action === 'move')).toBe(false);
-        await controls.getByRole('button',{name:second.label,exact:true}).click();
+      await continueBoss();
+      const view = await dungeon();
+      if (Date.now() - sampledAt >= 5_000 && planningSamples.length < 125) {
+        sampledAt = Date.now();
+        const native = await Promise.all(['E2EWarrior','E2EPriest'].map(name => live.clients[name].frame.evaluate(({target,capture}) => {
+          const p=window as any,w=(document.getElementById('maincode') as HTMLIFrameElement).contentWindow as any;
+          const c=w.character,s=w.smart || {},q=w.queue || [],index=w.start;
+          const probe=(x:number,y:number)=>({x,y,walkable:w.can_move({map:c.map,x,y,going_x:x,going_y:y,base:c.base})});
+          const preparing=!!s.searching && !s.found;
+          return {at:Date.now(),name:c.name,map:c.map,in:c.in,x:c.real_x,y:c.real_y,
+            paused:!!w.__partyMovementPaused || !w.__partyDungeonRuntime?.canMove(),
+            movementPaused:!!w.__partyMovementPaused,dungeonCanMove:w.__partyDungeonRuntime?.canMove(),
+            ready:w.__partyDungeonRuntime?.report().ready,
+            smart:{searching:s.searching,found:s.found,moving:s.moving,x:s.x,y:s.y,map:s.map,start_x:s.start_x,start_y:s.start_y},
+            bfs:{length:q.length,index,best:w.best,current:q[index],last:q[q.length-1]},
+            target:preparing?[-15,0,15].flatMap(dx=>[-15,0,15].map(dy=>probe(target.x+dx,target.y+dy))):undefined,
+            geometry:capture&&preparing?{map:c.map,base:c.base,geometry:p.G.geometry[c.map],mapData:p.G.maps[c.map]}:undefined};
+        },{target:second,capture:planningGeometry===undefined})));
+        planningGeometry ??= native.find(sample=>sample.geometry)?.geometry;
+        planningSamples.push({at:sampledAt,state:view.state,members:view.members.map((member:any)=>({name:member.name,fresh:member.fresh,ready:member.observation?.ready,action:member.observation?.action})),native:native.map(({geometry,...sample})=>sample)});
       }
       const state = await live.state();
       return Math.max(...['E2EWarrior','E2EPriest'].map(name => Math.hypot(state.characters[name].x-second.x,state.characters[name].y-second.y)));
     }, {timeout:600_000,message:'Both characters must navigate to Lockbreaker'}).toBeLessThan(70);
+    } finally {
+      await info.attach('native-cave-boss-planning-samples',{body:JSON.stringify(planningSamples),contentType:'application/json'});
+      await info.attach('native-cave-boss-planning-geometry',{body:JSON.stringify(planningGeometry ?? null),contentType:'application/json'});
+    }
+    console.log('[Cave verified] Both characters arrived at Lockbreaker');
     await info.attach('native-cave-lockbreaker-arrival',{body:JSON.stringify({dungeon:await dungeon(),state:await live.state()}),contentType:'application/json'});
   }
   // Native encounter factory, bounded initial difficulty. Neither attacks,
@@ -399,7 +617,17 @@ test('Cave entry closes settings, shows native choices and keeps follower maps a
   const duelChoice=(await dungeon()).members[0].observation.cave.choice;
   await choice.getByRole('button',{name:duelChoice.options.find((o:any)=>o.id==='left').label,exact:true}).click();
   await expect(choice).not.toBeVisible();
-  await expect.poll(async()=>await live.admin("output={done:__e2eCaveDuel.done,allyAlive:!__e2eCaveDuel.npc.dead,enemyDead:!!__e2eCaveDuel.rival.dead};"),{timeout:45_000}).toEqual({done:true,allyAlive:true,enemyDead:true});
+  console.log('[Cave verified] Injected duelist UI reply acknowledged');
+  let latestDuel:{done:boolean;allyAlive:boolean;enemyDead:boolean;allyHp:number;enemyHp:number;at:number}|undefined;
+  try{
+    await expect.poll(async()=>{
+      latestDuel=await live.admin("output={done:__e2eCaveDuel.done,allyAlive:!__e2eCaveDuel.npc.dead,enemyDead:!!__e2eCaveDuel.rival.dead,allyHp:__e2eCaveDuel.npc.hp,enemyHp:__e2eCaveDuel.rival.hp,at:Date.now()};");
+      return {done:latestDuel!.done,allyAlive:latestDuel!.allyAlive,enemyDead:latestDuel!.enemyDead};
+    },{timeout:120_000,message:'The real native duel must finish with the selected ally alive and rival dead'}).toEqual({done:true,allyAlive:true,enemyDead:true});
+  }finally{
+    const native=await live.state();
+    await info.attach('native-cave-duel-combat-result',{body:JSON.stringify({duel,latest:latestDuel,party:['E2EWarrior','E2EPriest'].map(name=>({name,target:native.characters[name].activeCombatTarget,approach:native.characters[name].groupedCombat?.approach}))}),contentType:'application/json'});
+  }
   await info.attach('native-cave-help-duelist',{body:JSON.stringify(duel),contentType:'application/json'});
   const blades=await live.admin(`output=(()=>{
     const p=get_player('E2EWarrior'),run=generated_entry(p).record;
@@ -431,11 +659,12 @@ test('Cave entry closes settings, shows native choices and keeps follower maps a
     if(!required)return true;
     const v=await dungeon();
     const current=v.state.travel?.target?.id || (Object.values(v.state.commands).find((c:any)=>c.action==='move') as any)?.target?.id;
-    if(current!==required.id)await controls.getByRole('button',{name:required.label,exact:true}).click();
+    if(current!==required.id)await acceptRoom(required);
     return false;
   // Random floors can require several long trips with native combat along the
   // corridors. Allow the final vote's acknowledged result to reach telemetry.
   },{timeout:300_000,message:'Required rooms must finish through native combat and votes'}).toBe(true);
+  console.log('[Cave verified] Required native rooms completed');
   const stairs=(await dungeon()).members[0].observation.cave.points.find((p:any)=>p.down);
   expect(stairs.locked).toBe(false);
   await live.admin(`output=(()=>{
@@ -443,7 +672,7 @@ test('Cave entry closes settings, shows native choices and keeps follower maps a
     const room={id:'e2e-farewell',floor:0,map:p.map,x:${stairs.x},y:${stairs.y},kind:'encounter',required:false,revealed:true,started:false,done:false,actors:[],enemies:[],encounter:source};
     run.cave.rooms.push(room);cave_activate(run,room);cave_publish(run,true);return {room:room.id};
   })()`);
-  await controls.getByRole('button',{name:'Stairs down',exact:true}).click();
+  await acceptRoom(stairs);
   let answeredFarewell=false;
   const stairReplies:{id:string;title:string;option:string}[]=[];
   const advanceStairs=async()=>{
@@ -475,6 +704,7 @@ test('Cave entry closes settings, shows native choices and keeps follower maps a
   await expect.poll(advanceStairs,
     {timeout:300_000,message:'Manual stairs must continue after the farewell vote and transport both members'}).toBe(true);
   expect(answeredFarewell).toBe(true);
+  console.log('[Cave verified] Both characters reached the next native floor');
   await info.attach('native-cave-floor-transition',{body:JSON.stringify({stairReplies,dungeon:await dungeon(),state:await live.state()}),contentType:'application/json'});
   const newFloorChoice=(await dungeon()).members[0].observation.cave.choice;
   if(newFloorChoice&&!newFloorChoice.resolved){

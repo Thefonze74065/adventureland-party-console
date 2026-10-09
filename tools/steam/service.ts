@@ -33,8 +33,18 @@ export class LocalSteam {
     return this.pending;
   }
   private async available() { try { return await this.ports.targets(); } catch { return []; } }
+  private async refreshLocalBridge(character: string) {
+    // A ready remote/manual bridge needs no local desktop. Only the explicitly
+    // configured local Steam client may be refreshed after a hosting restart.
+    try { assertLocalSteam(await this.preferences.read(), this.ports.platform); }
+    catch { return; }
+    const pages = await this.available();
+    if (pages.length !== 1) return;
+    const server = await this.ports.server(), source = await this.ports.source();
+    if (await this.attach(pages[0], server, source, character)) this.maintain(server, source);
+  }
   private async prepare(character: string) {
-    if (await this.ports.bridgeReady()) return;
+    if (await this.ports.bridgeReady()) { await this.refreshLocalBridge(character); return; }
     assertLocalSteam(await this.preferences.read(), this.ports.platform);
     let pages = await this.available();
     if (!pages.length) {

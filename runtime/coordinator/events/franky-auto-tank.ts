@@ -1,5 +1,5 @@
 /**
- * Auto mode tries boss tank engagement first (Franky, Halloween); after enough deaths while doing
+ * Auto mode tries boss tank engagement first (Franky); after enough deaths while doing
  * so it falls back to the off-tank/support routine for good, mirroring how
  * Hunt's own deathThreshold auto-blacklists a monster (see hunt/settings.ts).
  * A deathLimit of 0 disables the tank attempt entirely (see encounter-mode.ts).
@@ -25,7 +25,7 @@ interface FrankyAutoTankPorts {
 }
 
 /** Boss encounters whose auto mode tries tanking first (see encounter-mode.ts). */
-export const autoTankEncounters = ["franky", "halloween"] as const;
+export const autoTankEncounters = ["franky"] as const;
 
 function encounterDeathAt(report: FrankyDeathReport, encounter: string): number | null {
   const at = Number((report.lastDeath as { at?: unknown } | null | undefined)?.at);
@@ -39,7 +39,7 @@ function stillAutoTanking(profile: FrankyAutoTankProfile, encounter: string): bo
 
 /**
  * A character's own death, not a teammate's, is what pushes auto mode away from tanking.
- * Each death counts against the boss encounter (Franky or Halloween) it happened in.
+ * Each death counts against the boss encounter it happened in.
  */
 export function recordFrankyAutoTankDeath(report: FrankyDeathReport, ports: FrankyAutoTankPorts): void {
   for (const encounter of autoTankEncounters) {

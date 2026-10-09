@@ -576,3 +576,10 @@ test('consumed walking corner does not cache a future native transition',()=>{
  const r=reachedWalkFixture([{map:'main',x:177,y:460},{map:'main',x:177,y:460,town:true}]);r.executor.tick({});
  assert.equal(r.executor.walkingEdge(),undefined);assert.deepEqual(r.calls,['town']);
 });
+
+test('Cave follower retains its wait while a progressing leader searches beyond90s',async()=>{
+ const r=fixture(),p=r.service.move({map:'main',x:100,y:0},undefined,{native:true,shared:true,awaitSharedRoute:true,nativePlanningTimeoutMs:90000,nativePlanningProgressMs:240000});
+ p.catch(()=>{});await r.ticks(1);r.setNow(200000);await r.ticks(1);
+ assert.equal(r.service.state.moving,true);assert.equal(r.searches,0);
+ r.service.install([{map:'main',x:100,y:0}],r.service.identity,'cave-convoy');await r.ticks(8);await p;r.dispose();
+});

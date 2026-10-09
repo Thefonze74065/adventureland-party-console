@@ -10,14 +10,14 @@ function fixture() {
   const dom = new JSDOM('<iframe id="maincode"></iframe><iframe id="icharc"></iframe>', {url:'https://adventure.land'});
   const starts = [], logs = [];
   const host = { document:dom.window.document, localStorage:dom.window.localStorage,
-    character:{name:'P'}, socket:{connected:true}, code_active:false,
+    character:{name:'P'}, socket:{connected:true}, code_active:false, X:{codes:{}},
     start_runner(){starts.push('P');}, stop_runner(){} };
   const companion = host.document.getElementById('icharc').contentWindow;
   Object.assign(companion, {character:{name:'C'}, socket:{connected:true}, code_active:false,
     start_runner(){starts.push('C');}, stop_runner(){}});
   const reply = {primary:'P', steam:['P','C'], operation:null};
   let supervisor;
-  const install = (persist=async()=> 'slot') => supervisor = createSteamRecovery(host,'bootstrap',persist,s=>logs.push(s));
+  const install = (persist=async()=> '100') => supervisor = createSteamRecovery(host,'bootstrap',persist,s=>logs.push(s));
   install();
   return {host, companion, reply, starts, logs, install, get supervisor(){return supervisor;},
     close(){supervisor.dispose();dom.window.close();}};
@@ -101,7 +101,7 @@ test('one pending restart, capped backoff, and disposal during persistence', asy
     f.supervisor.dispose(); f.install(()=>new Promise(r=>release=r)); f.reply.steam=['P'];
     await f.supervisor.tick(f.reply); now=6000;
     const pending=f.supervisor.tick(f.reply); await f.supervisor.tick(f.reply); assert.deepEqual(f.starts,[]);
-    f.supervisor.dispose(); release('slot'); await pending; assert.deepEqual(f.starts,[]);
+    f.supervisor.dispose(); release('100'); await pending; assert.deepEqual(f.starts,[]);
     f.install(async()=>{throw Error('offline');}); await f.supervisor.tick(f.reply);
     for (const delta of [5000,5000,10000,20000,30000]) {now+=delta;await f.supervisor.tick(f.reply);}
     assert.equal(f.logs.filter(s=>/recovery failed/.test(s)).length,5);
@@ -128,9 +128,9 @@ test('managed slot upgrades preserve unrelated saved code and install primary an
     const f=fixture(), saved=[], cache=new Map();
     f.supervisor.dispose();
     const base='http://127.0.0.1:924', key='party-console-bootstrap-slot-v1:'+base;
-    f.host.localStorage.setItem(key,'party-console-existing');
+    f.host.localStorage.setItem(key,'100');
     const legacy=`globalThis.__partyServer=${JSON.stringify(base)};parent.__partyServer=globalThis.__partyServer;$.getScript(${JSON.stringify(base+'/CODE/adventure_land/universal-loader.js')});`;
-    Object.assign(f.host,{sessionStorage:f.host.localStorage, location:{}, X:{characters:[{name:'P',id:'p'},{name:'C',id:'c'}]},
+    Object.assign(f.host,{sessionStorage:f.host.localStorage, location:{}, X:{codes:{'100':['Existing CODE',0]},characters:[{name:'P',id:'p'},{name:'C',id:'c'}]},
       storage_get:k=>cache.get(k),storage_set:(k,v)=>cache.set(k,v),
       setTimeout:()=>1,clearTimeout(){},get_active_characters:()=>({C:'code'}),
       api_call:async(method,body)=>{saved.push(body);return {success:true};},
@@ -140,7 +140,7 @@ test('managed slot upgrades preserve unrelated saved code and install primary an
       installSteamBridge(f.host);await new Promise(r=>setImmediate(r));
       assert.equal(disposed,1);assert.equal(f.host.__partySteamBridge.version,steamBridgeVersion);assert.equal(f.host.__partySteamBridge.server,base);
       assert.equal(saved.length,1);
-      assert.equal(saved[0].slot==='party-console-existing',!unrelated);
+      assert.equal(saved[0].slot,unrelated?'99':'100');
       const stored=JSON.parse(cache.get('code_cache'));
       for(const id of ['p','c']){assert.equal(stored['run_'+id],'1');assert.equal(stored['code_'+id],steamBootstrap(base));}
     } finally {f.host.__partySteamBridge.dispose();f.close();}

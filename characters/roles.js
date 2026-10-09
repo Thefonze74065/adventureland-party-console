@@ -246,6 +246,15 @@
 
   // runtime/characters/roles/monster-attack-policy.ts
   var reflectors = /* @__PURE__ */ new Set(["slenderman", "tiger", "goblin"]);
+  function knownDamageType(value) {
+    return value === "physical" || value === "magical" || value === "pure" ? value : void 0;
+  }
+  function effectiveAttackDamageType(actor, data) {
+    const nativeType = knownDamageType(actor.damage_type);
+    if (nativeType) return nativeType;
+    const weapon = actor.slots?.mainhand;
+    return knownDamageType(weapon && data?.items?.[weapon.name]?.damage_type) || knownDamageType(data?.classes?.[actor.ctype]?.damage_type);
+  }
   function monsterAttackBlock(monster, damageType, range) {
     if (monster === "porcupine" && damageType !== "magical" && damageType !== "pure" && !(Number.isFinite(range) && range >= 75))
       return "Porcupine damage return: physical attacks require range >= 75";
@@ -867,8 +876,7 @@
         ports.state().skippedAttack = "waiting for group readiness and target commitment";
         return false;
       }
-      const actor = character;
-      const blocked2 = monsterAttackBlock(target.mtype, actor.damage_type, Number(character.range));
+      const blocked2 = monsterAttackBlock(target.mtype, effectiveAttackDamageType(character, typeof G === "undefined" ? void 0 : G), Number(character.range));
       if (blocked2) {
         ports.state().skippedAttack = blocked2;
         return false;
@@ -1586,7 +1594,7 @@
     const shared = root.sharedRoutine;
     const projectiles = createProjectileTracker(world);
     function world() {
-      const actor = character;
+      const actor = { ...character, damage_type: effectiveAttackDamageType(character, typeof G === "undefined" ? void 0 : G) };
       const context = shared.combatContext?.() || {
         leader: "",
         tank: null,

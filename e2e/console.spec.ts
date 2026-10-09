@@ -1,12 +1,103 @@
 import { test, expect } from './fixtures';
 import { createServer } from 'node:http';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
+import { transform, build } from 'esbuild';
+import { LocalSteam, type DesktopPorts } from '../tools/steam/service';
+import { SteamPreferenceStore } from '../tools/steam/preferences';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { gateway } from '../tools/hosting/gateway';
 import { Access } from '../tools/hosting/access';
 import { startupRealms } from '../tools/hosting/realms';
 import { accountConfig, sessionValue } from '../tools/hosting/account';
+
+test('held escape shows its reason and resumes only through an explicit action', async ({page},info) => {
+  // Failure inventory: hidden hold reason; no release control; active rescue
+  // released prematurely; failed release hides the hold; released errors linger.
+  // Declare the escape read boundary; the actual Resume POST reaches the
+  // coordinator. This checks console recovery controls, not rescue skill outcomes.
+  let stage='failed-hold', rejectResume=true;
+  const requests: {path:string,status:number}[]=[];
+  await page.route('**/party-api/escape', async route => {
+    if (route.request().method()!=='GET') {await route.continue();return;}
+    await route.fulfill({json:{escape:{id:'console-held-escape',stage,
+      error:'Missing warrior, mage, or priest',progress:{W:{error:'cant_respawn'}}}}});
+  });
+  await page.route('**/party-api/escape/resume',async route=>{
+    if(rejectResume){requests.push({path:'/escape/resume',status:409});await route.fulfill({status:409,json:{error:'Recovery is still held'}});return;}
+    const response=await route.fetch();requests.push({path:'/escape/resume',status:response.status()});
+    expect(response.ok()).toBe(true);stage='released';
+    await route.fulfill({response,json:{escape:{id:'console-held-escape',stage,error:null,progress:{}}}});
+  });
+  await page.goto('/');
+  const resume=page.getByRole('button',{name:'Resume automation',exact:true});
+  await expect(page.getByText('Missing warrior, mage, or priest',{exact:true})).toBeVisible();
+  await expect(resume).toBeVisible();
+  await resume.scrollIntoViewIfNeeded();
+  await info.attach('escape-held-reason',{body:await page.screenshot(),contentType:'image/png'});
+  await resume.click();
+  await expect(page.getByText('Recovery is still held',{exact:true})).toBeVisible();
+  await expect(resume).toBeEnabled();
+  rejectResume=false;await resume.click();
+  await expect(resume).toHaveCount(0);
+  await expect(page.getByText('Missing warrior, mage, or priest',{exact:true})).toHaveCount(0);
+  stage='blink';await page.reload();
+  await expect(page.getByRole('button',{name:/Escape - failed$/})).toBeDisabled();
+  await expect(resume).toHaveCount(0);
+  await info.attach('escape-resume-actions',{body:JSON.stringify(requests),contentType:'application/json'});
+  await info.attach('escape-active-rescue',{body:await page.screenshot(),contentType:'image/png'});
+});
+
+test('Halloween events stay opt-in, show partial-feed timers, inherit and persist', async ({page,app},info) => {
+  // Failure modes: a partial feed hides supported bosses; legacy all-events flags
+  // silently opt characters in; follower/merchant policy leaks; saves disappear
+  // after restart; raw catalog IDs replace friendly labels or spawn countdowns.
+  const ids=['slenderman','mrgreen','mrpumpkin'];
+  let legacy=true;
+  let inherited=false;
+  const next=Date.now()+600000;
+  await page.route('**/party-api/state*',async route=>{
+    const response=await route.fetch(),state=await response.json();
+    await route.fulfill({response,json:{...state,
+      ...(legacy ? {eventsByCharacter:{...state.eventsByCharacter,W:true},eventSelectionsByCharacter:{...state.eventSelectionsByCharacter,W:undefined}} : {}),
+      // The console fixture does not launch native workers, so observe a
+      // declared managed-party projection for follower inheritance.
+      ...(inherited ? {leader:'W',followers:{...state.followers,P:true}} : {}),
+      eventSchedules:[{id:'mrgreen',name:'mrgreen',next},{id:'mrpumpkin',name:'mrpumpkin',next},{id:'unsupported-fixture',name:'Other event',live:true}],
+    }});
+  });
+  await page.goto('/');
+  const card=(name:string)=>page.locator('article').filter({has:page.getByRole('heading',{name,exact:true})});
+  const open=async(name:string)=>{await card(name).getByRole('button',{name:/^Events \(/}).click();};
+  const row=(name:string)=>page.locator('[data-slot="popover-content"]').locator('div').filter({has:page.getByText(new RegExp(`^${name} —`))}).filter({has:page.getByRole('checkbox')}).last();
+  await open('W');
+  for(const name of ['Slenderman','Mr. Green','Mr. Pumpkin']) await expect(row(name).getByRole('checkbox')).not.toBeChecked();
+  await expect(page.getByText(/^Mr\. Green —.*\(\d+m \d+s\)$/)).toBeVisible();
+  await expect(page.getByText(/^Mr\. Pumpkin —.*\(\d+m \d+s\)$/)).toBeVisible();
+  await expect(page.getByText('Other event — Unsupported',{exact:true})).toBeVisible();
+  await info.attach('halloween-legacy-opt-in',{body:await page.screenshot(),contentType:'image/png'});
+  legacy=false;
+  for(const name of ['Slenderman','Mr. Green','Mr. Pumpkin']) {
+    // This controlled checkbox reflects the acknowledged coordinator save.
+    await row(name).getByRole('checkbox').click();
+    await expect.poll(async()=>{const state=await app.state();return ids.filter(id=>state.eventSelectionsByCharacter.W?.includes(id)).length;}).toBe(['Slenderman','Mr. Green','Mr. Pumpkin'].indexOf(name)+1);
+    await expect(row(name).getByRole('checkbox')).toBeChecked();
+  }
+  await page.keyboard.press('Escape');
+  inherited=true;
+  await page.reload();
+  await open('P');
+  await expect(page.getByText('Using W’s events',{exact:true})).toBeVisible();
+  for(const name of ['Slenderman','Mr. Green','Mr. Pumpkin']) {await expect(row(name).getByRole('checkbox')).toBeChecked();await expect(row(name).getByRole('checkbox')).toBeDisabled();}
+  await page.keyboard.press('Escape');
+  await open('M');
+  for(const name of ['Slenderman','Mr. Green','Mr. Pumpkin']) {await expect(row(name).getByRole('checkbox')).not.toBeChecked();await expect(row(name).getByRole('checkbox')).toBeEnabled();}
+  await page.keyboard.press('Escape');
+  await app.restartCoordinator();await page.reload();await open('W');
+  for(const name of ['Slenderman','Mr. Green','Mr. Pumpkin']) await expect(row(name).getByRole('checkbox')).toBeChecked();
+  await info.attach('halloween-persisted-selections',{body:JSON.stringify(await app.state()),contentType:'application/json'});
+  await info.attach('halloween-events-after-restart',{body:await page.screenshot(),contentType:'image/png'});
+});
 
 test.describe('marked withdrawal scheduling', () => {
   test.use({ merchantDialogs: true });
@@ -805,14 +896,21 @@ test('Cave map survives stale reports without allowing stale waypoint actions',a
   await map.locator('canvas').click({position:{x:100,y:100}});
   const set=map.getByRole('button',{name:'Set waypoint',exact:true});
   await expect(set).toBeEnabled();
+  const freshCanvas=await map.locator('canvas').boundingBox();
   fresh=false;
   await expect(set).toBeDisabled();
   await expect(map.getByRole('status')).toHaveText('Waiting for fresh participant reports.');
+  await expect.poll(async()=>{
+    const box=await map.locator('canvas').boundingBox();
+    return box && freshCanvas && Math.abs(box.y-freshCanvas.y)+Math.abs(box.height-freshCanvas.height);
+  },{message:'Heartbeat waiting text must not move the selectable map'}).toBeLessThan(1);
   await expect(map).toBeVisible();
   await info.attach('stale-cave-map-readonly',{body:await map.screenshot(),contentType:'image/png'});
   fresh=true;
   await expect(set).toBeEnabled();
   await expect(map.getByRole('status')).toHaveCount(0);
+  const recoveredCanvas=await map.locator('canvas').boundingBox();
+  expect(recoveredCanvas?.y).toBe(freshCanvas?.y);
   await expect(map).toBeVisible();
   floor=1;
   await expect(map).not.toBeVisible();
@@ -822,4 +920,176 @@ test('Cave map survives stale reports without allowing stale waypoint actions',a
   run='read-fixture-b';
   await expect(next).not.toBeVisible();
   await info.attach('cave-map-read-fixture-ledger',{body:JSON.stringify({transitions:['fresh','stale','fresh','floor 2','new run'],run,floor,fresh}),contentType:'application/json'});
+});
+
+
+test('Steam handoff preserves saved setup when browser choices are incomplete', async ({ browser }, info) => {
+  // Failure modes: an empty/invalid browser draft overrides valid persisted setup;
+  // setup reload erases those saved choices; a valid remote choice is ignored;
+  // launching remotely stops headless ownership before a bridge is connected.
+  // Desktop launch/inspector are declared external boundaries, not live Steam.
+  const directory = path.resolve('.build/e2e', `steam-setup-${randomUUID()}`);
+  const preferences = new SteamPreferenceStore(directory);
+  await preferences.save({ placement: 'same', client: 'windows-steam' });
+  let launched = 0, connected = false, forwarded = 0, attachments = 0;
+  const ports: DesktopPorts = {
+    platform: 'win32', targets: async () => launched ? [{url:'http://game',socket:'ws://fixture'}] : [],
+    executable: async () => 'declared-steam-executable', running: async () => false,
+    launch: async () => { launched++; }, connect: async () => ({ evaluate: async () => { attachments++; connected=true; return true; }, close: () => {} }),
+    bridgeReady: async () => connected, server: async () => 'http://console', source: async () => '', now: Date.now, sleep: async () => {},
+  };
+  let steam = new LocalSteam(preferences, ports);
+  const upstream = createServer((req,res) => {
+    res.setHeader('Content-Type','application/json');
+    if(req.method==='POST') { forwarded++; res.end(JSON.stringify({ok:true})); }
+    else res.end(JSON.stringify({roster:[{name:'W'}]}));
+  });
+  await new Promise<void>(resolve=>upstream.listen(0,'127.0.0.1',resolve));
+  const access = new Access(path.join(directory,'access.json')); await access.load();
+  const options={access,steam,configured:()=>true,dashboardPort:1,apiPort:(upstream.address() as {port:number}).port};
+  const server = gateway(options);
+  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
+  const page = await browser.newPage();
+  const origin = `http://127.0.0.1:${(server.address() as {port:number}).port}`;
+  try {
+    await page.goto(origin+'/setup');
+    await page.evaluate(()=>localStorage.setItem('party-connection-setup',JSON.stringify({placement:'',client:''})));
+    // Execute the maintained dashboard request adapter in a real browser, then
+    // observe the actual HTTP gateway, persisted preference and desktop boundary.
+    const helper = await transform(readFileSync('dashboard/features/party/steam-client-setup.ts','utf8'),{loader:'ts',format:'iife',globalName:'SteamSetup'});
+    await page.addScriptTag({content:helper.code});
+    await page.evaluate(()=>{
+      const button=document.createElement('button'); button.textContent='Request Steam primary';
+      button.onclick=async()=>{
+        const adapter=(window as unknown as {SteamSetup:{steamClientSetup(body:unknown,storage:Storage):unknown}}).SteamSetup;
+        const response=await fetch('/party-api/steam/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(adapter.steamClientSetup({action:'primary',character:'W'},localStorage))});
+        const output=document.createElement('output'); output.textContent=JSON.stringify({status:response.status,body:await response.json()}); document.body.append(output);
+      }; document.body.append(button);
+    });
+    await page.getByRole('button',{name:'Request Steam primary'}).click();
+    await expect(page.locator('output').last()).toContainText('"status":200');
+    expect(launched).toBe(1); expect(forwarded).toBe(1);
+    expect(await preferences.read()).toEqual({placement:'same',client:'windows-steam'});
+    await page.reload();
+    await expect(page.locator('#placement')).toHaveValue('same');
+    await expect(page.locator('#client')).toHaveValue('windows-steam');
+    expect(JSON.parse(await page.evaluate(()=>localStorage.getItem('party-connection-setup')||'null'))).toMatchObject({placement:'same',client:'windows-steam'});
+    await info.attach('steam-saved-setup-restored',{body:await page.screenshot(),contentType:'image/png'});
+    // A hosting restart has no maintenance timer; an already ready local bridge
+    // must be inspected/refreshed before forwarding, without launching again.
+    steam.stop(); steam=new LocalSteam(preferences,ports); options.steam=steam;
+    const beforeRefresh=attachments;
+    const refreshed=await page.request.post(origin+'/party-api/steam/action',{headers:{Origin:origin},data:{action:'primary',character:'W'}});
+    expect(refreshed.ok()).toBe(true); expect(attachments).toBe(beforeRefresh+1);
+    expect(launched).toBe(1); expect(forwarded).toBe(2);
+    connected=false;
+    const remote=await page.request.post(origin+'/party-api/steam/action',{headers:{Origin:origin},data:{action:'primary',character:'W',clientSetup:{placement:'remote',client:'windows-steam'}}});
+    expect(remote.ok()).toBe(false); expect(await remote.text()).toContain('Unable to start Steam client from a different PC');
+    expect(launched).toBe(1); expect(forwarded).toBe(2);
+    connected=true;
+    const beforeRemote=attachments;
+    const attached=await page.request.post(origin+'/party-api/steam/action',{headers:{Origin:origin},data:{action:'primary',character:'W'}});
+    expect(attached.ok()).toBe(true); expect(forwarded).toBe(3); expect(attachments).toBe(beforeRemote);
+    await info.attach('steam-launch-boundary-ledger',{body:JSON.stringify({launched,forwarded,attachments,preferences:await preferences.read(),remoteStatus:remote.status(),attachedStatus:attached.status()}),contentType:'application/json'});
+  } finally {
+    steam.stop(); await page.close(); server.closeAllConnections(); upstream.closeAllConnections();
+    await Promise.all([new Promise<void>(resolve=>server.close(()=>resolve())),new Promise<void>(resolve=>upstream.close(()=>resolve()))]);
+  }
+});
+
+
+test('Steam bridge reports native save rejection without losing its reason', async ({ browser }, info) => {
+  // Failure modes: api_call rejects a native object rather than Error; diagnostics
+  // become [object Object]; private response fields leak; failed save disconnects
+  // the primary or persists a false release receipt. The native API is a declared
+  // rejection boundary, with actual bridge execution and HTTP heartbeat replies.
+  const packets: Record<string,unknown>[]=[];
+  const upstream=createServer(async(req,res)=>{
+    if(req.url==='/'){res.setHeader('Content-Type','text/html');res.end('<body></body>');return;}
+    let raw='';for await(const chunk of req)raw+=chunk;
+    const packet=JSON.parse(raw);packets.push(packet);
+    res.setHeader('Content-Type','application/json');
+    res.end(JSON.stringify({operation:{id:'save-failure',from:'P',target:'W',phase:packet.error?'failed':'release'},realm:'SR_USII',members:[]}));
+  });
+  await new Promise<void>(resolve=>upstream.listen(0,'127.0.0.1',resolve));
+  const origin=`http://127.0.0.1:${(upstream.address() as {port:number}).port}`;
+  const page=await browser.newPage();
+  try {
+    await page.goto(origin);
+    const bundle=await build({entryPoints:['runtime/steam/bridge.ts'],bundle:true,write:false,format:'iife',globalName:'NativeBridge',platform:'browser'});
+    await page.addScriptTag({content:bundle.outputFiles[0].text});
+    await page.evaluate(origin=>{
+      const host=window as unknown as Record<string,unknown>;
+      host.__partyServer=origin;host.character={name:'P'};host.socket={connected:true,disconnect(){throw Error('Save failure must not disconnect');}};
+      host.X={characters:[{name:'W',id:'owned-w'}],codes:{}};host.storage_get=()=>null;host.storage_set=()=>{};
+      host.stop_runner=()=>{throw Error('Save failure must not stop CODE');};
+      host.api_call=async()=>{throw {failed:true,reason:'invalid_slot',error:'Use a supported CODE slot',session:'PRIVATE-SENTINEL'};};
+      (host.NativeBridge as {installSteamBridge(host:unknown):void}).installSteamBridge(window);
+    },origin);
+    await expect.poll(()=>packets.find(packet=>packet.error)?.error).toBe('invalid_slot: Use a supported CODE slot');
+    const failure=packets.find(packet=>packet.error)!;
+    expect(failure.released).toBeUndefined();expect(JSON.stringify(failure)).not.toContain('PRIVATE-SENTINEL');
+    await info.attach('steam-native-save-rejection',{body:JSON.stringify(packets),contentType:'application/json'});
+  } finally {
+    await page.close();upstream.closeAllConnections();await new Promise<void>(resolve=>upstream.close(()=>resolve()));
+  }
+});
+
+
+test('Steam bridge reserves a free native CODE slot without overwriting saved code', async ({ browser }, info) => {
+  // Failure modes: UUID slot rejected as no_slot; occupied/user/default CODE is
+  // overwritten; an absent inventory is assumed empty; full slots disconnect the
+  // client; original cache is lost. Native save is a declared protocol boundary.
+  const packets: Record<string,unknown>[]=[];
+  const server=createServer(async(req,res)=>{
+    if(req.url==='/'){res.setHeader('Content-Type','text/html');res.end('<body></body>');return;}
+    let raw='';for await(const chunk of req)raw+=chunk;packets.push(JSON.parse(raw));
+    res.setHeader('Content-Type','application/json');res.end(JSON.stringify({operation:{id:'native-slot',from:'P',target:'W',phase:'release'},realm:'SR_USII',members:[]}));
+  });
+  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
+  const origin=`http://127.0.0.1:${(server.address() as {port:number}).port}`;
+  const page=await browser.newPage();
+  try {
+    await page.goto(origin);
+    const bundle=await build({entryPoints:['runtime/steam/bridge.ts'],bundle:true,write:false,format:'iife',globalName:'NativeBridge',platform:'browser'});
+    await page.addScriptTag({content:bundle.outputFiles[0].text});
+    await page.evaluate(origin=>{
+      const host=window as unknown as Record<string,unknown>;
+      host.__partyServer=origin;host.character={name:'P'};const socket={connected:true,disconnect(){socket.connected=false;}};host.socket=socket;
+      host.X={characters:[{name:'W',id:'owned-w'}],codes:{'1':['User code',1],'100':['Other saved code',1]}};
+      const cache=new Map([['code_cache',JSON.stringify({slot_owned_w:'1',code_owned_w:'User code'})]]);
+      host.storage_get=(key:string)=>cache.get(key)||null;host.storage_set=(key:string,value:string)=>cache.set(key,value);
+      host.stop_runner=()=>{};host.saved=[];
+      host.api_call=async(method:string,payload:{slot:string})=>{
+        if(!/^(?:[1-9]|[1-9][0-9]|100)$/.test(String(payload.slot)))throw {failed:true,reason:'no_slot'};
+        if(['1','100'].includes(String(payload.slot)))throw Error('Occupied CODE must not be overwritten');
+        (host.saved as unknown[]).push({method,payload});return {success:true};
+      };
+      host.cache=cache;
+      (host.NativeBridge as {installSteamBridge(host:unknown):void}).installSteamBridge(window);
+    },origin);
+    await expect.poll(()=>packets.some(packet=>packet.released===true)).toBe(true);
+    const result=await page.evaluate(()=>{
+      const host=window as unknown as {saved:{payload:{slot:string}}[];cache:Map<string,string>};
+      return {saved:host.saved,cache:JSON.parse(host.cache.get('code_cache')||'{}'),original:localStorage.getItem('party-console-bootstrap-slot-v1:'+location.origin+':original-cache')};
+    });
+    expect(String(result.saved[0].payload.slot)).toBe('99');expect(result.cache.slot_owned_w).toBe('1');
+    expect(JSON.parse(result.original||'null')).toEqual({slot_owned_w:'1',code_owned_w:'User code'});
+    await info.attach('steam-native-free-slot',{body:JSON.stringify({packets,result}),contentType:'application/json'});
+    for(const inventory of ['full','unknown']) {
+      packets.length=0;
+      await page.evaluate(inventory=>{
+        const host=window as unknown as {__partySteamBridge:{dispose():void};socket:{connected:boolean};X:{codes?:Record<string,unknown>};NativeBridge:{installSteamBridge(host:unknown):void}};
+        host.__partySteamBridge.dispose();localStorage.clear();sessionStorage.clear();host.socket.connected=true;
+        host.X.codes=inventory==='full'?Object.fromEntries(Array.from({length:100},(_,i)=>[String(i+1),['User code',1]])):undefined;
+        host.NativeBridge.installSteamBridge(window);
+      },inventory);
+      await expect.poll(()=>packets.find(packet=>packet.error)?.error).toContain(inventory==='full'?'No free Adventure Land CODE slot':'Cannot inspect saved CODE slots');
+      expect(packets.some(packet=>packet.released===true)).toBe(false);
+      expect(await page.evaluate(()=>((window as unknown as {saved:unknown[]}).saved).length)).toBe(1);
+      expect(await page.evaluate(()=>((window as unknown as {socket:{connected:boolean}}).socket).connected)).toBe(true);
+      await info.attach('steam-native-slot-'+inventory,{body:JSON.stringify(packets),contentType:'application/json'});
+    }
+
+  } finally {await page.close();server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}
 });

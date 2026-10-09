@@ -31,6 +31,7 @@ export const actionDomains = {
   '/town-party': core,
   '/restock': core,
   '/escape': core,
+  '/escape/resume': core,
   '/bank-party': ['core', 'config', 'bank'],
   '/realm/switch': inventory,
   '/realm/boss-chase': core,

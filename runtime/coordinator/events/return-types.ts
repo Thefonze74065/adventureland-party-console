@@ -53,6 +53,11 @@ export interface ReturnStatus {
   rip?: boolean;
   goobrawlCombat?: boolean;
   serverLiveEvents?: { name: string }[];
+  /** Local-wall-clock native spawn deadlines; these are attendance, not liveness. */
+  serverStagingEvents?: { name: string; spawnAt: number; spawnId?: number }[];
+  slendermanSearchExhausted?: boolean;
+  eventFeedConnected?: boolean;
+  eventClockStale?: boolean;
   eventRecovery?: { cycleId: string; phase: string };
 }
 export interface ReturnConvoy {

@@ -1,5 +1,5 @@
 import type { CombatRoot, Target } from '../roles/types.ts';
-import { monsterAttackBlock } from '../roles/monster-attack-policy.ts';
+import { effectiveAttackDamageType, monsterAttackBlock } from '../roles/monster-attack-policy.ts';
 import { createSkillEngine } from './engine.ts';
 import { decision, type Actor, type Combatant, type CombatContext, type SkillDefinition, type SkillDecision, type SkillId, type SkillWorld } from './types.ts';
 import { damage, endangered, incomingDps } from './damage.ts';
@@ -28,7 +28,9 @@ export function installSkillRuntime(root: CombatRoot) {
   const shared = root.sharedRoutine;
   const projectiles = createProjectileTracker(world);
   function world(): SkillWorld {
-    const actor: Actor = character;
+    // Normalize the local skill world, never mutate the native player object.
+    // Offensive skill definitions retain their own damage_type precedence.
+    const actor: Actor = { ...character, damage_type: effectiveAttackDamageType(character, typeof G === 'undefined' ? undefined : G) };
     const context: CombatContext = shared.combatContext?.() || {
       leader: '', tank: null, allies: [], monsters: [], mode: 'blocked', event: null, observedAt: 0,
     };
@@ -68,7 +70,7 @@ export function installSkillRuntime(root: CombatRoot) {
     return !!world().skills[d.skill]?.hostile && d.targets.some(t=>!shared.returnAttacker?.(t as Target));
   }
   // Area effects and movement skills cannot honor strict boss-only, hold-position combat
-  // (Franky, Halloween bosses). Scare stays allowed: warrior.ts casts it directly (it's
+  // (Franky). Scare stays allowed: warrior.ts casts it directly (it's
   // untargeted) as how an off-tank mitigates the boss's damage without contesting aggro.
   const bossExcluded = new Set<string>(['agitate','charge','dash','blink','stomp','cleave','fanofknives']);
   function bossSkillBlocked(id: SkillId, targets: Combatant[]): boolean {

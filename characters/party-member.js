@@ -126,17 +126,25 @@
   // runtime/characters/native-planner.ts
   function createNativePlanner(host, native) {
     let running = false, failure = "", deadline = 0, serial = 0, limit = 3e4;
+    let hardDeadline = 0, hardLimit = 3e4, lastIndex, advancedAt = 0, progressValid = false;
+    let searchQueue;
     function cancel() {
       running = false;
       serial++;
       void Promise.resolve(native.stop("smart")).catch(() => {
       });
     }
-    function begin(destination, town, now, timeout = 3e4) {
+    function begin(destination, town, now, timeout = 3e4, progressLimit) {
       cancel();
       failure = "";
       limit = timeout;
       deadline = now + timeout;
+      hardLimit = progressLimit ?? timeout;
+      hardDeadline = now + hardLimit;
+      lastIndex = void 0;
+      searchQueue = void 0;
+      advancedAt = now;
+      progressValid = progressLimit !== void 0;
       const token = serial;
       const promise = native.move(destination);
       void promise.catch((error) => {
@@ -145,15 +153,36 @@
       host.smart.use_town = town;
       running = true;
     }
+    function validFrontier(index, queue) {
+      return Number.isSafeInteger(index) && index >= 0 && Array.isArray(queue) && index <= queue.length && (searchQueue === void 0 || searchQueue === queue) && (lastIndex === void 0 || index >= lastIndex);
+    }
+    function observeProgress(now) {
+      if (!progressValid) return;
+      const index = host.start, queue = host.queue;
+      if (!validFrontier(index, queue)) {
+        progressValid = false;
+        return;
+      }
+      searchQueue = queue;
+      if (lastIndex !== void 0 && index > lastIndex) advancedAt = now;
+      lastIndex = index;
+    }
+    function expired(now) {
+      return now >= hardDeadline || now >= deadline && (!progressValid || now - advancedAt > 15e3);
+    }
+    function checkDeadline(now) {
+      if (!failure && !expired(now)) return;
+      const reason = failure || `Native planning timed out (${(now >= hardDeadline ? hardLimit : limit) / 1e3} seconds)`;
+      cancel();
+      throw Error(reason);
+    }
     function tick(now) {
       if (!running) throw Error("Native search not initialized");
-      if (failure || now >= deadline) {
-        const reason = failure || `Native planning timed out (${limit / 1e3} seconds)`;
-        cancel();
-        throw Error(reason);
-      }
+      if (lastIndex !== void 0) observeProgress(now);
+      checkDeadline(now);
       if (!host.smart.searching) native.start();
       else if (!host.smart.found) native.next();
+      observeProgress(now);
       if (!host.smart.moving && !host.smart.found) throw Error("Native planner found no route");
       if (!host.smart.found) return;
       const plot = host.smart.plot.map((p) => ({ ...p }));
@@ -673,6 +702,12 @@
       throw Error("Native planning timeout must be between 1 and 120 seconds");
     return timeout;
   }
+  function nativePlanningProgress(options) {
+    const limit = options.nativePlanningProgressMs;
+    if (limit !== void 0 && (!options.shared || !Number.isFinite(limit) || limit !== 24e4 || nativePlanningTimeout(options) !== 9e4))
+      throw Error("Progress-guarded preparation requires a shared Cave 90/240-second budget");
+    return limit;
+  }
   function finalApproach(plot, from, to, options) {
     if (options?.arrivalTolerance === void 0 || options.shared) return plot;
     const remaining = distance(plot.at(-1) || from, to);
@@ -866,12 +901,12 @@
     }
     function nativeTick(j) {
       if (j.options.awaitSharedRoute) {
-        if (ports.now() - j.started > nativePlanningTimeout(j.options) + 3e4)
+        if (ports.now() - j.started > (nativePlanningProgress(j.options) ?? nativePlanningTimeout(j.options)) + 3e4)
           throw Error("Shared route preparation timed out");
         return;
       }
       if (!state.searching) {
-        planner.begin(point(state), state.use_town, ports.now(), nativePlanningTimeout(j.options));
+        planner.begin(point(state), state.use_town, ports.now(), nativePlanningTimeout(j.options), nativePlanningProgress(j.options));
         state.searching = true;
         j.searches++;
       }

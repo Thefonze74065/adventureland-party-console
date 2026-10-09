@@ -1218,7 +1218,8 @@ export function startCoordinatorApplication(
       const report = party.statuses[name];
       const live = !!report && Date.now() - report.seenAt < 3000 && (event === 'anniversary'
         ? !!report.anniversaryServer?.live
-        : !!report.serverLiveEvents?.some(entry => entry.name === event));
+        : !!report.serverLiveEvents?.some(entry => entry.name === event) ||
+          stagingEventLive(name, event));
       return dungeons.eventAllowed(name, event, live);
 
     }
@@ -1649,6 +1650,20 @@ export function startCoordinatorApplication(
     function dispatchMerchantIdle() {
       if (consoleUpdate.current() || realmOwnsMerchant()) return;
       merchantIdle.idle();
+    }
+
+    function stagingEventLive(name: string, event?: string): boolean {
+      const report = party.statuses[name];
+      if (!report) return false;
+      return ['mrgreen', 'mrpumpkin'].includes(event || '') && report.eventFeedConnected === true &&
+        report.eventClockStale !== true && Array.isArray(report.serverStagingEvents) &&
+        report.serverStagingEvents.some((entry: unknown) => stagingEventEligible(entry, event));
+    }
+
+    function stagingEventEligible(entry: unknown, event?: string): boolean {
+      return !!entry && typeof entry === 'object' && 'name' in entry && entry.name === event &&
+        'spawnAt' in entry && typeof entry.spawnAt === 'number' && Number.isFinite(entry.spawnAt) &&
+        entry.spawnAt - Date.now() <= 60000 && Date.now() - entry.spawnAt <= 120000;
     }
 
     function realmOwnsMerchant() {

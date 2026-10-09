@@ -20,7 +20,7 @@
   }
 
   // runtime/steam/connection.ts
-  var steamBridgeVersion = 10;
+  var steamBridgeVersion = 12;
   function needsSteamBridge(bridge, server2) {
     return !bridge || bridge.version !== steamBridgeVersion || bridge.server !== server2;
   }
@@ -53,6 +53,7 @@
   var server = initializeConnection();
   var baseUrl = server + "/CODE/adventure_land/";
   var root = globalThis;
+  var gameHost = root.parent;
   root.__partyCodeLoader?.dispose();
   var generation = (root.__partyLoaderGeneration || 0) + 1;
   root.__partyLoaderGeneration = generation;
@@ -70,7 +71,7 @@
     return response.text();
   }
   function current() {
-    return !abort.signal.aborted && root.__partyLoaderGeneration === generation;
+    return !abort.signal.aborted && root.__partyLoaderGeneration === generation && root.parent === gameHost;
   }
   function occupied() {
     return root.sharedRoutine?.canReload ? !root.sharedRoutine.canReload() : !!root.sharedRoutine?.isOccupied?.();
@@ -79,10 +80,9 @@
     return lastSource !== null && !root.parent.caracAL;
   }
   function replaceFrame() {
-    abort.abort();
-    clearInterval(timer);
+    dispose();
     const bootstrap = steamBootstrap(server);
-    root.parent.setTimeout(() => root.parent.start_runner("maincode", bootstrap), 0);
+    gameHost.setTimeout(() => gameHost.start_runner("maincode", bootstrap), 0);
   }
   function install(signature, compiled) {
     root.__partyRuntimeGeneration = (root.__partyRuntimeGeneration || 0) + 1;
@@ -90,6 +90,7 @@
     root.sharedRoutine?.stop();
     if (!current()) return;
     compiled();
+    if (!current()) return;
     lastSource = signature;
     root.__partyLoaderRuntimeStartedAt = Date.now();
     root.partyRoleRunner?.start();
@@ -117,25 +118,32 @@
       loading = false;
     }
   }
-  root.__partyCodeLoader = {
-    dispose() {
-      abort.abort();
-      clearInterval(timer);
-    }
-  };
+  var disposed = false;
+  function dispose() {
+    if (disposed) return;
+    disposed = true;
+    abort.abort();
+    clearInterval(timer);
+    root.removeEventListener?.("pagehide", dispose);
+    root.__partyRuntimeGeneration = (root.__partyRuntimeGeneration || 0) + 1;
+    root.partyRoleRunner?.stop();
+    if (root.parent === gameHost) root.sharedRoutine?.stop();
+  }
+  root.__partyCodeLoader = { dispose };
+  root.addEventListener?.("pagehide", dispose);
   async function refreshBridge() {
-    if (bridgeLoading || !current() || !needsSteamBridge(root.parent.__partySteamBridge, server)) return;
+    if (bridgeLoading || !current() || !needsSteamBridge(gameHost.__partySteamBridge, server)) return;
     bridgeLoading = true;
     try {
       const text = await source("steam-bridge.js");
-      if (current() && needsSteamBridge(root.parent.__partySteamBridge, server)) root.parent.eval(text);
+      if (current() && needsSteamBridge(gameHost.__partySteamBridge, server)) gameHost.eval(text);
     } catch (error) {
       if (current()) root.game_log("Steam bridge unavailable; retrying: " + String(error), "red");
     } finally {
       bridgeLoading = false;
     }
   }
-  if (!root.parent.caracAL) {
+  if (!gameHost.caracAL) {
     void refreshBridge();
     timer = setInterval(() => {
       void refreshBridge();
@@ -143,7 +151,7 @@
     }, 2e3);
   }
   function deliberatelyStopped() {
-    return root.parent.localStorage?.getItem("party-code-stopped:" + root.parent.character?.name) === "1";
+    return gameHost.localStorage?.getItem("party-code-stopped:" + gameHost.character?.name) === "1";
   }
   if (!deliberatelyStopped()) void refresh();
 })();

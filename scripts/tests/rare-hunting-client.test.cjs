@@ -5,7 +5,8 @@ const source = fs.readFileSync('characters/shared.js','utf8');
 function fixture() {
   let time=10000, equips=0, moves=0, stops=0;
   const entity={id:'fairy',mtype:'tinyp',type:'monster',map:'main',x:100,y:0,hp:5600,visible:true};
-  const c = require('./helpers/client-dependencies.cjs').passingContext({ character:{name:'M',map:'main',in:'main',x:0,y:0,items:[{name:'fieldgen0'}]},
+  const c = require('./helpers/client-dependencies.cjs').passingContext({ character:{name:'M',ctype:'merchant',map:'main',in:'main',x:0,y:0,items:[{name:'fieldgen0'}],slots:{}},
+    G:{classes:{merchant:{}},items:{},skills:{}},
     parent:{entities:{fairy:entity}},get_entity:id=>c.parent.entities[id], Date:{now:()=>time},
     navigationIntent:{revision:1},rareControlAt:time, rarePath:null,rareNavigation:null,rareDeployment:null,
     passiveRareHunts:{tinyp:true,phoenix:true,goldenbat:true,cutebee:true,hen:true,rooster:true},rareKnown:{},rareKills:[],rareLoot:null,rareLootPending:false, leader:'W',partyTownActive:false,eventTraveling:false,joinedEvent:null,

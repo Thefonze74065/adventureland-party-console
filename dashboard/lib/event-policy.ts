@@ -6,12 +6,20 @@ interface EventFormation {
   eventSelectionsByCharacter?: Record<string, string[]>;
 }
 
-export const supportedEvents = ["anniversary", "abtesting", "goobrawl", "crabxx", "franky", "icegolem", "snowman", "halloween"];
+// Persisted legacy all-events flags cover the catalog available when saved.
+// Newly supported fights require an explicit selection, rather than opt-in on upgrade.
+const legacyDefaultEvents = ["anniversary", "abtesting", "goobrawl", "crabxx", "franky", "icegolem", "snowman"];
+export const supportedEvents = [...legacyDefaultEvents, "slenderman", "mrgreen", "mrpumpkin"];
+export const eventDisplayNames: Record<string, string> = {
+  anniversary: "Anniversary", abtesting: "A/B Testing", goobrawl: "Goobrawl",
+  crabxx: "Crabxx", franky: "Franky", icegolem: "Ice Golem", snowman: "Snowman",
+  slenderman: "Slenderman", mrgreen: "Mr. Green", mrpumpkin: "Mr. Pumpkin",
+};
 
 export function selectedEvents(party: EventFormation, name: string): string[] {
   const source = eventPolicy(party, name).source;
   const saved = party.eventSelectionsByCharacter?.[source];
-  const selections = saved ?? ["anniversary", ...(party.eventsByCharacter?.[source] ? supportedEvents.filter(id => id !== "anniversary") : [])];
+  const selections = saved ?? ["anniversary", ...(party.eventsByCharacter?.[source] ? legacyDefaultEvents.filter(id => id !== "anniversary") : [])];
   return selections.filter(id => supportedEvents.includes(id));
 }
 

@@ -1,5 +1,28 @@
 # Event attendance
 
+Slenderman, Mr. Green, and Mr. Pumpkin are opt-in open-world boss events. Adding
+them does not alter existing or legacy character selections. Their rows remain
+available when the current server schedule feed omits a seasonal event.
+
+Mr. Green and Mr. Pumpkin use the native announced spawn timestamp. Attendance
+stages one minute before spawning, holds the original return checkpoint, and
+waits at most two minutes after the announced deadline. A missed or cancelled
+spawn returns to the saved activity. Live boss sightings replace the staging
+destination; native death recovery can resume a still-active selected fight.
+
+Slenderman has no fixed staging position. His native announcement can omit
+coordinates and keep its initial map after subsequent warps. Attendance therefore
+prefers a living local entity or a party sighting received within three seconds
+on the same realm, then searches Halloween, Spookytown, and Cave using native map
+locations and managed movement. Discovery is limited to one minute per map and
+three minutes overall. An unsuccessful search returns to saved work and suppresses
+that live episode until a new actual sighting or a new live cycle permits another
+attempt. Existing attack policies block reflected magical attacks and preserve
+healing and defensive recovery; equipped weapons are not automatically replaced.
+
+Windows activation requires the supported full restart, which now also publishes
+the shared event policy. A build alone does not activate running characters.
+
 Each character's Events dropdown selects individual supported activities. Followers use the leader's whole selection; their saved choices return when they unfollow. Merchants keep independent selections and can attend every supported event. During combat events they attempt attacks with their currently equipped weapon, including Golden Gun; no automatic weapon swap is performed. Merchant work yields at safe production/crafting checkpoints, while other in-flight actions finish before travel. Gathering, new jobs, and stand activity remain paused through event attendance and return. Unsupported game events remain visible with disabled checkboxes.
 
 Unchecking an attended event requests the existing saved-activity return. Cancellation requests retry after coordinator outages. Legacy combat settings migrate to the equivalent supported combat list, with Anniversary initially enabled to preserve prior behavior.
@@ -29,20 +52,3 @@ exit convoy immediately; departure does not require killing the boss first.
 The native evacuation journey verifies boss damage, deselection, both client
 exit owners, and actual Mainland arrival while Franky remains alive.
 
-Halloween attendance uses the native seasonal `halloween` row. While the season is
-on, the character's event status for `halloween` is whichever boss is live: Mr.
-Pumpkin (Halloween map) or Mr. Green (Spooky Forest), preferring one on the
-current map, then the one closest to death. The row shows LIVE while a boss is up
-and the earliest broadcast respawn otherwise. Attendance walks to the broadcast
-position (no join) and ends once no boss is live; respawns (54 / 94 minutes) are
-not waited for in place. Slenderman is not attended yet.
-
-Franky and Halloween share one boss-only combat layer (`bossCombatActive` in
-`characters/shared.js`): only the boss is targeted, passing attacks, area and
-movement skills, kiting, Dash and formation moves are suppressed, and an off-tank
-attacks only after another living player has held the boss for 5 seconds. The
-Halloween row's gear sets Auto / Off-tank / Tank and the auto death limit, saved
-per character under `encounterRoutines.halloween`. On open maps a targeted
-off-tank steps outside the boss's own range plus 60 and waits; Franky's door
-flee, 40-minute keepalive, exit convoy and priest heal spam remain Franky-only.
-Deaths while attending count against the encounter they happened in.

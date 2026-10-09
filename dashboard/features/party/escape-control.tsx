@@ -12,19 +12,21 @@ export function EscapeControl() {
   const inDungeon = !!dungeon.data && !['idle', 'held'].includes(dungeon.data.state.phase);
   const client = useQueryClient(), visible = useVisible();
   const mutation = usePartyAction();
+  const [busy, setBusy] = useState(false);
   const query = useQuery({ queryKey: ['party', 'escape'],
     queryFn: ({ signal }) => read<{ escape: EscapeStatus | null }>(client, '/escape', signal),
-    enabled: visible, refetchInterval: 1000, staleTime: 1000, gcTime: 300000 });
+    enabled: visible && !busy, refetchInterval: 1000, staleTime: 1000, gcTime: 300000 });
   const operation = query.data?.escape || null;
-  const [busy, setBusy] = useState(false);
   const [actionError, setError] = useState<string | null>(null);
   const error = actionError || (query.isError ? query.error.message : null);
-  async function action() {
+  async function action(path: '/escape' | '/escape/resume' = '/escape') {
     if (inDungeon) { await dungeon.action({ action: 'exit' }); return; }
     setBusy(true);
     setError(null);
     try {
-      const data = await mutation.mutateAsync({ path: '/escape', body: {} });
+      // Retire an older hold read before installing the acknowledged release.
+      await client.cancelQueries({ queryKey: ['party', 'escape'] });
+      const data = await mutation.mutateAsync({ path, body: {} });
       client.setQueryData(['party', 'escape'], data);
     } catch (problem) {
       setError(problem instanceof Error ? problem.message : "Escape request failed");
@@ -33,6 +35,8 @@ export function EscapeControl() {
     }
   }
   const running = !!operation && !["complete", "failed-hold", "released"].includes(operation.stage);
+  const held = !!operation && ["complete", "failed-hold"].includes(operation.stage);
+  const holdError = operation?.stage !== 'released' ? operation?.error : null;
   const failed =
     !!error ||
     (!!operation &&
@@ -58,6 +62,18 @@ export function EscapeControl() {
         )}
         {inDungeon ? 'Escape â€” exit dungeon' : label}
       </Button>
+      {!inDungeon && (error || holdError) && (
+        <p role="alert" className="mt-2 text-sm text-rose-200">{error || holdError}</p>
+      )}
+      {!inDungeon && held && (
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          <p className="text-sm text-slate-200">Automation is held until you resume it.</p>
+          <Button disabled={busy} onClick={() => void action('/escape/resume')}
+            className="border border-slate-500 bg-slate-800 text-slate-100 hover:bg-slate-700 hover:text-white">
+            Resume automation
+          </Button>
+        </div>
+      )}
       {inDungeon && dungeon.actionError && <p role="alert" className="text-rose-200">{dungeon.actionError}</p>}
     </div>
   );

@@ -134,7 +134,9 @@ export function CaveMap({
               <span key={f.name}>{f.name}</span>
             ))}
           </div>
-          {waitingForReports && <output className="block text-sm text-amber-200">Waiting for fresh participant reports.</output>}
+          <div className="h-5 text-sm text-amber-200">
+            {waitingForReports && <output className="block">Waiting for fresh participant reports.</output>}
+          </div>
           <div className="flex items-center gap-2">
             <button className={dungeonButton} disabled={!frame} onClick={()=>setNativeSize(value=>!value)}>{nativeSize?'Fit full floor':'Native-size view'}</button>
             <button

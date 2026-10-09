@@ -16,6 +16,9 @@ export interface EventSession {
   participants: string[];
   participationRecorded?: boolean;
   returnRoutes?: Record<string, ReturnRoute> | null;
+  stagingSpawnAt?: number;
+  stagingSpawnId?: number;
+  wasLive?: boolean;
 }
 
 export interface DeferredRecovery {
@@ -91,6 +94,7 @@ export function createEventObservations(
       ...sessionSnapshot(previous),
       participants: previous?.participants || [],
       participationRecorded: previous?.participationRecorded ?? true,
+      wasLive: true,
     };
   }
 
@@ -121,6 +125,39 @@ export function createEventObservations(
     const previous = existing?.event === report.name ? existing : undefined;
     state.sessions[name] = liveSession(report, previous);
     if (!previous) ports.persist();
+  }
+
+  type StagingReport = NonNullable<EventReport["serverStagingEvents"]>[number];
+  function validStaging(body: EventReport, report: StagingReport): boolean {
+    return body.joinedEvent === report.name && ["mrgreen", "mrpumpkin"].includes(report.name) &&
+      ports.enabled(body.name, report.name) && Number.isFinite(report.spawnAt) &&
+      report.spawnAt >= ports.now() - 120000 && report.spawnAt <= ports.now() + 60000;
+  }
+  function sameStagingRound(previous: EventSession | undefined, report: StagingReport): boolean {
+    if (!previous) return true;
+    if (previous.wasLive) return false;
+    if (previous.stagingSpawnId === undefined) return true;
+    return previous.stagingSpawnId === (report.spawnId ?? report.spawnAt);
+  }
+  function stagingSession(previous: EventSession | undefined, report: StagingReport): EventSession {
+    const prior: EventSession = previous || { event: report.name, id: null,
+      lastLiveAt: ports.now(), ...sessionSnapshot(undefined), participants: [], participationRecorded: false };
+    return { ...prior, stagingSpawnAt: prior.stagingSpawnAt ?? report.spawnAt,
+      stagingSpawnId: prior.stagingSpawnId ?? report.spawnId ?? report.spawnAt };
+  }
+  function applyStaging(name: string, report: StagingReport): void {
+    const existing = state.sessions[name];
+    const previous = existing?.event === report.name ? existing : undefined;
+    if (!sameStagingRound(previous, report)) return;
+    state.sessions[name] = stagingSession(previous, report);
+    if (!previous || previous.stagingSpawnAt === undefined) ports.persist();
+  }
+  function reportStaging(body: EventReport): void {
+    if (body.eventFeedConnected === false || body.eventClockStale) return;
+    for (const report of body.serverStagingEvents || []) {
+      if (!validStaging(body, report)) continue;
+      applyStaging(body.name, report);
+    }
   }
 
   function endKiss(cycle: AnniversaryReturnCycle, name: string, id: string): void {
@@ -225,6 +262,7 @@ export function createEventObservations(
       .some(
         (name) =>
           ports.enabled(name, event) &&
+          !(event === "slenderman" && ports.statuses()[name]?.slendermanSearchExhausted) &&
           ports.statuses()[name]?.serverLiveEvents?.some((entry) => entry && entry.name === event),
       );
   }
@@ -236,7 +274,13 @@ export function createEventObservations(
         .filter((entry) => entry?.event === session.event)
         .map((entry) => Number(entry.lastLiveAt) || 0),
     );
+    // Persisted staging owns its immutable deadline across coordinator restarts
+    // and temporary report gaps. A stale report must not retire it early.
+    const staging = Object.entries(state.sessions).some(([member, entry]) =>
+      entry.event === session.event && !entry.wasLive && ports.enabled(member, entry.event) &&
+      Number.isFinite(entry.stagingSpawnAt) && ports.now() <= Number(entry.stagingSpawnAt) + 120000);
     return (
+      !staging &&
       !rawLive(session.event) &&
       !(session.event === "goobrawl" && ports.goobrawlStillFighting()) &&
       ports.now() - latest >= 10000
@@ -329,7 +373,9 @@ export function createEventObservations(
     const reports = Array.isArray(body.serverLiveEvents)
       ? body.serverLiveEvents.filter((entry) => entry && typeof entry.name === "string")
       : [];
-    if (ports.enabled(body.name)) for (const report of reports) reportLive(body.name, report);
+    if (ports.enabled(body.name)) for (const report of reports)
+      if (!(report.name === "slenderman" && body.slendermanSearchExhausted)) reportLive(body.name, report);
+    reportStaging(body);
     const participating = body.joinedEvent || body.mapEvent;
     if (participating && ports.enabled(body.name, participating))
       participate(body.name, participating);

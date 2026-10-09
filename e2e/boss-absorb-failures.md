@@ -9,7 +9,7 @@ lets the designated tank (or leader) pull any ally's attackers onto itself, and 
 Mummy swarm, so the priest kept pulling it. The encounter routine (`tank` / `offtank`,
 with `auto` resolved by the death limit) governed positioning only.
 
-Change: during a boss encounter (Franky, Halloween), the priest uses Absorb Sins only when
+Change: during a boss encounter (Franky), the priest uses Absorb Sins only when
 its routine for that encounter is `tank`.
 
 1. **Off-tank still absorbs.** With a boss encounter active and the priest's routine not

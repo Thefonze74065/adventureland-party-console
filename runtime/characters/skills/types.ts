@@ -28,7 +28,7 @@ export interface CombatContext {
   monsters: Combatant[];
   mode: 'grouped' | 'scatter' | 'event' | 'blocked';
   event: string | null;
-  /** This character's routine for the active boss encounter (Franky, Halloween), or null outside one. */
+  /** This character's routine for the active boss encounter (Franky), or null outside one. */
   bossRoutine?: string | null;
   observedAt: number;
 }

@@ -64,6 +64,9 @@ const logger = {
   error: (...args) => { startupError = new Error(args.map(String).join(' ')); console.error(...args); },
 };
 const adapters = {
+  // Test the freshly built maintained policy rather than a previous live
+  // deployment's published catalog; E2E builds must not activate live assets.
+  '../../dashboard/lib/event-policy.cjs': require(path.join(root, '.build/shared/event-policy.cjs')),
   // Map references resolve against the launcher directory. Read the same pinned
   // catalog from this scenario, without modifying the installed game cache.
   'node:fs': { ...fs, readFileSync(file, ...args) {

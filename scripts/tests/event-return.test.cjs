@@ -90,7 +90,9 @@ function runtime(map, options = {}) {
     game_log() {},
   });
   const progressHelper=source.slice(source.indexOf('  function returnPhaseRecord('),source.indexOf('  async function enforcePartyTownOverride('));
-  vm.runInContext(progressHelper + routeHelper + '\nasync function run(command) {\n' + handler + '\n}', r);
+  const eventKindHelper=source.slice(source.indexOf('  function halloweenEvent('),source.indexOf('  function halloweenFeedCurrent('));
+  const eventCombatHelper=source.slice(source.indexOf('  async function afterEventCombat('),source.indexOf('  function inFarmArea('));
+  vm.runInContext(progressHelper + routeHelper + eventKindHelper + eventCombatHelper + '\nasync function run(command) {\n' + handler + '\n}', r);
   return { r, calls, character, pending: () => pendingRoute,
     run: (event = 'franky', cycleId = 'cycle-1') => r.run({ type: 'event-return-town', event, cycleId }) };
 }

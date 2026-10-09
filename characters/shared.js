@@ -4,15 +4,17 @@
   if (!parent.caracAL && typeof parent.start_runner === "function" &&
       !parent.__partyFreshConvoyRunnerV3) {
     parent.__partyFreshConvoyRunnerV3 = true;
+    if (root.__partyCodeLoader && typeof root.__partyCodeLoader.dispose === "function") root.__partyCodeLoader.dispose();
+    var migrationHost = parent;
     var bootstrap = "$.ajax({url:" + JSON.stringify((parent.__partyServer || "http://127.0.0.1:924") + "/CODE/adventure_land/universal-loader.js?t=") + " + Date.now()," +
       "dataType:'text',cache:false}).then(function(source){(0,eval)(source);});";
-    parent.setTimeout(function () { parent.start_runner("maincode", bootstrap); }, 0);
+    migrationHost.setTimeout(function () { migrationHost.start_runner("maincode", bootstrap); }, 0);
     return;
   }
   if (!root.partyFarmingZones) throw new Error("Load farming-zones.js before shared.js; party startup aborted");
   var runtimeGeneration = root.__partyRuntimeGeneration =
     (Number(root.__partyRuntimeGeneration) || 0) + 1;
-  function runtimeCurrent() { return Number(root.__partyRuntimeGeneration) === runtimeGeneration; }
+  function runtimeCurrent() { return Number(root.__partyRuntimeGeneration) === runtimeGeneration && !!parent; }
   var movement = root.installPartyMovement(root, {
     now: Date.now,
     context: function() { return { runtime: convoyRuntimeId || String(runtimeGeneration), revision: Number(navigationIntent && navigationIntent.revision) || 0,
@@ -308,7 +310,10 @@
     var signatures={action:["rememberMapEvent", "queueCombatEvent"],hit:["rememberMapEvent", "recentOwnHits", "observeFarmHit"],
       death:["deathCombatMessage", "reportFightDeath"],kill_credit:["pendingKillCredits"],
       disappearing_text:["pendingKillCredits"],chest_opened:["lastInventoryTotals"],
-      disappear:["observeFightPacket"],entities:["reportFightDeath"]};
+      disappear:["observeFightPacket"],entities:["reportFightDeath"],
+      // Older CODE frames left these direct subscriptions outside the registry.
+      // Native game_response handlers do not contain these Party Console symbols.
+      game_response:["queueCombatEvent", "anniversarySliceNames", "anniversaryKissResponses", "donationXpPerGold"]};
     Object.keys(signatures).forEach(function(event) {
       socket.listeners(event).slice().forEach(function(handler) {
         var source=String(handler);
@@ -417,7 +422,7 @@
   var monsterSearchRadius = 400;
   var farmingMode = "default";
   var farmingPolicy = "auto";
-  var frankyRoutine = "auto", halloweenRoutine = "auto";
+  var frankyRoutine = "auto";
   var huntCombatTarget = null;
   var farmingModeResetUntil = 0;
   var scatterMonsterTypes = {};
@@ -451,8 +456,7 @@
     parent.socket.emit("test", {});
   }
   function eventScheduleSnapshot() {
-    var status = eventStatus(), names = Object.keys(G.events || {});
-    if (names.indexOf("snowman") < 0) names.push("snowman");
+    var status = eventStatus(), names = supportedEventNames();
     return names.map(function(id) {
       var value = status[id] || {};
       var schedule = status.schedule || {}, kind = ["crabxx", "goobrawl", "abtesting"].indexOf(id) >= 0 ? "daily" : ["icegolem", "franky"].indexOf(id) >= 0 ? "nightly" : null;
@@ -463,10 +467,10 @@
         var next = date.getTime(); if (next <= now) next += 86400000;
         if (!slotAt || next < slotAt) slotAt = next;
       });
-      return { slotAt: slotAt || undefined, slotKind: kind || undefined, id: id, name: id === "anniversary" ? "Anniversary" : id === "snowman" ? "Snowman" : G.events[id].name || id,
+      return { slotAt: slotAt || undefined, slotKind: kind || undefined, id: id, name: id === "anniversary" ? "Anniversary" : id === "snowman" ? "Snowman" :
+        id === "mrgreen" ? "Mr. Green" : id === "mrpumpkin" ? "Mr. Pumpkin" : id === "slenderman" ? "Slenderman" : (G.events[id] || {}).name || id,
         live: !!status[id] && value.live !== false && value.active !== false,
-        next: eventEpoch(value.next || (value.live === false ? value.spawn : null)) || undefined,
-        expires: eventEpoch(value.expires || value.end) || undefined };
+        next: anniversaryEpoch(value.next || value.spawn) || undefined, expires: anniversaryEpoch(value.expires || value.end) || undefined };
     });
   }
   // Server event times arrive as epoch seconds/ms or, for monster events (`spawn`, `end`), ISO strings.
@@ -2511,6 +2515,7 @@
         travelTrack = command.cruiseSpeed ? {id:command.id,distance:0,x:character.real_x,y:character.real_y,leader:character.name===cavePartyNames()[0],prepared:false} : null;
         var journey = movement.move(point, undefined, { native: true, shared:!!command.cruiseSpeed, arrivalTolerance:command.action==='gather'?1:20, town: false, retainOnDirectStop: true,
         awaitSharedRoute:!!travelTrack && !travelTrack.leader, nativePlanningTimeoutMs:travelTrack ? 90000 : 30000,
+        nativePlanningProgressMs:travelTrack ? 240000 : undefined,
         repairSharedDrift:!!travelTrack,
         barrier: async function () {
           if (character.cave) return dungeonClient.canMove();
@@ -2723,6 +2728,10 @@
       mapEvent: G.maps && G.maps[character.map] && G.maps[character.map].event || null,
       activeEvent: liveEventName,
       serverLiveEvents: serverLiveEvents,
+      serverStagingEvents: rawServerStagingEvents(),
+      eventFeedConnected: !!(parent.socket && parent.socket.connected !== false),
+      slendermanSighting: localSlendermanSighting(),
+      slendermanSearchExhausted: !!slenderSearch.exhausted,
       goobrawlCombat: hasGoobrawlCombat(),
       activeEventId: liveEventName && eventStatus() && eventStatus()[liveEventName] &&
         (eventStatus()[liveEventName].id || eventStatus()[liveEventName].event_id) || null,
@@ -2784,6 +2793,7 @@
       target: combatTarget && !combatTarget.dead ? { id: combatTarget.id, type: combatTarget.type,
         name: combatTarget.name || null, team: eventTeam(combatTarget), mtype: combatTarget.mtype,
         hp: combatTarget.hp, max_hp: combatTarget.max_hp, x: combatTarget.x, y: combatTarget.y } : null,
+      eventCombatSighting: eventCombatSighting(combatTarget),
       farmAreaEvidence: farmAreaEvidence,
       farmAreaObservation: farmAreaObserved,
       farmCompetition: farmCompetitionObservation(),
@@ -3270,10 +3280,37 @@
     var e = get_entity(wanted.id);
     return e && e.visible && !e.dead && e.mtype === wanted.mtype && !isExternallyClaimedMonster(e) ? e : null;
   }
+  function nativeAttackProjectile(skill) {
+    var actorClass = G.classes && G.classes[character.ctype] || {};
+    var weapon = character.slots && character.slots.mainhand;
+    var item = weapon && G.items && G.items[weapon.name] || {};
+    var projectile = actorClass.projectile || null;
+    if (character.projectile) projectile = character.projectile;
+    if (item.projectile) projectile = item.projectile;
+    if (character.tskin === "konami") projectile = "stone_k";
+    var definition = G.skills && G.skills[skill] || {};
+    if ((skill !== "attack" || !projectile || skill === "heal") && definition.projectile) projectile = definition.projectile;
+    return projectile;
+  }
+  function tinyProjectileProtected(target, skill) {
+    if (!nativeAttackProjectile(skill)) return true;
+    var x = Number(target.real_x !== undefined ? target.real_x : target.x);
+    var y = Number(target.real_y !== undefined ? target.real_y : target.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+    return Object.values(parent.entities || {}).some(function (field) {
+      return field && field.mtype === "fieldgen0" && field.visible !== false && !field.dead && field.hp > 0 &&
+        (!field.map || field.map === character.map) && (!field.in || String(field.in) === String(character.in || character.map)) &&
+        Math.hypot(Number(field.real_x !== undefined ? field.real_x : field.x) - x,
+          Number(field.real_y !== undefined ? field.real_y : field.y) - y) < 300;
+    });
+  }
   function rareAttackAllowed(target, skill) {
     if (!target) return false;
     if (target.mtype === "fieldgen0") return false;
     if (target.mtype !== "tinyp") return true;
+    // Native escapist monsters warp before an unprotected projectile lands.
+    // Keep genuine melee attacks eligible when the boss leaves the field.
+    if (skill === "attack" && !tinyProjectileProtected(target, skill)) return false;
     if (isPassingEncounter(target) || skill === "attack" && passingTarget() === target) return skill === "attack";
     if (!rareTarget() || rareTarget().id !== target.id || skill !== "attack") return false;
     return !rareActive() || !rareControlState.deployer;
@@ -9906,7 +9943,7 @@
       try {
         if (eventRecoveryRetryAt > Date.now()) await sleep(eventRecoveryRetryAt - Date.now());
         requireEventExitOwner();
-        await afterCombat(async function () {
+        await afterEventCombat(async function () {
           requireEventExitOwner();
           if (typeof stop === "function") {
             try { await stop("smart"); } catch (_eventReturnStopSmart) {}
@@ -9957,7 +9994,7 @@
           eventRecoveryState.phase = "town-ready";
           await saveReturnPhase(command,"event","complete");
           game_log("Event ended; returned to Town", "#c084fc");
-        }, "returning from the event");
+        }, command);
         requireEventExitOwner();
         await request("/event-return-complete", {
           method: "POST",
@@ -10233,6 +10270,7 @@
   }
 
   async function tick() {
+    if (!runtimeCurrent()) return;
     observeBankSortVisit();
     if (busy) return;
     busy = true;
@@ -10463,6 +10501,7 @@
       partyPositions = state.partyPositions || [];
       partyThreats = state.partyThreats || [];
       partyTargets = state.partyTargets || [];
+      root.__partySlendermanSighting = state.partySlendermanSighting || null;
       var nextMonsterFocus = Array.isArray(state.monsterFocus) ? state.monsterFocus :
         (typeof state.monsterFocus === "string" ? [state.monsterFocus] : ["goo"]);
       if (JSON.stringify(nextMonsterFocus) !== JSON.stringify(monsterFocus)) {
@@ -10504,7 +10543,6 @@
         return limit > 0 && deaths < limit ? "tank" : "offtank";
       };
       frankyRoutine = encounterRoutine("franky");
-      halloweenRoutine = encounterRoutine("halloween");
       huntCombatTarget = state.huntCombatTarget || null;
       farmingMode = character.ctype !== "merchant" && state.partyFarmingMode === "scatter" ? "scatter" : "default";
       partyFarmingMonsterType = typeof state.partyFarmingMonsterType === "string" ? state.partyFarmingMonsterType : null;
@@ -10539,48 +10577,14 @@
       }
     } catch (error) {
       // The local dashboard is optional; combat continues if it is unavailable.
-      recordStatusFailure(error, statusPhase);
+      if (runtimeCurrent()) recordStatusFailure(error, statusPhase);
     } finally {
       busy = false;
-      wakeGatheringAfterStatus();
+      if (runtimeCurrent()) wakeGatheringAfterStatus();
     }
   }
 
-  // Halloween is a month-long season (`S.halloween === true`); what the party
-  // attends is whichever of its bosses is live. They are broadcast like Snowman.
-  function halloweenBosses() { return ["mrpumpkin", "mrgreen"]; }
-  function halloweenStatus(status) {
-    var live = halloweenBosses().map(function (boss) {
-      var state = status[boss];
-      return state && typeof state === "object" && state.live !== false && state.map &&
-        Number.isFinite(Number(state.x)) && Number.isFinite(Number(state.y)) ? Object.assign({ boss: boss }, state) : null;
-    }).filter(Boolean);
-    live.sort(function (a, b) {
-      return Number(b.map === character.map) - Number(a.map === character.map) ||
-        (Number(a.hp) / Number(a.max_hp) || 1) - (Number(b.hp) / Number(b.max_hp) || 1);
-    });
-    if (live.length) {
-      // The broadcast x/y follows the roaming boss, so clients reading it moments
-      // apart disagree and the coordinator cannot merge their party walk. Walk to
-      // the fixed spawn area instead; combat takes over once the boss is visible.
-      var spawn = ((G.maps && G.maps[live[0].map] && G.maps[live[0].map].monsters) || []).find(function (entry) {
-        return entry && entry.type === live[0].boss && Array.isArray(entry.boundary);
-      });
-      var anchor = spawn ? { x: (spawn.boundary[0] + spawn.boundary[2]) / 2, y: (spawn.boundary[1] + spawn.boundary[3]) / 2 } : {};
-      return Object.assign({}, live[0], anchor, { live: true, id: live[0].boss, bossX: live[0].x, bossY: live[0].y });
-    }
-    var spawn = null;
-    halloweenBosses().forEach(function (boss) {
-      var state = status[boss], at = state && state.live === false ? eventEpoch(state.spawn) : 0;
-      if (at && (!spawn || at < eventEpoch(spawn))) spawn = state.spawn;
-    });
-    return spawn ? { live: false, spawn: spawn } : { live: false };
-  }
   function eventStatus() {
-    var status = rawEventStatus();
-    return status.halloween ? Object.assign({}, status, { halloween: halloweenStatus(status) }) : status;
-  }
-  function rawEventStatus() {
     var raw = typeof server !== "undefined" && server && server.status || parent.server && parent.server.status || parent.S || {};
     if (!eventClockOffset) return raw;
     var corrected = {};
@@ -10588,10 +10592,9 @@
       var value = raw[name];
       if (!value || typeof value !== "object") { corrected[name] = value; return; }
       corrected[name] = Object.assign({}, value);
+      if (value.spawn) corrected[name].nativeSpawnEpoch = anniversaryEpoch(value.spawn);
       ["next", "expires", "end", "spawn"].forEach(function(key) {
-        // Epoch numbers and ISO strings (monster events' spawn/end) both convert; unparseable stays as-is.
-        var at = value[key] ? eventEpoch(value[key]) : 0;
-        if (at) corrected[name][key] = at - eventClockOffset;
+        if (value[key]) corrected[name][key] = anniversaryEpoch(value[key]) - eventClockOffset;
       });
     });
     return corrected;
@@ -10599,15 +10602,80 @@
 
   function supportedEventNames() {
     var names = Object.keys(G.events || {});
-    if (names.indexOf("snowman") < 0) names.push("snowman");
+    ["snowman", "slenderman", "mrgreen", "mrpumpkin"].forEach(function (name) {
+      if (names.indexOf(name) < 0) names.push(name);
+    });
     return names;
+  }
+
+  function halloweenEvent(name) { return ["slenderman", "mrgreen", "mrpumpkin"].indexOf(name) >= 0; }
+  function halloweenFeedCurrent() {
+    // server_info is change-only, so age of the last announcement is not its
+    // freshness. Admission uses this connection's snapshot and synced clock.
+    return !!(parent.socket && parent.socket.connected !== false && eventClockSyncedAt &&
+      Date.now() - eventClockSyncedAt <= 360000);
+  }
+  var halloweenStages = root.__partyHalloweenStages || (root.__partyHalloweenStages = {});
+  var slenderSearch = root.__partySlenderSearch || (root.__partySlenderSearch = {});
+
+  function localSlendermanSighting() {
+    if (!halloweenFeedCurrent()) return null;
+    var entity = Object.values(parent.entities || {}).find(function (entry) {
+      return entry && entry.type === "monster" && entry.mtype === "slenderman" && entry.visible !== false &&
+        !entry.dead && entry.hp > 0 && (!entry.map || entry.map === character.map) &&
+        (entry.in == null || entry.in === character.in) && Number.isFinite(entry.x) && Number.isFinite(entry.y);
+    });
+    return entity ? { id: String(entity.id), map: character.map, in: character.in,
+      x: entity.x, y: entity.y, server: reunionRealm(), observedAt: Date.now() + coordinatorClockOffset } : null;
+  }
+  function freshSlendermanSighting() {
+    var local = localSlendermanSighting(), sighting = root.__partySlendermanSighting;
+    if (local) return local;
+    var now = Date.now() + coordinatorClockOffset;
+    return sighting && sighting.server === reunionRealm() && G.maps[sighting.map] &&
+      Number.isFinite(sighting.x) && Number.isFinite(sighting.y) &&
+      sighting.observedAt >= now - 3000 && sighting.observedAt <= now + 1000 ? sighting : null;
+  }
+  function halloweenAttendance(name, state) {
+    if (!halloweenFeedCurrent()) return null;
+    if (!state) {
+      if (name === "slenderman") { slenderSearch.exhausted = false; slenderSearch.startedAt = 0; }
+      delete halloweenStages[name]; return null;
+    }
+    if (name === "slenderman") {
+      if (state.live !== true) { slenderSearch.exhausted = false; slenderSearch.startedAt = 0; return null; }
+      if (freshSlendermanSighting()) { slenderSearch.exhausted = false; slenderSearch.startedAt = 0; }
+      return slenderSearch.exhausted ? null : { staging: false };
+    }
+    if (state.live === true) { delete halloweenStages[name]; return { staging: false }; }
+    var spawnAt = anniversaryEpoch(state.spawn), spawnId = state.nativeSpawnEpoch || spawnAt + eventClockOffset;
+    var now = Date.now(), prior = halloweenStages[name];
+    if (prior && prior.spawnId !== spawnId && joinedEvent === name) {
+      delete halloweenStages[name]; return null;
+    }
+    if (prior && prior.spawnId === spawnId) spawnAt = prior.spawnAt;
+    if (!spawnAt || now < spawnAt - 60000 || now > spawnAt + 120000) return null;
+    // The server timestamp is immutable for this announced round. Repeated
+    // heartbeats never restart either the staging lead or the absent-spawn cap.
+    halloweenStages[name] = { spawnAt: spawnAt, spawnId: spawnId };
+    return { staging: true, spawnAt: spawnAt, spawnId: spawnId };
+  }
+
+  function rawServerStagingEvents() {
+    var status = eventStatus();
+    return ["mrgreen", "mrpumpkin"].map(function (name) {
+      if (!eventSelected(name)) return null;
+      var attendance = halloweenAttendance(name, status[name]);
+      return attendance && attendance.staging ? { name: name, spawnAt: attendance.spawnAt + coordinatorClockOffset, spawnId: attendance.spawnId } : null;
+    }).filter(Boolean);
   }
 
   function rawServerLiveEvents() {
     var status = eventStatus();
     return supportedEventNames().filter(function (name) {
       var state = status && status[name];
-      return eventIsSupported(name) && state && state.live !== false;
+      return eventIsSupported(name) && state && (halloweenEvent(name)
+        ? halloweenFeedCurrent() && state.live === true : state.live !== false);
     }).map(function (name) {
       var state = status[name] || {};
       return { name: name, id: state.id || state.event_id || null };
@@ -10631,7 +10699,8 @@
   }
 
   function anniversaryEpoch(input) {
-    var value = Number(input) || 0;
+    // Socket.IO serializes native S.spawn Date values as ISO strings.
+    var value = Number(input) || (typeof input === "string" ? Date.parse(input) : 0) || 0;
     return value && value < 1000000000000 ? value * 1000 : value;
   }
 
@@ -11786,20 +11855,22 @@
     // Goo Brawl starts with ordinary Brawl Goos and later spawns the Rainbow
     // Goo. Keep both eligible; nearestEventTarget applies its two-phase rule.
     if (eventName === "goobrawl") candidates = ["rgoo", "bgoo", "goo"].concat(candidates);
-    if (eventName === "halloween") candidates = halloweenBosses();
     return candidates.filter(function (type, index, all) {
       return type && G.monsters && G.monsters[type] && all.indexOf(type) === index;
     });
   }
 
   function eventRequiresJoin(eventName) {
+    // These native monsters have no socket join handler. Attendance travels
+    // through ordinary maps instead of issuing an unsupported join action.
+    if (halloweenEvent(eventName)) return false;
     return !!(G.events && G.events[eventName] && G.events[eventName].join);
   }
 
   function eventIsSupported(eventName) {
     // Snowman is a live, open-world boss. It appears in server.status like
     // instanced events do, but has no join action; travel to it normally.
-    return eventRequiresJoin(eventName) || eventName === "snowman" || eventName === "halloween";
+    return eventRequiresJoin(eventName) || eventName === "snowman" || halloweenEvent(eventName);
   }
 
   function eventMapName(eventName) {
@@ -11808,7 +11879,25 @@
     }) || eventName;
   }
 
+  function freshPartyEventDestination(eventName) {
+    var now = Date.now() + coordinatorClockOffset;
+    return partyPositions.filter(function (member) {
+      var sight = member.eventCombatSighting;
+      return !member.rip && member.activeEvent === eventName && member.server === reunionRealm() &&
+        Number.isFinite(member.seenAt) && member.seenAt >= now - 3000 && member.seenAt <= now + 1000 &&
+        sight && sight.mtype === eventName && typeof sight.id === "string" && sight.id &&
+        sight.map === member.map && String(sight.in || sight.map) === String(member.in || member.map) &&
+        Number.isFinite(sight.x) && Number.isFinite(sight.y) &&
+        Number.isFinite(sight.observedAt) && sight.observedAt >= now - 3000 && sight.observedAt <= now + 1000;
+    }).sort(function (a, b) { return b.eventCombatSighting.observedAt - a.eventCombatSighting.observedAt; })
+      .map(function (member) { var s = member.eventCombatSighting; return { map: s.map, in: s.in, x: s.x, y: s.y }; })[0] || null;
+  }
+
   function eventDestination(eventName, state) {
+    if (halloweenEvent(eventName) && state && state.live === true) {
+      var actual = freshPartyEventDestination(eventName);
+      if (actual) return actual;
+    }
     if (state && state.map && Number.isFinite(Number(state.x)) && Number.isFinite(Number(state.y))) {
       return { map: state.map, x: Number(state.x), y: Number(state.y) };
     }
@@ -11885,10 +11974,12 @@
       var types = eventMonsterTypes(name);
       var corroborated = partyEventHint === name || name === "goobrawl" && hasGoobrawlCombat();
       var kind = name === "abtesting" ? "pvp" : "monster";
+      var attendance = halloweenEvent(name) ? halloweenAttendance(name, state) : null;
       if (manuallySuppressedEvent && manuallySuppressedEvent.name === name) return null;
       if (!eventSelected(name) || !eventIsSupported(name) || (kind === "monster" && !types.length) ||
-          (!corroborated && (!state || state.live === false))) return null;
-      return { name: name, state: state || {}, types: types, kind: kind };
+          (halloweenEvent(name) ? !attendance : !corroborated && (!state || state.live === false))) return null;
+      return { name: name, state: state || {}, types: types, kind: kind,
+        staging: !!(attendance && attendance.staging), spawnAt: attendance && attendance.spawnAt };
     }).filter(Boolean).sort(function (a, b) {
       var mapped = G.maps && G.maps[character.map] && G.maps[character.map].event;
       var aCurrent = Number(a.name === mapped || a.name === joinedEvent);
@@ -11914,32 +12005,17 @@
       (!target.map || target.map === character.map) && (target.in == null || target.in === character.in);
   }
 
-  // Halloween bosses are fought on open maps; attendance begins once event travel
-  // has joined the live boss (there is no event map) and follows Franky's guards.
-  function halloweenCombatActive() {
-    return eventSelected("halloween") && joinedEvent === "halloween" &&
-      !navigationIntent.cancelled && !escapeOwns() && !eventExitOwnsMovement() &&
-      !convoyTraveling && !townTraveling && !partyTownActive && !forceTraveling &&
-      !eventTraveling && !root.__partySharedWalking &&
-      !banking && !stocking && !upgrading && !anniversaryBusy && !anniversaryStaging;
-  }
-  function halloweenTargetAllowed(target) {
-    return !!target && target.type === "monster" && halloweenBosses().indexOf(target.mtype) >= 0 &&
-      target.visible !== false && !target.dead && target.hp !== 0 &&
-      (!target.map || target.map === character.map) && (target.in == null || target.in === character.in);
-  }
-  // Boss-only encounters (Franky, Halloween) share targeting, skill and hold policy.
+  // Boss-only encounters share targeting, skill and hold policy (Franky today).
   function bossEncounter() {
     if (typeof frankyCombatActive === "function" && frankyCombatActive()) return "franky";
-    if (typeof halloweenCombatActive === "function" && halloweenCombatActive()) return "halloween";
     return null;
   }
   function bossCombatActive() { return !!bossEncounter(); }
   function bossTargetAllowed(target) {
     var encounter = bossEncounter();
-    return encounter === "franky" ? frankyTargetAllowed(target) : encounter === "halloween" ? halloweenTargetAllowed(target) : false;
+    return encounter === "franky" ? frankyTargetAllowed(target) : false;
   }
-  function bossRoutine() { return bossEncounter() === "halloween" ? halloweenRoutine : frankyRoutine; }
+  function bossRoutine() { return frankyRoutine; }
 
   // Off-tank waits until another visible, living player has held Franky this long.
   var frankyHoldMinMs = 5000;
@@ -12010,6 +12086,15 @@
     var lastHit = frankyHits[target.id] || frankyFirstSeen[target.id] || 0;
     var interval = untilEnd <= frankyKeepaliveHoldMs ? frankyKeepaliveTightMs : frankyKeepaliveDueMs;
     return Date.now() - lastHit >= interval && frankyKeeper() === character.name;
+  }
+  function eventCombatSighting(target) {
+    if (!joinedEvent || eventTraveling || character.rip || character.transporting || !target ||
+        target.mtype !== joinedEvent || !is_in_range(target)) return null;
+    var visible = nearestEventTarget();
+    if (!visible || visible.id !== target.id) return null;
+    return {id:String(target.id),mtype:target.mtype,map:character.map,
+      in:String(character.in || character.map),x:target.x,y:target.y,
+      observedAt:Date.now()+coordinatorClockOffset};
   }
 
   function nearestEventTarget() {
@@ -12241,6 +12326,80 @@
     return true;
   }
 
+  function slenderSearchPoints(mapName) {
+    var map = G.maps[mapName], points = [], seen = {};
+    function add(x, y) {
+      x = Number(x); y = Number(y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      var key = x + ":" + y;
+      if (seen[key]) return;
+      seen[key] = true; points.push({ map: mapName, x: x, y: y });
+    }
+    (map.spawns || []).forEach(function (point) { add(point[0], point[1]); });
+    (map.monsters || []).forEach(function (pack) {
+      var bounds = [pack.boundary].concat(pack.boundaries || []).filter(Array.isArray);
+      bounds.forEach(function (box) {
+        var offset = typeof box[0] === "string" ? 1 : 0;
+        if (!offset || box[0] === mapName) add((Number(box[offset]) + Number(box[offset + 2])) / 2,
+          (Number(box[offset + 1]) + Number(box[offset + 3])) / 2);
+      });
+    });
+    (map.npcs || []).forEach(function (npc) { if (npc.position) add(npc.position[0], npc.position[1]); });
+    return points;
+  }
+
+  async function discoverSlenderman(event, current) {
+    if (!slenderSearch.startedAt) {
+      slenderSearch.startedAt = Date.now();
+      var maps = ["halloween", "spookytown", "cave"].filter(function (name) { return !!G.maps[name]; });
+      // Native S.map is the initial spawn hint, not a refreshed warp position.
+      if (maps.indexOf(event.state.map) >= 0) maps = [event.state.map].concat(maps.filter(function (name) { return name !== event.state.map; }));
+      slenderSearch.maps = maps; slenderSearch.mapIndex = 0; slenderSearch.pointIndex = 0; slenderSearch.mapStartedAt = Date.now();
+    }
+    var revision = navigationIntent.revision, deadline = slenderSearch.startedAt + 180000;
+    function owns() { return current() && navigationIntent.revision === revision; }
+    while (owns() && Date.now() < deadline) {
+      if (nearestEventTarget()) return;
+      var sighting = freshSlendermanSighting();
+      if (sighting) {
+        var sightingId = sighting.id, sightingMap = sighting.map;
+        await sharedPartyWalk({ map: sighting.map, x: sighting.x, y: sighting.y }, "event", event.name, null, function () {
+          var latest = freshSlendermanSighting();
+          return owns() && Date.now() < deadline && latest && latest.id === sightingId && latest.map === sightingMap &&
+            Math.hypot(latest.x - sighting.x, latest.y - sighting.y) < 100;
+        });
+        if (nearestEventTarget()) return;
+        await sleep(250); continue;
+      }
+      if (slenderSearch.mapIndex >= slenderSearch.maps.length) break;
+      var mapName = slenderSearch.maps[slenderSearch.mapIndex], mapDeadline = Math.min(deadline, slenderSearch.mapStartedAt + 60000);
+      var points = slenderSearchPoints(mapName), point = points[slenderSearch.pointIndex];
+      if (Date.now() >= mapDeadline || !point) {
+        slenderSearch.mapIndex++; slenderSearch.pointIndex = 0; slenderSearch.mapStartedAt = Date.now(); continue;
+      }
+      root.partyEventSearch = { event: "slenderman", map: mapName, point: slenderSearch.pointIndex,
+        phase: "searching", expiresAt: deadline, hintIsInitialOnly: true };
+      try {
+        await sharedPartyWalk(point, "event", event.name, null, function () {
+          return owns() && Date.now() < mapDeadline && !freshSlendermanSighting();
+        });
+      } catch (error) {
+        if (!owns()) return;
+        if (freshSlendermanSighting()) continue;
+        // A blocked catalog centre is a failed candidate, not a guessed route.
+        game_log("Slenderman search candidate: " + String(error.reason || error.message || error), "#f0b429");
+      }
+      if (nearestEventTarget()) return;
+      slenderSearch.pointIndex++;
+      await sleep(250);
+    }
+    if (owns()) {
+      slenderSearch.exhausted = true;
+      root.partyEventSearch = { event: "slenderman", phase: "exhausted", at: Date.now(), hintIsInitialOnly: true };
+      game_log("Slenderman search exhausted; returning to the saved activity", "#f0b429");
+    }
+  }
+
   async function pollEvents() {
     if (character.cave || root.__partyDungeonRuntime && root.__partyDungeonRuntime.owns()) return false;
     if (root.__partyConsoleMaintenance) return;
@@ -12306,7 +12465,7 @@
       if (!event) {
         eventTargetTypes = [];
         if (joinedEvent && !eventReturnPending) {
-          if (partyEventHint === joinedEvent) {
+          if (partyEventHint === joinedEvent && !(joinedEvent === "slenderman" && slenderSearch.exhausted)) {
             eventMissingSince = 0;
             return;
           }
@@ -12334,7 +12493,7 @@
         return;
       }
       eventMissingSince = 0;
-      eventTargetTypes = event.types;
+      eventTargetTypes = event.staging ? [] : event.types;
       if (G.maps && G.maps[character.map] && G.maps[character.map].event === event.name &&
           joinedEvent !== event.name) {
         joinedEvent = event.name;
@@ -12342,7 +12501,7 @@
       }
       if (eventTraveling || banking || stocking || upgrading || departurePending || bankQueued) return;
       if (!await eventTravelAllowed(event.name)) return;
-      if (nearestEventTarget()) {
+      if (!event.staging && nearestEventTarget()) {
         joinedEvent = event.name;
         root.__partyJoinedEvent = event.name;
         return;
@@ -12354,6 +12513,7 @@
       function currentEventTravel() {
         var live = activeCombatEvent();
         return runtimeCurrent() && !character.rip && !escapeOwns() && !navigationIntent.cancelled &&
+          !eventReturnPending && !eventExitOwnsMovement() &&
           travelNavigationRevision === navigationIntent.revision && eventSelected(event.name) &&
           travelSelectionRevision === eventSelectionRevision && live && live.name === event.name;
       }
@@ -12370,8 +12530,9 @@
           joinedEvent = event.name;
           root.__partyJoinedEvent = event.name;
           root.__partyEventRejoinRequired = null;
-          game_log("Traveling to " + ((G.events[event.name] && G.events[event.name].name) || event.name), "#c084fc");
+          game_log("Traveling to " + ((G.events && G.events[event.name] && G.events[event.name].name) || event.name), "#c084fc");
         }
+        if (event.name === "slenderman") { await discoverSlenderman(event, currentEventTravel); return; }
         if (event.kind !== "pvp" && !nearestEventTarget() && await eventTravelAllowed(event.name) && currentEventTravel())
           await sharedPartyWalk(destination,"event",event.name,null,currentEventTravel);
       } catch (error) {
@@ -12678,7 +12839,7 @@
       live && live.name === event.name; }
     if (!await eventTravelAllowed(event.name)) return { status: current() ? "retryable" : "cancelled", reason: "Waiting for event travel permission" };
     if (eventTraveling) return { status: "retryable", reason: "Event travel already in progress" };
-    eventTargetTypes = event.types; eventMissingSince = 0;
+    eventTargetTypes = event.staging ? [] : event.types; eventMissingSince = 0;
     eventTraveling = true; travellingEventName = event.name;
     var phase = "event-reentry";
     try {
@@ -12689,7 +12850,9 @@
       if (!current()) return { status: "cancelled" };
       if (!await eventTravelAllowed(event.name)) return { status: current() ? "retryable" : "cancelled", reason: "Waiting for event travel permission" };
       joinedEvent = event.name; root.__partyJoinedEvent = event.name; root.__partyEventRejoinRequired = null;
-      if (!eventRequiresJoin(event.name) && !nearestEventTarget()) {
+      if (event.name === "slenderman" && !nearestEventTarget()) {
+        phase = "event-search"; await discoverSlenderman(event, current);
+      } else if (!eventRequiresJoin(event.name) && !nearestEventTarget()) {
         phase = "event-travel";
         await sharedPartyWalk(destination, "event", event.name, null, current);
       }
@@ -13610,7 +13773,7 @@
     function reject(reason) { if (diagnostic) diagnostic.reason = reason; return false; }
     var bossActive = (typeof bossCombatActive === "function" ? bossCombatActive() : typeof frankyCombatActive === "function" && frankyCombatActive());
     if (bossActive && !(typeof bossTargetAllowed === "function" ? bossTargetAllowed : frankyTargetAllowed)(target))
-      return reject(typeof bossEncounter === "function" && bossEncounter() === "halloween" ? "Halloween attendance only permits its bosses" : "Franky attendance only permits the Franky monster");
+      return reject("Franky attendance only permits the Franky monster");
     var huntTravel = huntTravelCommand && huntTravelCommand.purpose === "monster-hunt" &&
       huntTravelCommand.combatHandoffAllowed === true && huntTravelCommand.huntTarget === (target && target.mtype);
     huntTravel = huntTravel || !!(huntTravelCommand && ['', 'party-travel', 'farm-relocation', 'manual-monster-override'].indexOf(huntTravelCommand.purpose || '')>=0 && huntTravelCommand.combatHandoffAllowed === true);
@@ -13756,6 +13919,17 @@
     } finally {
       departurePending = false;
     }
+  }
+
+  async function afterEventCombat(action, command) {
+    if (!halloweenEvent(command.event)) return afterCombat(action, "returning from the event");
+    // Voluntary event exit must not require killing a still-living boss first.
+    // Its owned Town attempt is bounded and falls back to shared moving defense.
+    departurePending = true;
+    combatTargetId = null;
+    eventTargetTypes = [];
+    try { return await action(); }
+    finally { departurePending = false; }
   }
 
   function inFarmArea(target, location, margin) {
@@ -13948,7 +14122,24 @@
     return points[0];
   }
   async function sharedPartyWalk(destination, activity, key, parentCommand, current) {
-    if(character.name!==leader && !followLeader)return smart_move(destination);
+    if(character.name!==leader && !followLeader) {
+      if (activity !== "event" || key !== "slenderman" || !current) return smart_move(destination);
+      var independentRevision = navigationIntent.revision;
+      var independent = { cancelled: false }, walking = smart_move(destination);
+      try {
+        await Promise.race([walking, (async function () {
+          while (!independent.cancelled && runtimeCurrent() && current()) await sleep(100);
+          if (!independent.cancelled) throw new Error("Slenderman search destination superseded");
+        })()]);
+      } finally {
+        independent.cancelled = true;
+        if (runtimeCurrent() && navigationIntent.revision === independentRevision &&
+            !eventExitOwnsMovement() && !eventReturnPending && !escapeOwns()) {
+          try { await stop("smart"); } catch (_) {}
+        }
+      }
+      return;
+    }
     var revision=Number(navigationIntent.revision)||0,generation=runtimeGeneration;
     var body={character:character.name,runtimeId:convoyRuntimeId,navigationRevision:revision,
       destination:destination,activity:activity,key:String(key||activity),parentCommandId:parentCommand?parentCommand.id:0};
@@ -14196,7 +14387,11 @@
     var saved=root.__partySharedRouteRemainder;
     if(!saved || saved.id!==command.convoyId || saved.revision!==Number(command.navigationRevision||0) ||
         saved.destinationKey!==JSON.stringify(command.location) || saved.runtimeId!==convoyRuntimeId)return null;
+    if(!saved.origin || saved.origin.map!==origin.map || saved.origin.in!==origin.in || saved.server!==reunionRealm() ||
+        !saved.geometry || saved.geometry.version!==movement.identity.version || saved.geometry.fingerprint!==movement.identity.fingerprint)return null;
     if(!saved.plot.length || saved.transporting)return null;
+    if(command.disableTown && saved.plot.some(function(p){return p.town;}))return null;
+    if(command.avoidLeave && saved.plot.some(function(p){return p.method === "leave";}))return null;
     var first=saved.plot[0];
     if(first.town || first.transport || first.method === "leave" || first.map!==origin.map || !can_move_to(first.x,first.y))return null;
     return saved;
@@ -14246,7 +14441,8 @@
     var leaderRoute=character.name===command.leader,origin=sharedConvoyPoint(),gate=sharedConvoyGate();
     var destination=leaderRoute?farmingEntryPoint(command.location):command.location,started=Date.now(),identity=sharedConvoyIdentity(command);
     var released=false,onDone,plot,installed=false,published=false,pending=false,retryAt=0,payload=null,fingerprint=null;
-    var saved=leaderRoute && !command.nativeFallback && !command.avoidLeave && !command.disableTown?(sharedConvoyReusable(command,origin)||sharedConvoyItinerary(command,origin)):null;
+    var saved=leaderRoute && !command.nativeFallback?sharedConvoyReusable(command,origin):null;
+    if(!saved && leaderRoute && !command.nativeFallback && !command.avoidLeave && !command.disableTown)saved=sharedConvoyItinerary(command,origin);
     if(saved)destination=saved.destination;
     convoy.routeVersion=command.routeVersion;
     phase(leaderRoute?"preparing-route":"waiting-for-route");
@@ -14258,6 +14454,7 @@
       // Prepending a pre-tick snapshot would resurrect already-consumed waypoints.
       root.__partySharedRouteRemainder={id:command.convoyId,revision:Number(command.navigationRevision)||0,
         runtimeId:convoyRuntimeId,destinationKey:JSON.stringify(command.location),destination:destination,
+        origin:sharedConvoyPoint(),server:reunionRealm(),geometry:Object.assign({},movement.identity),
         transporting:!!is_transporting(character),plot:remaining};
     }
     convoy.freezeRoute=freeze;
@@ -15919,46 +16116,8 @@
   }
   // Open-map off-tank: there are no doors to flee through, so a targeted off-tank
   // steps out of the boss's own range and comes back once it holds someone else.
-  var halloweenRetreatMargin = 60, halloweenRetreat = { pending: false, attempt: 0 };
-  function halloweenMovementTick(target) {
-    // An off-tank's attack target is withheld until someone else holds the boss,
-    // so position against the live boss itself.
-    if (!halloweenTargetAllowed(target)) target = Object.values(parent.entities || {}).filter(halloweenTargetAllowed)
-      .sort(function (a, b) { return Math.hypot(a.x - character.x, a.y - character.y) - Math.hypot(b.x - character.x, b.y - character.y); })[0] || null;
-    if (halloweenRoutine === "tank" || !target || target.target !== character.name)
-      return frankyTankMovementTick(target);
-    var safe = (Number(target.range) || 0) + halloweenRetreatMargin;
-    var distance = Math.hypot(character.x - target.x, character.y - target.y);
-    if (distance >= safe) {
-      resetCombatMovement();
-      root.partyCombatPosition = { at: Date.now(), mode: "boss-retreated", movementOwner: "combat",
-        target: target.id, reason: "Off-tank waiting outside the boss's range for it to target someone else" };
-      return true;
-    }
-    // Short terrain-checked steps away from the boss, like the approach tick, rather
-    // than one long leg that walls usually block.
-    var away = Math.atan2(character.y - target.y, character.x - target.x);
-    var step = Math.min(safe - distance + 10, Math.max(1, Number(character.speed || 40) * 0.6));
-    for (var turns = [0, 0.5, -0.5, 1, -1, 1.5, -1.5], i = 0; i < turns.length; i++) {
-      var point = { x: character.x + Math.cos(away + turns[i]) * step, y: character.y + Math.sin(away + turns[i]) * step };
-      if (typeof can_move_to === "function" && can_move_to(point.x, point.y))
-        return sendCombatMove(target, point, "boss-retreating");
-    }
-    // Walled in: route with the native pathfinder to a point on the safe ring,
-    // trying the next angle around the boss whenever a route fails.
-    if (!halloweenRetreat.pending) {
-      var angle = away + [0, 0.8, -0.8, 1.6, -1.6, 2.4, -2.4, Math.PI][halloweenRetreat.attempt % 8];
-      var destination = { x: target.x + Math.cos(angle) * (safe + 20), y: target.y + Math.sin(angle) * (safe + 20) };
-      halloweenRetreat.pending = true;
-      Promise.resolve(xmove(destination.x, destination.y)).catch(function () { halloweenRetreat.attempt++; })
-        .finally(function () { halloweenRetreat.pending = false; });
-    }
-    root.partyCombatPosition = { at: Date.now(), mode: "boss-retreating", movementOwner: "combat",
-      target: target.id, reason: "Routing out of the boss's range" };
-    return true;
-  }
   function bossMovementTick(target) {
-    return bossEncounter() === "halloween" ? halloweenMovementTick(target) : frankyMovementTick(target);
+    return frankyMovementTick(target);
   }
   function frankyMovementTick(target) {
     if (!frankyCombatActive()) { frankyLastKnown = null; frankyFleeState.phase = "none"; frankyFleeState.since = 0; return false; }
@@ -16285,6 +16444,7 @@
         cancelReturnTownUnderAttack();
         return !!(character.c && character.c.town);
       }
+      if (root.__partyEventExitOwner && eventReturnPending) return true;
       if(outboundHuntTravel() && huntTravelExtraAggro())interruptConvoyForDefense();
       if (convoyTraveling && !convoyTraveling.defensePaused && (convoyTraveling.continuousReturn === 1 || convoyTraveling.purpose === 'monster-hunt' && convoyTraveling.huntTarget)) {
         root.__partyCombatOwner = "convoy:" + convoyTraveling.phase;

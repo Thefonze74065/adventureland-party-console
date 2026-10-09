@@ -17,6 +17,17 @@ test('manual merchant weapon remains selected through gathering and restart',asy
   const old=await live.admin(`output=(()=>{const p=get_player('${name}');p.items[12]=p.slots.mainhand;p.slots.mainhand=null;cache_player_items(p);p.cslots.mainhand=null;resend(p,'reopen+cid');return p.items[12];})()`);
   await expect.poll(async()=> (await live.state()).characters[name]?.items?.some((entry:any)=>entry?.slot===12&&entry.item.name==='staff'),{timeout:30_000}).toBe(true);
   await live.post('/command',{type:'merchant-weapon',character:name,slot:12,item:old});
+  // Fixture failure modes: a retained session or its in-flight status response
+  // can restore a pre-reset cooldown; an active native skill can finish after
+  // the reset. Disable both modes through production actions and observe the
+  // old session/attempt retire before declaring skills available.
+  for (const mode of ['fishing','mining'])
+    await live.post('/merchant/gather',{mode,enabled:false});
+  await expect.poll(async()=> (await live.state()).gatheringModes,{timeout:30_000}).toEqual([]);
+  await expect.poll(()=>live.clients[name].frame.evaluate(()=>{
+    const root=(document.getElementById('maincode') as HTMLIFrameElement).contentWindow as any;
+    return !root.__merchantGatheringSession && !root.__merchantGatheringAttempt;
+  }),{timeout:30_000}).toBe(true);
   // Declare available gathering skills at the fixture boundary. Native actions
   // still choose/equip tools, cast and restore gear; no receipt is fabricated.
   // Stop coordinator first so its saved cooldown cannot race this initial seed.

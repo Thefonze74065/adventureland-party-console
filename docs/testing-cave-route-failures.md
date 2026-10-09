@@ -399,3 +399,163 @@ Set plus this reason atomically from the DOM, then checks live run/floor/life/
 pause identity separately. Exact combined 409 admission is itself evidence
 of freshness at request time once the unique active run/floor guards match;
 later freshness recovery is recorded, not treated as an error.
+
+## Native duel completion retains survival checks with a bounded combat window
+
+CI 916e (37813545539) failed the 45-second duel poll, not the 1,500-second
+case limit (original case lasted 20 minutes). Lockbreaker was already done;
+its last death packet preceded duel injection by about 31 seconds, and Priest
+reached the exact boss endpoint 0.748 seconds before injection. Unfinished
+boss combat or movement does not explain this failure. Rival 618 fell from
+100,000 HP to 3,054 while allied actor 617 remained alive at 99,920 HP. Both
+participants actively selected the rival and delivered native hits from
++28.699 through +68.494 seconds after injection. The remaining three percent
+is ongoing real combat, not a terminal stall. Bound the duel poll at 120
+seconds while retaining actual room completion, enemy death, and ally survival.
+Attach the latest native HP/actor snapshot and selected party targets even on
+failure. Audit: .build/cave-916e-native-duel-audit.json. No runtime changes or
+unrelated boss barriers are warranted by this evidence.
+
+The measured original case was already about 20 minutes at this duel. Remaining
+bounded stages allow duel 120 + required rooms 300 + stairs approach 600 +
+farewell acknowledgement 30 + continuation 300 = 1,350 seconds (22.5 minutes),
+before final exit controls and evidence capture. Use a coherent 2,700-second
+overall case bound (45 minutes): 20 + 22.5 minutes plus 2.5 minutes for controls
+and artifacts. Individual phase limits and all native outcomes remain bounded;
+the real game's expiry, clocks, generated rooms, and combat are untouched.
+
+### Native boss planning diagnostics (7b35)
+
+The owned Warrior plan terminated after 90 seconds and the follower after 120,
+with both still at (808,344), targeting (3464,440). Existing artifacts cannot
+distinguish an unreachable native endpoint from a search starved by readiness
+holds. Before changing runtime, sample verified native BFS globals `queue`,
+`start`, `best` and `smart`, together with current readiness/freshness and pause
+signals. Failure modes: sampling must not advance the search, mutate collision
+geometry, replace native outcomes, retain unbounded frontier arrays, or lose
+its evidence when the physical-arrival assertion fails. Sample at most once
+per five seconds, cap the ledger at 125 snapshots, and capture collision
+geometry once during preparation. Record native collision tests at the exact
+target and neighboring points; these are observations, not success criteria.
+
+### Heartbeat status must not move the map during pointer selection (b505)
+
+The selected waypoint was (298,465), 96.377 native pixels from the validated
+(300.757,561.338). The native canvas click trace records a 966x598 canvas at
+(237,168), and a pointer at (366.47,283.25); its input/action dispatch spans
+several seconds. The centered dialog conditionally inserts/removes a report
+waiting line as heartbeat freshness changes, changing its vertical layout
+while the pointer action is underway. Preserve a constant status-row footprint.
+Before editing product code, extend the observable console fixture to assert
+identical canvas position and height across fresh/stale/fresh transitions.
+Failure modes: freshness must still disable submission, the waiting output
+must remain exclusive to a genuine report gap, fresh output must disappear,
+and reserving space must not relax native waypoint or collision margins.
+`pr64-map-status-layout-red.log` reproduced an 18-CSS-pixel canvas shift before the fix; the same observable freshness/selection case passes after reserving the status row (8.6 seconds, 14.5-second suite). Fresh/stale/recovered canvas geometry and existing action/status assertions remain intact.
+
+### Add-waypoint activation acknowledgement (2afa)
+
+The visible failed nomination (415,396) exactly equals the prior accepted
+waypoint (414.9565,395.5652). The canvas click therefore did not produce a new
+selection: Add waypoint can become freshness-disabled between Playwright's
+check and native click. Require the observable placement instruction before
+clicking terrain. Retry suppressed activation only with an atomic DOM snapshot
+showing Add disabled and the freshness waiting output; validate the same live
+run/floor/alive/unpaused identity. Never interpret an old nomination as new,
+broaden the validated margin, or retry unrelated disabled/error conditions.
+
+### No-effect Set click recovery (01170)
+
+A Set click returned without observed request or freshness-disabled snapshot;
+the final dialog remained enabled with the same valid nomination and no error.
+The maintained handler synchronously sets busy before awaiting its mutation,
+so an enabled button with no observed POST cannot represent a pending handler.
+Keep request/response observers for the complete helper lifetime. A bounded
+no-effect retry requires an enabled button, unchanged nomination, no rendered
+error, and the same active/alive/unpaused run and floor. Never retry an observed
+pending POST, disabled busy control, changed nomination, unrelated HTTP error,
+or accepted request; attach every request and pending state even on failure.
+
+### Progress-guarded Cave native preparation (b168)
+
+Captured native BFS advanced to about 98,000 processed nodes before each 90s
+cutoff discarded it. Exact pinned 15555 replay with captured collision geometry
+found validated routes in three shuffle orders at 169,581–169,790 nodes;
+remote throughput predicts about155s. Preserve the Cave90s initial deadline,
+but allow up to240s only while the same native search has finite monotonic
+frontier progress within15s. Align shared followers to270s. Generic30s and
+local connector3s remain unchanged. Before runtime edits, retained isolated
+regressions cover progressing completion, stagnant/missing/reset counters,
+hard cap despite progress, generic and repair bounds, and follower alignment.
+Also guard ownership/map/instance and full native route validation through
+existing movement regressions; extension never changes walk permission or
+accepts a partial native route. Replay: .build/b168-exact-pinned-bfs-replay.json.
+
+### Idempotent Add activation retry (8638)
+
+The resumed Add acknowledgement timed out without recording placement mode;
+final context retains the old (426,783) nomination and later freshness-held
+controls. Unlike Set, Add has no external request: its handler only sets local
+placement mode true. Permit bounded re-click when placement is absent but Add
+is currently enabled and no rendered error exists, after validating the same
+active/alive/unpaused run and floor. Disabled controls require the existing
+simultaneous freshness reason. Preserve the actual placement instruction and
+exact new nomination/native collision checks; do not infer success from clicks.
+
+### Native farm target rejection diagnostics (aae7)
+
+Both farm routes remain prepared at601s with two steps remaining, but both
+participants are combat-held. Current committed target498 is31px from the
+Warrior (range179); live native enemies still attack while local targets are
+null and the Warrior has no recorded attack. Capture bounded read-only farm
+samples of the actual native entity, selected dungeon getter, attack gate,
+known-death state, native collision, control identity and exact adjusted clock
+age. Failure modes: raw metadata may be absent, diagnostics must not mutate
+selection/tombstones/clock, disappear on timeout, or retain entire entity worlds.
+Cap125 samples at least5s apart, preserve physicalarrival70 and600s boundary.
+
+### Room selection acceptance (aaf4)
+
+The farm button submitted a rejected room-move action: final UI displayed
+`Fresh matching dungeon run required`, commands remained empty, and107 native
+samples stayed at the previous completed waypoint. Room clicks must observe
+actual move POST responses before awaiting physical travel. Failure inventory:
+late/pending POST cannot be duplicated; accepted200 must acknowledge exact
+run/target/map; only the exact freshness409 may retry while same unique active
+run/floor/alive/unpaused; other HTTP errors must fail; suppressed no-effect
+clicks may retry only currently enabled/error-free with unchanged live identity.
+Keep request listeners throughout the bounded helper, attach attempts including
+pending state finally, and retain every native arrival/combat/floor assertion.
+
+### Boss phase budgets (06c362a)
+
+The accepted Lockbreaker selection remained serial5 throughout105 samples over
+598 seconds. Thirty-six samples covered native assembly/combat, then the native
+planner completed a fully validated19-point route. Both participants progressed
+from1048,528 to the2523 corridor; their current journeys still had11 points and
+only52/70 seconds of active walking. No terminal failure or BFS stall occurred.
+Failure inventory: do not charge assembly/search against the physical-arrival
+budget; do not restart phase clocks on repeated reports, substitute another
+serial/run/target, or treat route preparation as physical arrival. Wait at most
+300 seconds for the accepted generation's owned moves, then270 seconds for its
+prepared routes, before the existing600-second both-members physical70 check.
+Every predicate retains current run/floor/command ownership; deadlines remain
+bounded and the overall2700-second/native-expiry limits are unchanged.
+
+### Native choice stops before room arrival
+
+The subsequent local run reached a real Before You Leave encounter on the farm
+route. Its deadline resolved to `fallback` with no votes, and commands became
+empty while the intended Amber Nest936,408 remained undone. The farm poll had
+not answered or resumed the stopped selection. Preserve this failure archive
+`.build/pr64-cave-phases-choice-failure-e2e-results/`. Failure inventory: answer
+unresolved native choices through actual UI; only a new choice ID observed after
+the accepted selection permits a same-target continuation; do not confuse the
+old resolved shop with a new interruption, retry unexplained empty commands,
+duplicate replies/reselects, lose run/floor ownership or reset phase deadlines.
+Record accepted continuation serials explicitly so genuine choices during boss
+assembly/preparation can resume inside the existing bounded polls.
+
+### Resolved native vote commands at the continuation boundary
+
+The local choice-continuation repeat retained 449 intact evidence files (original failed; regroup passed). The actual boss approach answered Two People Claim the Chest, choice `5e5f07e7f98e4045bac7ea13:54`, through the UI. Of 351 continuation snapshots, 350 retained both matching vote commands after native resolution. The fixture's empty-command requirement therefore prevented reselecting Lockbreaker. Coordinator `ensureSettled` deliberately permits these resolved votes. The fixture must accept only the same run and choice's resolved vote commands, reject unrelated pending actions, and retain unchanged absolute phase deadlines. Explicit progress output follows verified assertions rather than inferred native encounter titles.

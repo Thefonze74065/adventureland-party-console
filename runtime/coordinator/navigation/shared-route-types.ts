@@ -23,6 +23,9 @@ export interface SharedReport {
   failure?: string; waypointCount?: number; departedAt?: number;
 }
 export interface SharedStatus extends RoutePoint {
+  // Local visible native boss selected for in-range combat, not a global S hint.
+  // Instance IDs are normalized because native payloads use either strings or numbers.
+  eventCombatSighting?: (RoutePoint & {id: string; mtype: string; observedAt: number}) | null;
   activeEvent?: string | null; joinedEvent?: string | null;
   movementGeometry?: { version: number; fingerprint: string };
   huntReturnProtocol?: number;

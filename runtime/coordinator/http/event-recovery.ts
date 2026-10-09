@@ -12,7 +12,7 @@ interface RecoveryState {
   eventReturn: { event: string } | null;
   anniversary: { eventCycle?: AnniversaryCycle | null };
   eventSessions: Record<string, EventSession | undefined>;
-  statuses: Record<string, { serverLiveEvents?: { name: string }[] } | undefined>;
+  statuses: Record<string, { serverLiveEvents?: { name: string }[]; slendermanSearchExhausted?: boolean } | undefined>;
 }
 interface RecoveryPorts {
   owned(name: string): unknown;
@@ -93,6 +93,7 @@ export function createEventRecoveryRoutes(state: RecoveryState, ports: RecoveryP
       const status = state.statuses[name];
       return (
         ports.enabled(name, event) &&
+        !(event === "slenderman" && status?.slendermanSearchExhausted) &&
         Array.isArray(status?.serverLiveEvents) &&
         status.serverLiveEvents.some((entry) => entry?.name === event)
       );

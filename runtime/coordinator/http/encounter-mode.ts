@@ -7,7 +7,6 @@ import { requestObject, requestText, type HttpRequest, type HttpResponse } from 
  */
 export const encounterModes: Record<string, readonly string[]> = {
   franky: ["auto", "offtank", "tank"],
-  halloween: ["auto", "offtank", "tank"],
 };
 
 interface EncounterModeState {

@@ -154,6 +154,8 @@ $ownsRuntime = $false
 try {
     Push-Location $repoRoot
     try {
+        npm run build:shared
+        if ($LASTEXITCODE -ne 0) { throw "shared policy build failed; current game process retained." }
         npm run build:runtime
         if ($LASTEXITCODE -ne 0) { throw "runtime TypeScript build failed; current game process retained." }
         if (-not $CoordinatorOnly) {
@@ -170,6 +172,8 @@ try {
     Stop-ExistingCaracalSupervisor
     $ownsRuntime = $true
     if (-not $CoordinatorOnly) {
+        node (Join-Path $repoRoot 'tools/build-shared.mts') --publish
+        if ($LASTEXITCODE -ne 0) { throw "shared policy publication failed." }
         & (Join-Path $PSScriptRoot 'update-routing-guard.ps1')
         node (Join-Path $repoRoot 'tools/caracal/install.mts')
         if ($LASTEXITCODE -ne 0) { throw "validated runtime upgrade failed." }

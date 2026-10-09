@@ -27,6 +27,12 @@ function nativePlanningTimeout(options: MovementOptions): number {
     throw Error('Native planning timeout must be between 1 and 120 seconds');
   return timeout;
 }
+function nativePlanningProgress(options: MovementOptions): number | undefined {
+  const limit = options.nativePlanningProgressMs;
+  if (limit !== undefined && (!options.shared || !Number.isFinite(limit) || limit !== 240000 || nativePlanningTimeout(options) !== 90000))
+    throw Error('Progress-guarded preparation requires a shared Cave 90/240-second budget');
+  return limit;
+}
 function finalApproach(plot: Step[], from: Point, to: Point, options?: MovementOptions): Step[] {
   // Precision callers need the final approach that coarse planner nodes omit.
   // The caller validates this connector with native collision rules too.
@@ -164,11 +170,11 @@ export function installPartyMovement(host: MovementHost, ports: MovementPorts) {
   }
   function nativeTick(j: Journey) {
     if (j.options.awaitSharedRoute) {
-      if (ports.now() - j.started > nativePlanningTimeout(j.options) + 30000)
+      if (ports.now() - j.started > (nativePlanningProgress(j.options) ?? nativePlanningTimeout(j.options)) + 30000)
         throw Error('Shared route preparation timed out');
       return;
     }
-    if (!state.searching) { planner.begin(point(state), state.use_town, ports.now(), nativePlanningTimeout(j.options)); state.searching = true; j.searches++; }
+    if (!state.searching) { planner.begin(point(state), state.use_town, ports.now(), nativePlanningTimeout(j.options), nativePlanningProgress(j.options)); state.searching = true; j.searches++; }
     const plot = planner.tick(ports.now());
     if (plot) install(plot, true);
   }

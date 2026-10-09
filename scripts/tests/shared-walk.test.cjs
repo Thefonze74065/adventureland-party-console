@@ -14,6 +14,54 @@ function fixture(merchant=false){
  destination:{map:'winterland',x:100,y:100},...extra});
  return {state,walks,convoys,body,starts:()=>starts,advance:ms=>{now+=ms;for(const s of Object.values(state.statuses))s.seenAt=now;}};
 }
+
+function combatAttendanceFixture(extra={}) {
+ const t=fixture();
+ for(const name of ['F','P'])Object.assign(t.state.statuses[name],{map:'winterland',in:'winterland',x:350,y:100,joinedEvent:'icegolem',
+  eventCombatSighting:{id:'boss-1',mtype:'icegolem',map:'winterland',in:'winterland',x:100,y:100,observedAt:1000,...extra}});
+ return t;
+}
+test('a recovering event walker leaves fresh current boss combat attendees in place',()=>{
+ const t=combatAttendanceFixture();t.walks.submit(t.body('L'));assert.equal(t.starts(),1);
+ assert.deepEqual(t.state.activeConvoy.participants,['L']);
+});
+test('staging and invalid boss evidence cannot remove an expected event walker',()=>{
+ for(const extra of [{observedAt:-3001},{observedAt:2001},{in:'other-instance'},{map:'main'},{mtype:'snowman'},{id:''},{x:1000}]) {
+  const t=combatAttendanceFixture(extra);t.walks.submit(t.body('L'));assert.equal(t.starts(),0,JSON.stringify(extra));
+ }
+ const t=combatAttendanceFixture();delete t.state.statuses.F.eventCombatSighting;
+ t.walks.submit(t.body('L'));assert.equal(t.starts(),0);
+});
+test('event walking requests for different instances cannot coalesce',()=>{
+ const t=fixture();t.walks.submit(t.body('L',{destination:{map:'winterland',in:'one',x:100,y:100}}));
+ for(const n of ['F','P'])t.walks.submit(t.body(n,{destination:{map:'winterland',in:'two',x:100,y:100}}));
+ assert.equal(t.starts(),0);
+});
+
+// Before implementation: native Mr. Green RED has a completed priest Town
+// receipt at distance 57.5, and a remaining warrior waiting forever for it.
+test('same-cycle event exit coalesces only the remaining pending recovery roster',()=>{
+ const t=fixture();Object.assign(t.state.statuses.L,{map:'spookytown',x:0,y:0});
+ Object.assign(t.state.statuses.F,{map:'main',x:57.5,y:0});Object.assign(t.state.statuses.P,{map:'main',x:80,y:0});
+ t.state.eventReturn={cycleId:'event-1',participants:['L','F','P'],pending:['L']};
+ t.state.commands.L={id:10,type:'event-return-town',cycleId:'event-1'};
+ t.walks.submit(t.body('L',{activity:'event-return',key:'event-1',parentCommandId:10,destination:{map:'main',x:0,y:0}}));
+ assert.equal(t.starts(),1);assert.deepEqual(t.state.activeConvoy.participants,['L']);
+ assert.equal(t.state.activeConvoy.walkingParents.L.command.id,10);
+ assert.equal(t.state.commands.F,undefined);assert.equal(t.state.commands.P,undefined);
+});
+test('an unrelated event-return cycle cannot use another recovery pending roster',()=>{
+ const t=fixture();Object.assign(t.state.statuses.L,{map:'spookytown',x:0,y:0});
+ for(const name of ['F','P'])Object.assign(t.state.statuses[name],{map:'main',x:80,y:0});
+ t.state.eventReturn={cycleId:'event-1',participants:['L','F','P'],pending:['L']};
+ t.walks.submit(t.body('L',{activity:'event-return',key:'other-cycle',destination:{map:'main',x:0,y:0}}));
+ assert.equal(t.starts(),0);assert.equal(t.state.activeConvoy,null);
+});
+test('Halloween event exit walking retains continuous moving defense',()=>{
+ const t=fixture();t.state.eventReturn={cycleId:'event-1',event:'mrgreen',participants:['L','F','P'],pending:['L']};
+ t.walks.submit(t.body('L',{activity:'event-return',key:'event-1'}));
+ assert.equal(t.starts(),1);assert.equal(t.state.activeConvoy.continuousReturn,1);
+});
 test('runtime reload cancellation preserves the geometry repair convoy',()=>{
  const t=fixture();for(const n of ['L','F','P'])t.walks.submit(t.body(n));
  const c=t.state.activeConvoy;c.geometryRepair={phase:'waiting'};

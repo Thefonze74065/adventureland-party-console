@@ -20,6 +20,14 @@ party convoy. Failure inventory: `e2e/phoenix-search-failures.md`. Validate
 `live-phoenix-search.spec.ts` and publish character and coordinator assets
 through the ordinary full restart.
 
+Walking returns can reuse a validated remaining route after a communication
+hold even when Town is disabled. Reuse checks realm, instance, runtime,
+navigation, destination and geometry, rejects forbidden shortcuts, and passes
+the ordinary route installation checks. Stale reports still stop movement.
+Validate the native Boo Boo walking-return communication-hold case and retain
+its actual stop, fresh resume and Daisy reward evidence. This character change
+requires the supported full restart; a coordinator-only restart is insufficient.
+
 Merchant settings stores one Main-map stand location for parking, Town-return
 checks and marketplace fallbacks. A fresh settings store chooses integer X/Y
 coordinates independently within -100..100, rejects native collision geometry
@@ -139,12 +147,6 @@ The control sits under the chase settings in Interface settings. Failure invento
 `e2e/realm-hop-blacklist-failures.md`. Validate `live-realm-hop-blacklist.spec.ts`
 and `scripts/tests/realm-hop-blacklist.test.cjs`; activate with the
 coordinator/dashboard-only restart.
-
-Halloween attendance and its routines (`encounterModes.halloween`, deaths counted
-per encounter in `events/franky-auto-tank.ts`) are described in
-docs/events-and-anniversary.md. Failure inventory: `e2e/halloween-failures.md`.
-Validate `live-halloween.spec.ts` and the live Franky specs, and publish character
-assets through the ordinary full restart.
 
 Each character card has a Cosmetics section. Characters report CX jars, owned
 cosmetics (`character.acx`, expanded by native `all_cx`) and worn cosmetics
@@ -1692,7 +1694,7 @@ Cave encounter votes open an automatic dashboard dialog; resolved encounters rem
 
 `events/boss-chase.ts` polls ALData `/monsters/<types>` once a minute, in a single request through
 the shared ALData client budget. It covers Franky, Ice Golem and Giga Crab, plus the seasonal world
-bosses: Mr. Pumpkin and Mr. Green (`halloween`), Dragold (`lunarnewyear`) and Grinch
+bosses: Mr. Pumpkin and Mr. Green (each selected by its own row, `mrpumpkin` / `mrgreen`), Dragold (`lunarnewyear`) and Grinch
 (`holidayseason`). A boss is polled only while an active character has its event selected. Giga
 Crab usually dies well before Hop Sickness clears, so the lifetime gate below rarely lets it through.
 It acts only when enabled (Realm panel, `POST /party-api/realm/boss-chase`) and when

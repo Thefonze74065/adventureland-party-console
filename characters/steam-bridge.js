@@ -175,7 +175,7 @@
   }
 
   // runtime/steam/connection.ts
-  var steamBridgeVersion = 10;
+  var steamBridgeVersion = 12;
   function serverAddress(host = globalThis) {
     return (host.__partyServer || host.parent?.__partyServer || "http://127.0.0.1:924").replace(
       /\/$/,
@@ -447,6 +447,16 @@ globalThis.__partyServer=${JSON.stringify(base)};parent.__partyServer=globalThis
   }
 
   // runtime/steam/bridge.ts
+  function nativeErrorMessage(error) {
+    if (error instanceof Error) return error.message;
+    if (typeof error === "string") return error;
+    if (error && typeof error === "object") {
+      const fields = error;
+      const messages = [fields.reason, fields.error, fields.message].filter((value) => typeof value === "string" && !!value.trim()).map((value) => value.slice(0, 500));
+      if (messages.length) return [...new Set(messages)].join(": ");
+    }
+    return "Native Steam operation failed without an error reason";
+  }
   var slotKey = "party-console-bootstrap-slot-v1";
   var operationKey = "party-console-steam-operation-v1";
   var releaseKey = "party-console-steam-release-v1";
@@ -503,6 +513,8 @@ globalThis.__partyServer=${JSON.stringify(base)};parent.__partyServer=globalThis
     async function ensureBootstrap(target) {
       const connectionSlotKey = slotKey + ":" + server;
       let slot = host.localStorage.getItem(connectionSlotKey);
+      const excluded = /* @__PURE__ */ new Set();
+      if (!slot || !/^(?:[1-9]|[1-9][0-9]|100)$/.test(slot)) slot = null;
       if (slot && !bootstrapSaved) {
         const response = await host.fetch("/code.js?name=" + encodeURIComponent(slot), {
           cache: "no-store",
@@ -511,10 +523,23 @@ globalThis.__partyServer=${JSON.stringify(base)};parent.__partyServer=globalThis
         if (!response.ok) throw new Error("Cannot verify managed bootstrap slot");
         const code = (await response.text()).trim();
         const legacy = `globalThis.__partyServer=${JSON.stringify(server)};parent.__partyServer=globalThis.__partyServer;$.getScript(${JSON.stringify(server + "/CODE/adventure_land/universal-loader.js")});`;
-        if (code !== bootstrap && code !== legacy && code !== previousSteamBootstrap(server)) slot = null;
+        if (code !== bootstrap && code !== legacy && code !== previousSteamBootstrap(server)) {
+          excluded.add(slot);
+          slot = null;
+        }
       }
-      if (!slot?.startsWith("party-console-")) {
-        slot = "party-console-" + crypto.randomUUID();
+      if (!slot) {
+        const codes = host.X?.codes;
+        if (!codes || typeof codes !== "object" || Array.isArray(codes))
+          throw new Error("Cannot inspect saved CODE slots. Refresh the Adventure Land account selection and retry.");
+        for (let candidate = 100; candidate >= 1; candidate--) {
+          const key = String(candidate);
+          if (!Object.hasOwn(codes, key) && !excluded.has(key)) {
+            slot = key;
+            break;
+          }
+        }
+        if (!slot) throw new Error("No free Adventure Land CODE slot (1\u2013100). Free a saved slot and retry; existing CODE has not been overwritten.");
       }
       if (!bootstrapSaved) {
         const saved = await host.api_call("save_code", {
@@ -627,8 +652,8 @@ globalThis.__partyServer=${JSON.stringify(base)};parent.__partyServer=globalThis
             const slot = await ensureBootstrap(name);
             starting.add(name);
             void Promise.resolve(host.start_character_runner(name, slot)).catch((error) => {
-              startErrors.set(name, String(error?.reason || error));
-              console.warn("[Steam bridge] Starting " + name + ": " + String(error?.reason || error));
+              startErrors.set(name, nativeErrorMessage(error));
+              console.warn("[Steam bridge] Starting " + name + ": " + nativeErrorMessage(error));
             }).finally(() => host.setTimeout(() => starting.delete(name), 3e3));
           }
         }
@@ -676,8 +701,9 @@ globalThis.__partyServer=${JSON.stringify(base)};parent.__partyServer=globalThis
         switcher.render(reply);
         await act(reply);
       } catch (error) {
-        console.warn("[Steam bridge] " + String(error));
-        if (reply?.operation) failure = { operationId: reply.operation.id, error: String(error) };
+        const message = nativeErrorMessage(error);
+        console.warn("[Steam bridge] " + message);
+        if (reply?.operation) failure = { operationId: reply.operation.id, error: message };
       } finally {
         if (!lifecycle.signal.aborted)
           timer = host.setTimeout(() => void poll(), 1e3);

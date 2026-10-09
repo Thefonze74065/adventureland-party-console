@@ -98,13 +98,13 @@ test('v2 bridge starts background CODE without navigating or disconnecting prima
   multi:{action:'login',subject:'M',before:['P'],desired:['P','M'],primary:'P',release:[]}};
  const host={document:dom.window.document,localStorage:dom.window.localStorage,sessionStorage:dom.window.sessionStorage,
   character:{name:'P'},socket:{connected:true,disconnect(){assert.fail('primary disconnected');}},code_active:true,
-  X:{characters:[{name:'M',id:'m'}]},location:{href:''},get_active_characters:()=>({P:'self'}),
+  X:{codes:{},characters:[{name:'M',id:'m'}]},location:{href:''},get_active_characters:()=>({P:'self'}),
   start_character_runner:(name,slot)=>{started.push([name,slot]);return new Promise(()=>{});},
   storage_get:key=>cache.get(key),storage_set:(key,v)=>cache.set(key,v),api_call:async()=>({success:true}),
   setTimeout:fn=>{timer=fn;return 1;},clearTimeout(){},
   fetch:async()=>Response.json({operation:op,primary:'P',steam:['P','M'],realm:'SR_USII',members:[]})};
  const settle=()=>new Promise(r=>setImmediate(r));installSteamBridge(host);await settle();
- assert.equal(started.length,1);assert.equal(started[0][0],'M');assert.match(started[0][1],/^party-console-/);
+ assert.equal(started.length,1);assert.equal(started[0][0],'M');assert.equal(started[0][1],'100');
  timer();await settle();assert.equal(started.length,1);assert.equal(host.location.href,'');
  host.__partySteamBridge.dispose();dom.window.close();
 });
@@ -161,7 +161,7 @@ test('game-window bridge persists one generic bootstrap, releases once, and wait
   const host = {
     document: dom.window.document, localStorage: dom.window.localStorage, sessionStorage: dom.window.sessionStorage,
     character: { name: 'Priest' }, socket: { connected: true, disconnect() { this.connected = false; disconnects++; } },
-    X: { characters: [{ name: 'Mage', id: 'mage-id' }] }, location: { href: '' },
+    X: { codes: {}, characters: [{ name: 'Mage', id: 'mage-id' }] }, location: { href: '' },
     storage_get: key => cache.get(key), storage_set: (key, value) => cache.set(key, value),
     stop_runner() { stops++; }, setTimeout(fn) { timer = fn; return 1; }, clearTimeout() { timer = undefined; },
     async api_call(method, payload) { saved.push({ method, payload }); return { success: true }; },
@@ -179,7 +179,7 @@ test('game-window bridge persists one generic bootstrap, releases once, and wait
     assert.equal(host.location.href, '', 'release is not navigation permission');
     assert.equal(saved.length, 1);
     assert.equal(saved[0].method, 'save_code');
-    assert.match(saved[0].payload.slot, /^party-console-/);
+    assert.equal(saved[0].payload.slot, '100');
     assert.equal(saved[0].payload.electron, true, 'do not change the current code editor slot');
     const codeCache = JSON.parse(cache.get('code_cache'));
     assert.equal(codeCache['run_mage-id'], '1');

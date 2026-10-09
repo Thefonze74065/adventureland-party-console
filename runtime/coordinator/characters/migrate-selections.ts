@@ -19,7 +19,8 @@ export function migrateCharacterSelections(
     if (Object.prototype.hasOwnProperty.call(state.eventSelectionsByCharacter, name)) continue;
     const otherEvents =
       state.eventsByCharacter[name] && name !== state.merchantCharacter
-        ? supportedEvents.filter((id) => id !== "anniversary")
+        // The legacy boolean was saved before these opt-in fights existed.
+        ? supportedEvents.filter((id) => id !== "anniversary" && !["slenderman", "mrgreen", "mrpumpkin"].includes(id))
         : [];
     state.eventSelectionsByCharacter[name] = ["anniversary", ...otherEvents];
   }

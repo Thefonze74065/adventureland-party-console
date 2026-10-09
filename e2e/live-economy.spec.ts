@@ -197,9 +197,11 @@ test('merchant mass skills use both tiers and passive recovery restores critical
   }, { timeout: 20_000, message: 'Production must not block native HP/MP potion recovery' }).toBe(true);
   hold = false;
   await context.unroute('**/merchant/checkpoint');
-  // Native CI completed this two-item recovery batch in 163 seconds, including
-  // a bank visit and replenishing the second scroll through real NPC travel.
-  await jobFinished(live, recovery.jobId, 180_000);
+  // CI failure inventory: this batch's second native upgrade succeeded at
+  // 183.9 seconds, after the previous 180-second poll; final evidence confirms
+  // completed inventory and an empty queue. Budget actual bank/NPC procurement
+  // separately without relaxing the 20-second HP/MP recovery assertion above.
+  await jobFinished(live, recovery.jobId, 240_000);
   await record(live, info, 'merchant-mass-skills-and-recovery', before, { highSkills, skills, depleted });
 });
 

@@ -21,8 +21,11 @@ interface LoaderRoot {
   sharedRoutine?: { stop(): void; canReload?(): boolean; isOccupied?(): boolean };
   partyRoleRunner?: { start(): void; stop(): void };
   game_log(message: string, color: string): void;
+  addEventListener?(event: string, callback: () => void): void;
+  removeEventListener?(event: string, callback: () => void): void;
 }
 const root = globalThis as unknown as LoaderRoot;
+const gameHost = root.parent;
 root.__partyCodeLoader?.dispose();
 const generation = (root.__partyLoaderGeneration || 0) + 1;
 root.__partyLoaderGeneration = generation;
@@ -41,17 +44,17 @@ async function source(file: string): Promise<string> {
   return response.text();
 }
 function current(): boolean {
-  return !abort.signal.aborted && root.__partyLoaderGeneration === generation;
+  return !abort.signal.aborted && root.__partyLoaderGeneration === generation && root.parent === gameHost;
 }
 function occupied(): boolean {
   return root.sharedRoutine?.canReload ? !root.sharedRoutine.canReload() : !!root.sharedRoutine?.isOccupied?.();
 }
 function needsNewFrame(): boolean { return lastSource !== null && !root.parent.caracAL; }
 function replaceFrame(): void {
-  abort.abort();
-  clearInterval(timer);
+  dispose();
   const bootstrap = steamBootstrap(server);
-  root.parent.setTimeout(() => root.parent.start_runner("maincode", bootstrap), 0);
+  // Capture the game window before native start_runner detaches this CODE frame.
+  gameHost.setTimeout(() => gameHost.start_runner("maincode", bootstrap), 0);
 }
 function install(signature: string, compiled: () => void): void {
   root.__partyRuntimeGeneration = (root.__partyRuntimeGeneration || 0) + 1;
@@ -59,6 +62,7 @@ function install(signature: string, compiled: () => void): void {
   root.sharedRoutine?.stop();
   if (!current()) return;
   compiled();
+  if (!current()) return;
   lastSource = signature;
   root.__partyLoaderRuntimeStartedAt = Date.now();
   root.partyRoleRunner?.start();
@@ -84,24 +88,32 @@ async function refresh(force = false): Promise<void> {
     report(error);
   } finally { loading = false; }
 }
-root.__partyCodeLoader = {
-  dispose() {
-    abort.abort();
-    clearInterval(timer);
-  },
-};
+let disposed = false;
+function dispose(): void {
+  if (disposed) return;
+  disposed = true;
+  abort.abort();
+  clearInterval(timer);
+  root.removeEventListener?.("pagehide", dispose);
+  // Invalidating ownership also fences already pending status/native promises.
+  root.__partyRuntimeGeneration = (root.__partyRuntimeGeneration || 0) + 1;
+  root.partyRoleRunner?.stop();
+  if (root.parent === gameHost) root.sharedRoutine?.stop();
+}
+root.__partyCodeLoader = { dispose };
+root.addEventListener?.("pagehide", dispose);
 async function refreshBridge(): Promise<void> {
-  if (bridgeLoading || !current() || !needsSteamBridge(root.parent.__partySteamBridge, server)) return;
+  if (bridgeLoading || !current() || !needsSteamBridge(gameHost.__partySteamBridge, server)) return;
   bridgeLoading = true;
   try {
     const text = await source("steam-bridge.js");
     // Evaluate in the game window: the bridge survives a CODE iframe replacement.
-    if (current() && needsSteamBridge(root.parent.__partySteamBridge, server)) root.parent.eval(text);
+    if (current() && needsSteamBridge(gameHost.__partySteamBridge, server)) gameHost.eval(text);
   } catch (error) {
     if (current()) root.game_log("Steam bridge unavailable; retrying: " + String(error), "red");
   } finally { bridgeLoading = false; }
 }
-if (!root.parent.caracAL) {
+if (!gameHost.caracAL) {
   void refreshBridge();
   timer = setInterval(() => {
     void refreshBridge();
@@ -109,6 +121,6 @@ if (!root.parent.caracAL) {
   }, 2000);
 }
 function deliberatelyStopped(): boolean {
-  return root.parent.localStorage?.getItem("party-code-stopped:" + root.parent.character?.name) === "1";
+  return gameHost.localStorage?.getItem("party-code-stopped:" + gameHost.character?.name) === "1";
 }
 if (!deliberatelyStopped()) void refresh();

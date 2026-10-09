@@ -25,15 +25,6 @@ priest, following with the party's off-tank routine, must not pull any of them f
 switched to the tank routine it must (the control). Failure inventory:
 `e2e/boss-absorb-failures.md`.
 
-Halloween attendance uses `npm test -- -- --project=live --grep "Halloween"`. The
-declared fixture turns the native season on, lets the server's own timer spawn
-Mr. Pumpkin, and lowers only his HP and attack. One journey ticks the Halloween
-row in the real dashboard and requires both fighters to attend, kill him, and end
-attendance. The other picks Off-tank in the real routine dialog and requires the
-off-tank's first hit at least 4.5 s after the tank priest takes the boss, a
-natively targeted off-tank to leave the boss's range, and a native death in auto
-mode to count against Halloween and not Franky. Re-run the live Franky specs too.
-
 The realm-hop blacklist uses `npm test -- -- --project=live --grep "realm-hop
 blacklist"` for the real control, route validation, PVP locking and restart.
 Chase choices need live ALData, which the disposable server cannot reach, so
@@ -72,6 +63,42 @@ not cover the taunt/absorb aggro-gating or the kill-time luck swap live; those w
 verified by code review against the skill engine and `porcupine-equipment.ts`'s
 established swap/restore pattern. Retain the `tank-dashboard-before-restart` screenshot
 and `tank-melee-override` evidence, then run `npm run test:e2e:verify`.
+
+CI merchant recovery timing evidence: the final two-item batch in native run
+37862993344 issued its order at 1791507816685 and recorded the second actual
+upgrade success at 1791508000619, 183.9 seconds later. Final coordinator evidence
+has no active or queued work and native inventory has all four completed +1
+helmets. The previous 180-second final-job poll therefore expired during
+successful bank/NPC procurement, rather than demonstrating blocked recovery.
+Keep both native skill tiers, the MP reserve and 20-second potion recovery
+assertions; budget this final two-item batch separately with a bounded deadline.
+The focused rerun passed in 4.3 minutes with 33 verified evidence files under
+`.build/native-merchant-mass-recovery-passing-{results,report}`.
+
+Native Town recovery uses
+`npm test -- -- --project=live --grep "partial native Town failure"`.
+The initial peaceful Bee fixture is declared before actual party travel;
+otherwise native aggro can move the first arrival away before its peer arrives.
+Actual walking, interrupted Town, coordinator restart, delayed transport and
+both characters' reward checks remain observable native behavior. All three
+cases passed with 102 verified evidence files, retained under
+`.build/native-town-recovery-passing-{results,report}`.
+
+Steam CODE lifecycle uses
+`npm test -- -- --project=live --grep "Steam-style CODE replacement"`.
+The test declares a valid changed class artifact and holds one real status
+request while the loader performs native iframe replacement. It requires the
+same connected game window, retired runtime ownership, stable listener counts,
+preserved native response handlers, a fresh heartbeat and actual walking arrival.
+Historical managed callbacks are replayed at the socket-subscription boundary
+before fresh CODE migration. The focused run passed with 32 verified files.
+
+Escape hold controls use
+`npm test -- -- --project=console --grep "held escape shows its reason"`.
+The declared escape read-boundary fixture checks the visible failure reason,
+explicit Resume action, rejected release, and active-rescue guard. A successful
+Resume click reaches the coordinator's existing release endpoint. Screenshots
+and the action ledger are retained; this does not simulate native rescue skills.
 
 Merchant stand setup uses
 `npm test -- -- --project=live --grep "merchant stand location is valid"`.
@@ -764,3 +791,33 @@ could prepare its route. Native commands were healthy and both members ready.
 The acknowledgement and subsequent actual floor transition each produce
 inspectable artifacts; the farewell and both-character floor assertions remain
 required.
+
+Steam saved-setup handoff uses
+`npm test -- -- --project=console --grep "Steam handoff preserves saved setup"`.
+The browser submits the maintained request adapter through the real gateway and
+restores setup from persisted server preferences after an incomplete browser
+draft. The initial RED returned the reported setup validation error before any
+launch. Desktop launch and inspector are declared external boundaries; this
+checks launch intent and gateway forwarding, not a real Steam process. A remote
+selection must reject launch without forwarding a headless ownership change; an
+already connected remote bridge must allow forwarding. Retain the setup screenshot
+and launch-boundary ledger and run `npm run test:e2e:verify`.
+
+Steam native rejection diagnostics use the console E2E
+`Steam bridge reports native save rejection`. The actual browser bridge sends
+HTTP heartbeats after a declared structured native save rejection. Verify its
+reason reaches the failure receipt, private response fields stay absent, and
+no release receipt or native disconnect occurs. The pre-code RED reproduced
+`[object Object]`; retain the heartbeat ledger as evidence.
+
+The Steam saved-setup journey also recreates the hosting service while its local
+bridge is already ready. The next handoff must refresh the native attachment
+without another desktop launch; a connected remote bridge must skip the local
+attachment. The pre-code RED observed no local refresh after service recreation.
+
+Steam numeric CODE-slot allocation uses `Steam bridge reserves a free native
+CODE slot`. The declared native API rejects UUID slots as `no_slot` and rejects
+writes to occupied slots. The browser bridge must choose a free numbered slot
+and preserve unrelated cache and its original snapshot. Native 17665 documents
+numbered slots 1–100 in `/savecode` and `filename_to_cdata`; a missing `X.codes`
+inventory is unknown and must not be treated as an empty account.

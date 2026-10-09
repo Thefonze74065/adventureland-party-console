@@ -5,6 +5,20 @@ import { createRealmChoice } from "./realm-choice.ts";
 import { createSteamRecovery, deliberatelyStopped, type GameWindow } from "./recovery.ts";
 import { steamObservations } from './observations.ts';
 
+/** Native api_call rejects plain objects; never serialize account/session fields. */
+function nativeErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object") {
+    const fields = error as Record<string, unknown>;
+    const messages = [fields.reason, fields.error, fields.message]
+      .filter((value): value is string => typeof value === "string" && !!value.trim())
+      .map(value => value.slice(0, 500));
+    if (messages.length) return [...new Set(messages)].join(": ");
+  }
+  return "Native Steam operation failed without an error reason";
+}
+
 const slotKey = "party-console-bootstrap-slot-v1";
 const operationKey = "party-console-steam-operation-v1";
 const releaseKey = "party-console-steam-release-v1";
@@ -63,7 +77,8 @@ interface NativeHost extends Pick<
   get_active_characters?(): Record<string, string>;
   start_character_runner?(name: string, slot: string): Promise<unknown>;
   stop_character_runner?(name: string): void;
-  X?: { characters: { name: string; id: string }[] };
+  // Native X.codes is the account CODE-slot inventory (17665 code_list).
+  X?: { characters: { name: string; id: string }[]; codes?: Record<string, unknown> };
   api_call(
     method: string,
     body: object,
@@ -116,17 +131,27 @@ export function installSteamBridge(host: NativeHost): void {
   async function ensureBootstrap(target: string): Promise<string> {
     const connectionSlotKey = slotKey + ":" + server;
     let slot = host.localStorage.getItem(connectionSlotKey);
+    const excluded = new Set<string>();
+    if (!slot || !/^(?:[1-9]|[1-9][0-9]|100)$/.test(slot)) slot = null;
     if (slot && !bootstrapSaved) {
       const response = await host.fetch("/code.js?name=" + encodeURIComponent(slot), { cache: "no-store",
         signal: AbortSignal.any([lifecycle.signal, AbortSignal.timeout(6000)]) });
       if (!response.ok) throw new Error("Cannot verify managed bootstrap slot");
       const code = (await response.text()).trim();
       const legacy = `globalThis.__partyServer=${JSON.stringify(server)};parent.__partyServer=globalThis.__partyServer;$.getScript(${JSON.stringify(server + "/CODE/adventure_land/universal-loader.js")});`;
-      if (code !== bootstrap && code !== legacy && code !== previousSteamBootstrap(server)) slot = null;
+      if (code !== bootstrap && code !== legacy && code !== previousSteamBootstrap(server)) { excluded.add(slot); slot = null; }
     }
-    if (!slot?.startsWith("party-console-")) {
-      // A fresh slot never overwrites a character's existing saved CODE.
-      slot = "party-console-" + crypto.randomUUID();
+    if (!slot) {
+      // Native CODE permits numbered slots 1..100, not arbitrary UUID names.
+      // Missing inventory is unknown, never permission to overwrite user CODE.
+      const codes = host.X?.codes;
+      if (!codes || typeof codes !== "object" || Array.isArray(codes))
+        throw new Error("Cannot inspect saved CODE slots. Refresh the Adventure Land account selection and retry.");
+      for (let candidate = 100; candidate >= 1; candidate--) {
+        const key = String(candidate);
+        if (!Object.hasOwn(codes, key) && !excluded.has(key)) { slot = key; break; }
+      }
+      if (!slot) throw new Error("No free Adventure Land CODE slot (1–100). Free a saved slot and retry; existing CODE has not been overwritten.");
     }
     if (!bootstrapSaved) {
       const saved = await host.api_call("save_code", {
@@ -253,8 +278,8 @@ export function installSteamBridge(host: NativeHost): void {
           // The game launch promise can outlive several bridge polls. Keep
           // heartbeats flowing and retry stale account-roster rejections.
           void Promise.resolve(host.start_character_runner(name, slot)).catch(error => {
-            startErrors.set(name, String(error?.reason || error));
-            console.warn("[Steam bridge] Starting " + name + ": " + String(error?.reason || error));
+            startErrors.set(name, nativeErrorMessage(error));
+            console.warn("[Steam bridge] Starting " + name + ": " + nativeErrorMessage(error));
           }).finally(() => host.setTimeout(() => starting.delete(name), 3000));
         }
       }
@@ -301,8 +326,9 @@ export function installSteamBridge(host: NativeHost): void {
       switcher.render(reply);
       await act(reply);
     } catch (error) {
-      console.warn("[Steam bridge] " + String(error));
-      if (reply?.operation) failure = { operationId: reply.operation.id, error: String(error) };
+      const message = nativeErrorMessage(error);
+      console.warn("[Steam bridge] " + message);
+      if (reply?.operation) failure = { operationId: reply.operation.id, error: message };
     } finally {
       if (!lifecycle.signal.aborted)
         timer = host.setTimeout(() => void poll(), 1000) as unknown as ReturnType<

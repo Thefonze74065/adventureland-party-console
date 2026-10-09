@@ -8,10 +8,12 @@ el('toggleSession').onclick=()=>sessionVisible(el('session').type==='password');
 async function call(path,body){const r=await fetch('/setup/'+path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});const data=await r.json();if(!r.ok)throw Error(data.error||'Setup request failed');return data}
 const action=(id,fn)=>el(id).onclick=async()=>{el(id).disabled=true;el('error').textContent='';try{await fn()}catch(e){el('error').textContent=e.message}finally{el(id).disabled=false}};
 function preferences(){return {placement:el('placement').value,client:el('client').value,https:forceHttps}}
-function savePreferences(){try{localStorage.setItem('party-connection-setup',JSON.stringify(preferences()))}catch{}}
+function validPreferences(p){return p&&['same','remote'].includes(p.placement)&&['windows-steam','linux-steam','windows-browser','linux-browser'].includes(p.client)}
+function savePreferences(){if(!validPreferences(preferences()))return;try{localStorage.setItem('party-connection-setup',JSON.stringify(preferences()))}catch{}}
 function restorePreferences(){
  let p={};try{p=JSON.parse(localStorage.getItem('party-connection-setup')||'{}')}catch{}
  const q=new URLSearchParams(location.search);if(q.has('placement'))p={placement:q.get('placement'),client:q.get('client'),https:q.get('https')==='1'};
+ if(!validPreferences(p))p=validPreferences(state.steamPreferences)?state.steamPreferences:{};
  el('placement').value=p.placement||'';el('client').value=p.client||'';forceHttps=p.https===true;
 }
 function selection(){
@@ -57,7 +59,7 @@ async function generateLoader(){
  el('code').value=r.code;el('copy').disabled=false;linkReady=true;el('linkStatus').textContent='Waiting for your client to connect…';void watchConnection(generation);
 }
 async function refresh(){
- state=await call('state');serverAddress=state.serverAddress||location.origin;el('address').textContent=serverAddress;
+ const firstRefresh=!Object.keys(state).length;state=await call('state');if(firstRefresh)restorePreferences();serverAddress=state.serverAddress||location.origin;el('address').textContent=serverAddress;
  el('pair').hidden=true;el('settings').hidden=false;el('account').hidden=!state.canConfigureAccount||state.configured;el('paths').hidden=!state.configured;el('invite').hidden=!state.requirePairing;
  const selected=el('realm').value,realms=state.realms||[];
  el('realm').replaceChildren(...realms.map(realm=>new Option(realm,realm)));

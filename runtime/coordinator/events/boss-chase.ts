@@ -16,7 +16,8 @@ export type ChasedBoss = (typeof chasedBosses)[number];
 /** The event a character selects (a G.events key) to opt into chasing each boss. */
 export const chasedBossEvents: Record<ChasedBoss, string> = {
   franky: "franky", icegolem: "icegolem", crabxx: "crabxx",
-  mrpumpkin: "halloween", mrgreen: "halloween", dragold: "lunarnewyear", grinch: "holidayseason",
+  // Halloween bosses are selected per boss (event-policy.ts).
+  mrpumpkin: "mrpumpkin", mrgreen: "mrgreen", dragold: "lunarnewyear", grinch: "holidayseason",
 };
 
 export interface BossChaseTrip {

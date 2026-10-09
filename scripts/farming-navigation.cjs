@@ -1,5 +1,6 @@
 // Coordinator-owned farming intent. Event snapshots never authorize movement.
 const farmZones = require('../characters/farming-zones.cjs');
+const {returnArrivalRadius}=require('../runtime/coordinator/navigation/halloween-return-arrival.ts');
 module.exports = function farmingNavigation(party, hooks) {
   const now = hooks.now || Date.now;
   party.navigationIntents ||= {};
@@ -33,13 +34,13 @@ module.exports = function farmingNavigation(party, hooks) {
     if (!saved) return owner.waypoints ? null : waypoint(name);
     return saved.revision === intent(name).revision ? saved.location : null;
   }
-  function at(name, destination) {
+  function at(name, destination, radius=180) {
     const status = party.statuses[name];
     return !!(destination && status && status.seenAt >= now() - 10000 && !status.rip && status.hp !== 0 &&
       status.map === destination.map && (destination.in == null || String(status.in ?? status.map) === String(destination.in)) &&
       (destination.boundary || destination.polygon || destination.shapes || destination.allOf
         ? farmZones.contains(destination, status, 0, 180)
-        : Math.hypot(Number(status.x) - destination.x, Number(status.y) - destination.y) <= 180));
+        : Math.hypot(Number(status.x) - destination.x, Number(status.y) - destination.y) <= radius));
   }
   function releaseReturn(owner) {
     const routes = Object.values(owner.returnRoutes || {});
@@ -165,7 +166,7 @@ module.exports = function farmingNavigation(party, hooks) {
     }
     owner.returnRoutes = routes;
     if (!Object.keys(routes).length) { finish(owner, 'no active farming waypoint'); hooks.persist(); return true; }
-    const pending = Object.keys(routes).filter(name => !at(name, routes[name].location));
+    const pending = Object.keys(routes).filter(name => !at(name, routes[name].location,returnArrivalRadius(owner)));
     if (!pending.length) { finish(owner, 'already at return destination'); hooks.persist(); return true; }
     const leaderRoute = routes[party.leader];
     const group = leaderRoute ? pending.filter(name => {
@@ -209,7 +210,7 @@ module.exports = function farmingNavigation(party, hooks) {
     const routes = owner.returnRoutes;
     if (!routes) return false;
     const pending = Object.keys(routes).filter(name => routes[name].revision === intent(name).revision &&
-      !intent(name).cancelled && !routes[name].engagedAt && !at(name, routes[name].location));
+      !intent(name).cancelled && !routes[name].engagedAt && !at(name, routes[name].location,returnArrivalRadius(owner)));
     if (!pending.length) { finish(owner, 'return completed'); hooks.persist(); return true; }
     if (now() - owner.returnDispatchedAt < 2000) return false;
     // A failed barrier cannot make progress, even though its identity still matches.

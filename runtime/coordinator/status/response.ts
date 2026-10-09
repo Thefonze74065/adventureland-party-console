@@ -201,7 +201,7 @@ export function createHeartbeatResponse(state: HeartbeatState, ports: HeartbeatR
       ...travelResponse(name),
       ...merchantResponse(name),
       ...(name === state.merchantCharacter ? { merchantEventRecoveryReserved: merchantEventRecoveryReserved(state) } : {}),
-      ...partyResponse(state, names, leader),
+      ...partyResponse(state, names, leader, state.statuses[name]?.server),
       groupedCombat: ports.groupedCombat(),
         passingEncounters: passingReports(),
       passingControl: passingAdmission(),

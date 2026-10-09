@@ -21,6 +21,78 @@ test.describe('native Hunt lifecycle', () => {
     await artifact(live, info, 'booboo-native-door-combat-reward', { before, destination, loadout: 'god' });
   });
 
+  test('native Boo Boo walking return reuses its validated route after a communication hold', async ({ live }, info) => {
+    test.setTimeout(900_000);
+    await party(live);
+    await quests(live,info,{[W]:{id:'booboo',count:1},[P]:{id:'booboo',count:1}});
+    const before=await world(live),destination=await start(live,W,'booboo');
+    await expect.poll(async()=>{
+      const s=await live.state();
+      return s.characters[W]?.monsterHunt?.count===0 && profile(s).monsterHunt?.stage==='returning' &&
+        s.activeConvoy?.returnRouting && s.characters[W].map===destination.map;
+    },{timeout:300_000,intervals:[100],message:'Real Boo Boo kill must establish the existing return checkpoint'}).toBe(true);
+    const cycle=profile(await live.state()).monsterHunt.cycleId;
+    await live.restoreHistoricalSettings(settings=>{
+      const owner=settings.farmingProfiles[W],hunt=owner.monsterHunt,convoy=owner.activeConvoy||settings.activeConvoy;
+      expect(hunt.cycleId).toBe(cycle);expect(convoy.returnRouting).toBe(true);
+      const policy={map:destination.map,interruptions:0,walking:true};
+      hunt.returnDisableTown=true;hunt.returnTown=policy;
+      convoy.disableTown=true;convoy.returnTown=policy;convoy.nativeFallback=false;
+      return {farmingProfiles:{...settings.farmingProfiles,[W]:owner},monsterHunt:hunt,activeConvoy:convoy};
+    });
+    let original:any,held:any,resumed:any,blocking=false;
+    const faults:any[]=[],context=live.clients[W].page.context();
+    const intercept=async(route:import('@playwright/test').Route)=>{
+      const request=route.request(),body=request.method()==='POST'?request.postDataJSON():null;
+      if(blocking&&fighters.includes(body?.name)&&body.combatWait!==true){
+        faults.push({at:Date.now(),name:body.name,fast:!!body.combatOnly,sequence:body.travelSample?.sequence});
+        await route.abort('failed');return;
+      }
+      await route.continue();
+    };
+    const native=()=>Promise.all(fighters.map(name=>live.clients[name].frame.evaluate(()=>{
+      const w=(document.getElementById('maincode') as HTMLIFrameElement).contentWindow as any;
+      return {name:w.character.name,map:w.character.map,in:w.character.in,x:w.character.real_x,y:w.character.real_y,
+        moving:!!w.character.moving,navigation:w.convoyNavigationReport?.(),cache:w.__partySharedRouteRemainder};
+    })));
+    await context.route('**/party-api/status',intercept);
+    try{
+      await expect.poll(async()=>{
+        const s=await live.state(),c=s.activeConvoy;
+        if(c?.returnRouting&&c.disableTown&&c.phase==='travel'&&fighters.some(name=>s.characters[name]?.moving)){
+          original={convoy:c,native:await native()};return true;
+        }
+        return false;
+      },{timeout:180_000,intervals:[100],message:'Declared walking return must install and actually move before the communication fault'}).toBe(true);
+      blocking=true;
+      await expect.poll(async()=>{
+        const s=await live.state(),positions=await native();
+        if(s.activeConvoy?.phase==='communication-hold'&&positions.every(p=>!p.moving)){
+          held={convoy:s.activeConvoy,native:positions};return true;
+        }
+        return false;
+      },{timeout:20_000,message:'Dropping both real report channels must hold and stop native travel'}).toBe(true);
+      blocking=false;
+      await expect.poll(async()=>{
+        const s=await live.state(),c=s.activeConvoy;
+        if(c?.id!==original.convoy.id||c.phase!=='travel')return false;
+        const leader=s.characters[c.leader]?.convoyNavigation;
+        if(leader?.reusedRoutes!==1||leader.routeSource!=='remainder')return false;
+        resumed={convoy:c,native:await native()};return true;
+      },{timeout:120_000,message:'Fresh owned recovery must reuse the validated walking remainder'}).toBe(true);
+      const cache=resumed.native.find((p:any)=>p.name===W).cache;
+      expect(cache.plot.some((step:any)=>step.town),'Reused walking checkpoint must not contain a Town action').toBe(false);
+      expect(profile(await live.state()).monsterHunt.cycleId).toBe(cycle);
+      await expect.poll(async()=>tokens((await world(live))[W]),{timeout:300_000}).toBe(tokens(before[W])+1);
+      expect((await live.clients[W].events()).some((e:any)=>e.event==='hit'&&e.data?.kill)).toBe(true);
+      expect((await world(live))[W].map).toBe('main');
+      await artifact(live,info,'native-walking-return-cache-reward',{before,destination,cycle,original,held,resumed,faults});
+    }finally{
+      blocking=false;await context.unroute('**/party-api/status',intercept);
+      await info.attach('native-walking-return-cache-fault-ledger',{body:JSON.stringify({cycle,original,held,resumed,faults}),contentType:'application/json'});
+    }
+  });
+
   test('native quest expiration records one failure, survives restart and obtains a fresh Daisy quest', async ({ live }, info) => {
     await party(live);
     await location(live);

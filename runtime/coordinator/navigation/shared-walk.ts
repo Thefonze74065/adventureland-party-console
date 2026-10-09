@@ -31,7 +31,10 @@ interface WalkState extends SharedState {
   } | null };
   leader: string | null; merchantCharacter: string | null;
   eventReturn?: {
+    event?: string;
+    cycleId?: string;
     participants: string[];
+    pending?: string[];
     returnRoutes?: Record<string, { commandId?: number; revision: number }> | null;
   } | null;
 }
@@ -42,10 +45,12 @@ function parse(body: Record<string, unknown>, now: number): WalkRequest | null {
   if (typeof body.token !== "string" || body.token.length > 300 || typeof body.key !== "string" || body.key.length > 200) return null;
   return { name: String(body.character), token: body.token, runtimeId: String(body.runtimeId),
     revision: Number(body.navigationRevision), activity: String(body.activity), key: body.key, at: now,
-    parentId: Number(body.parentCommandId) || 0, destination: {map:p.map,x:p.x,y:p.y} };
+    parentId: Number(body.parentCommandId) || 0, destination: p };
 }
 function sameWalk(a: WalkRequest, b: WalkRequest): boolean {
-  return a.activity === b.activity && a.key === b.key && distance(a.destination, b.destination) <= 1;
+  return a.activity === b.activity && a.key === b.key &&
+    String(a.destination.in ?? a.destination.map) === String(b.destination.in ?? b.destination.map) &&
+    distance(a.destination, b.destination) <= 1;
 }
 /** Coalesces independently entered workflow walking legs without duplicating their continuations. */
 export function createSharedWalks(input: unknown, ports: WalkPorts) {
@@ -97,12 +102,46 @@ export function createSharedWalks(input: unknown, ports: WalkPorts) {
   }
   function eligible(r: WalkRequest): string[] {
     const server = state.statuses[r.name]?.server;
-    const names = merchantWalk(r) ? [r.name] : ports.members();
+    const names = workflowMembers(r);
     return names.filter(name => {
       const s = state.statuses[name];
       if (!s || s.rip || s.seenAt < ports.now() - 3000 || s.server !== server) return false;
       return r.activity !== "event" || ports.enabled(name, r.key);
     });
+  }
+  function workflowMembers(r: WalkRequest): string[] {
+    if (merchantWalk(r)) return [r.name];
+    const names = ports.members(), recovery = state.eventReturn;
+    // Town-ready members already supplied the native receipt and no longer
+    // run an exit command. They cannot join this remaining walking rendezvous.
+    if (r.activity === "event-return" && recovery?.cycleId === r.key && recovery.pending)
+      return names.filter(name => recovery.pending!.includes(name));
+    return names.filter(name => !alreadyFighting(r, name));
+  }
+  function alreadyFighting(r: WalkRequest, name: string): boolean {
+    if (r.activity !== "event" || name === r.name) return false;
+    const s = state.statuses[name];
+    if (!s) return false;
+    const boss = s.eventCombatSighting;
+    if (!boss || !boss.id || s.joinedEvent !== r.key || boss.mtype !== r.key) return false;
+    return freshAttendee(r, s) && freshBoss(boss) && bossAtDestination(r, s, boss);
+  }
+  function freshAttendee(r: WalkRequest, s: NonNullable<SharedState["statuses"][string]>): boolean {
+    const now = ports.now(), server = state.statuses[r.name]?.server;
+    return !!server && s.server === server && Number.isFinite(s.seenAt) &&
+      s.seenAt >= now - 3000 && s.seenAt <= now + 1000 && !s.rip;
+  }
+  function freshBoss(boss: NonNullable<SharedState["statuses"][string]>["eventCombatSighting"]): boolean {
+    if (!boss || !readRoutePoint(boss) || !Number.isFinite(boss.observedAt)) return false;
+    const now = ports.now();
+    return boss.observedAt >= now - 3000 && boss.observedAt <= now + 1000;
+  }
+  function bossAtDestination(r: WalkRequest, s: NonNullable<SharedState["statuses"][string]>,
+    boss: NonNullable<typeof s.eventCombatSighting>): boolean {
+    return boss.map === s.map && boss.map === r.destination.map &&
+      String(boss.in) === String(s.in ?? s.map) &&
+      String(boss.in) === String(r.destination.in ?? r.destination.map) &&
+      distance(boss, r.destination) <= 100;
   }
   function pending(r: WalkRequest): WalkRequest[] {
     return [...requests.values()].filter(other => !other.complete && !other.failed && !other.convoyId &&
@@ -172,13 +211,19 @@ export function createSharedWalks(input: unknown, ports: WalkPorts) {
     convoy.walkingActivity = waiting[0]?.activity;
     // Staging shares the moving-defense return policy with Hunt turn-in.
     convoy.navigationExempt = returning;
-    if (convoy.walkingActivity === "anniversary-staging") convoy.continuousReturn = 1;
+    if (convoy.walkingActivity === "anniversary-staging" || halloweenExit(convoy, waiting)) convoy.continuousReturn = 1;
     convoy.combatHandoffAllowed = false;
     for (const name of convoy.participants) state.commands[name]!.navigationExempt = convoy.navigationExempt;
     waiting.forEach(other => { other.convoyId = convoy.id; });
     retainParents(convoy, waiting);
     sessions.set(convoy, { requests: waiting, convoy });
     ports.persist();
+  }
+  function halloweenExit(convoy: SharedConvoy, waiting: WalkRequest[]): boolean {
+    const recovery = state.eventReturn;
+    return convoy.walkingActivity === "event-return" && !!recovery &&
+      ["slenderman", "mrgreen", "mrpumpkin"].includes(recovery.event || "") &&
+      waiting.some(r => r.key === recovery.cycleId);
   }
   function existing(r: WalkRequest): Record<string, unknown> | null {
     const prior = requests.get(r.name);

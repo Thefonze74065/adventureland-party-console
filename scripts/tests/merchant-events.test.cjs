@@ -25,7 +25,7 @@ function client(event='snowman') {
   eventRequiresJoin:()=>event!=='snowman',join:async name=>{calls.push(['join',name]);c.character.map='winterland';},
   sharedPartyWalk:async(...args)=>calls.push(['walk',...args]),game_log(){},Date,
   request:async(...args)=>{calls.push(['request',...args]);return {yield:true};}};
- vm.createContext(c);vm.runInContext(functions(shared,['merchantEventWorkReserved','yieldMerchantForEvent','joinCombatEvent','pollEvents','rejoinActiveEventAfterRespawn']),c);
+ vm.createContext(c);vm.runInContext(functions(shared,['merchantEventWorkReserved','yieldMerchantForEvent','joinCombatEvent','pollEvents','rejoinActiveEventAfterRespawn','eventExitOwnsMovement']),c);
  return {c,calls};
 }
 test('merchant reservations survive restart, deselection and deferred return, then release',()=>{

@@ -14,6 +14,9 @@ export interface Character extends Point, Pick<GameCharacter, 'name' | 'real_x' 
 export interface MovementHost {
   character: Character; G: GameData & { version: number };
   smart: MoveState;
+  // Pinned runner 15555 exposes BFS queue/start globals; typed-adventureland
+  // omits these internal counters. Optional: unknown runners keep normal bounds.
+  queue?: unknown[]; start?: number;
   smart_move(this: void, destination: unknown, callback?: (done: boolean) => void): Promise<unknown>;
   smart_move_logic(this: void): void;
   start_pathfinding(this: void): void; continue_pathfinding(this: void): void;
@@ -59,6 +62,8 @@ export interface MovementOptions {
   // duplicating its search. Large generated floors need an explicit bound.
   awaitSharedRoute?: boolean;
   nativePlanningTimeoutMs?: number;
+  // Cave-only maximum while the same native BFS keeps advancing.
+  nativePlanningProgressMs?: number;
   barrier?: (step: Step, index: number, completed: boolean) => Promise<boolean>;
 }
 export interface MovementPorts {

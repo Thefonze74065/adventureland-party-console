@@ -9,13 +9,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { useEffect, useState } from "react";
 
-type Encounter = "franky" | "halloween";
+type Encounter = "franky";
 const encounterCopy: Record<Encounter, { title: string; boss: string; offtank: string; tank: string }> = {
   franky: { title: "Franky routine", boss: "Franky", offtank: "Stack on whoever else has aggro; leave the room if Franky targets you",
     tank: "Engage Franky directly and hold at weapon range, like normal combat" },
-  halloween: { title: "Halloween routine", boss: "the Halloween boss",
-    offtank: "Attack once someone else has held the boss for 5 seconds; step out of its range if it targets you",
-    tank: "Engage Mr. Pumpkin or Mr. Green directly and hold at weapon range" },
 };
 const frankyModes: { id: string; label: string; description: string; color: string }[] = [
   {
