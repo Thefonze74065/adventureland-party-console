@@ -3870,6 +3870,7 @@
 
   // A visit spans all bank floors, and is captured before any asynchronous banking work.
   var bankSortVisit = null, bankSortPass = null, bankSortFlight = null, bankSortObserved = false, bankSortRecovered = false, bankSortRecoveryFlight = null;
+  var bankSortLayout = "packed";
   function bankSortMap(map) { return /^bank(?:_|$)/.test(String(map)); }
   function observeBankSortVisit() {
     if (!bankSortMap(character.map)) { bankSortVisit = null; bankSortObserved = true; return; }
@@ -3887,6 +3888,7 @@
   }
   async function bankSortAuthorization() {
     var state = await bankSortCheckpoint("read");
+    bankSortLayout = state.layout === "gapped" ? "gapped" : "packed";
     if (state.mode === "automatic") return !bankSortPass;
     return !!(bankSortPass && state.pending && state.pending.id === bankSortPass &&
       state.pending.runtime === convoyRuntimeId && state.pending.visit === bankSortVisit.id);
@@ -4042,6 +4044,89 @@
     return (Number(second.level) || 0) - (Number(first.level) || 0);
   }
 
+  // Gapped layout: sorted like the packed one, but each category starts on its own row
+  // (7 slots, never spanning packs) with free slots left in it. Items already in order
+  // stay put and a new item drops into a free slot between its neighbours, so a change
+  // moves a few items instead of shifting the whole bank. Returns the item wanted at
+  // each location, or null when the categories can't each have their own rows.
+  function gappedBankLayout(locations, current) {
+    var rowOf = [], rowStart = [];
+    locations.forEach(function (location, index) {
+      var previous = locations[index - 1];
+      if (!previous || previous.pack !== location.pack || location.slot % 7 === 0) rowStart.push(index);
+      rowOf.push(rowStart.length - 1);
+    });
+    var items = [];
+    current.forEach(function (item, index) { if (item) items.push({ item: item, at: index, category: bankSortCategory(item) }); });
+    items.sort(function (a, b) { return compareBankItems(a.item, b.item) || a.at - b.at; });
+    function fresh() {
+      var counts = [], order = [];
+      items.forEach(function (entry) {
+        if (!counts[entry.category]) { counts[entry.category] = 0; order.push(entry.category); }
+        counts[entry.category] += 1;
+      });
+      var rows = {}, needed = 0;
+      order.forEach(function (category) { rows[category] = Math.ceil(counts[category] / 7); needed += rows[category]; });
+      if (needed > rowStart.length) return null;
+      // Leftover rows become one spare row per category, front to back.
+      for (var spare = rowStart.length - needed, k = 0; spare > 0 && k < order.length; k += 1, spare -= 1) rows[order[k]] += 1;
+      var plan = Array(locations.length).fill(null), row = 0, next = 0;
+      order.forEach(function (category) {
+        var slot = rowStart[row], end = row + rows[category] < rowStart.length ? rowStart[row + rows[category]] : locations.length;
+        for (; next < items.length && items[next].category === category && slot < end; next += 1, slot += 1) plan[slot] = items[next].item;
+        row += rows[category];
+      });
+      return next === items.length ? plan : null;
+    }
+    // Longest chain of items that can stay: same category in slot order, a later
+    // category on a strictly later row.
+    var length = items.map(function () { return 1; }), from = items.map(function () { return -1; });
+    function fits(a, b) { return a.category === b.category ? a.at < b.at : rowOf[a.at] < rowOf[b.at]; }
+    for (var j = 0; j < items.length; j += 1) for (var i = 0; i < j; i += 1)
+      if (fits(items[i], items[j]) && length[i] + 1 > length[j]) { length[j] = length[i] + 1; from[j] = i; }
+    var best = -1;
+    length.forEach(function (value, index) { if (best < 0 || value > length[best]) best = index; });
+    var kept = items.map(function () { return false; });
+    for (var link = best; link >= 0; link = from[link]) kept[link] = true;
+    var plan = Array(locations.length).fill(null), taken = Array(locations.length).fill(false);
+    items.forEach(function (entry, index) { if (kept[index]) { plan[entry.at] = entry.item; taken[entry.at] = true; } });
+    var placed = [], previous = null;
+    for (var n = 0; n < items.length; n += 1) {
+      var entry = items[n];
+      if (kept[n]) { previous = { at: entry.at, category: entry.category }; continue; }
+      var spot = -1;
+      while (spot < 0) {
+        var upcoming = -1;
+        for (var m = n + 1; m < items.length && upcoming < 0; m += 1) if (kept[m]) upcoming = m;
+        var bound = upcoming >= 0 ? items[upcoming] : null;
+        for (var slot = previous ? previous.at + 1 : 0; slot < locations.length && spot < 0; slot += 1) {
+          if (taken[slot]) continue;
+          if (previous && previous.category !== entry.category && rowOf[slot] <= rowOf[previous.at]) continue;
+          if (bound && (bound.category === entry.category ? slot > bound.at : rowOf[slot] >= rowOf[bound.at])) break;
+          spot = slot;
+        }
+        if (spot >= 0) break;
+        // No room before the next item that stays: move that one along too. This shifts
+        // items only until the first category with free slots absorbs the change.
+        if (!bound) return fresh();
+        kept[upcoming] = false; taken[bound.at] = false; plan[bound.at] = null;
+      }
+      plan[spot] = entry.item; taken[spot] = true; previous = { at: spot, category: entry.category };
+    }
+    // Every category needs a free slot before the next one starts, or the next new
+    // item of that category would have nowhere to go.
+    var lastAt = {};
+    plan.forEach(function (item, index) { if (item) lastAt[bankSortCategory(item)] = index; });
+    var roomy = Object.keys(lastAt).every(function (category) {
+      for (var slot = lastAt[category] + 1; slot < locations.length; slot += 1) {
+        if (!plan[slot]) return true;
+        if (bankSortCategory(plan[slot]) !== Number(category)) return false;
+      }
+      return false;
+    });
+    return roomy ? plan : fresh();
+  }
+
   function bankPacksOnCurrentFloor() {
     var definitions = typeof bank_packs !== "undefined" ? bank_packs : (parent.bank_packs || {});
     return Object.keys(character.bank || {}).filter(function (pack) {
@@ -4064,7 +4149,7 @@
     await consolidateCurrentBankFloor(activity);
     if (!await bankSortAuthorization()) return;
     await cleanupBankSortBuffers();
-    var signature = bankSortSignature();
+    var signature = bankSortLayout + bankSortSignature();
     if (bankSortVisit.floors[character.map] === signature) return;
     var packs = bankPacksOnCurrentFloor();
     if (!packs.length) throw new Error("Bank floor data unavailable during sorting");
@@ -4089,11 +4174,12 @@
         bankItems.push(character.bank[pack][slot] || null);
       }
     });
+    var gapped = bankSortLayout === "gapped" ? gappedBankLayout(usableLocations, bankItems) : null;
     bankItems.sort(compareBankItems);
     var desired = {};
     packs.forEach(function (pack) { desired[pack] = Array(42).fill(null); });
     usableLocations.forEach(function (location, index) {
-      desired[location.pack][location.slot] = bankItems[index] || null;
+      desired[location.pack][location.slot] = (gapped ? gapped[index] : bankItems[index]) || null;
     });
     var operations = 0, limit = Math.max(200, bankItems.length * 3), failure = null;
     try {
@@ -4137,7 +4223,7 @@
       return false;
     });
     if (stillMisplaced) throw new Error("Bank sorting stopped before every item was placed");
-    bankSortVisit.floors[character.map] = bankSortSignature();
+    bankSortVisit.floors[character.map] = bankSortLayout + bankSortSignature();
     if (operations) {
       activity.push({ level: "success", message: "Sorted " + packs.length + " bank pack" + (packs.length === 1 ? "" : "s") });
       // Publish the final slot order before a short job can leave the bank;

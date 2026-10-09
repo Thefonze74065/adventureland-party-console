@@ -85,6 +85,7 @@ export const validators: Record<string, (value: unknown) => boolean> = {
       ),
   ),
   bankSortMode: value => value === "automatic" || value === "request",
+  bankSortLayout: value => value === "packed" || value === "gapped",
   gatheringModes: listOf(text),
   gatheringNoTool: mapOf(boolean),
 };

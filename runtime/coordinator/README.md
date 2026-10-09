@@ -996,6 +996,14 @@ only quantity edits replace the remainder. Completed or replaced orders reject
 stale field edits. Validate with `native-stand.test.cjs`,
 `native-stand-client.test.cjs`, and `active-wtb-fields.test.cjs`.
 
+`bankSortLayout: "gapped"` (Merchant settings, "Leave gaps between item types";
+default `"packed"`) keeps the same sorted order but starts each item category on
+its own 7-slot row and leaves free slots. Items already in order stay, and new
+items take a nearby free slot, so a change moves a few items instead of shifting
+the whole floor. A full bank falls back to the packed layout. The checkpoint
+returns the layout with the mode. Failure inventory:
+`e2e/bank-sort-gaps-failures.md`; validate `live-bank-sort-gaps.spec.ts`.
+
 Bank sorting defaults to `bankSortMode: "automatic"`. Merchant settings can select
 `"request"`; the bank window then queues/cancels a durable, uniquely identified
 sort without dispatching travel. All cosmetic sorting callers in the shared
