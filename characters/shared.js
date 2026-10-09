@@ -15638,12 +15638,12 @@
     });
     return desired;
   }
-  function formationStepSafe(point, reference, priest, selfPriest, members, safeRange) {
+  function formationStepSafe(point, reference, priest, selfPriest, members, safeRange, separate) {
     if(!safeCombatPoint(point,reference))return false;
     var body=formationBody(character,point);
-    var covered=selfPriest ? members.every(function(ally){return ally.name===character.name ||
+    var covered=!!separate || (selfPriest ? members.every(function(ally){return ally.name===character.name ||
       formationDistance(body,ally)<=Math.max(safeRange,formationDistance(character,ally))+0.01;}) :
-      formationDistance(body,priest)<=Math.max(safeRange,formationDistance(character,priest))+0.01;
+      formationDistance(body,priest)<=Math.max(safeRange,formationDistance(character,priest))+0.01);
     if(!covered)return false;
     var obstacles=formationFrame.enemies.filter(function(e){return e.id!==reference.id || !formationMelee(character);});
     return priestSecondaryClearance(point,obstacles).risk<=priestSecondaryClearance(character,obstacles).risk+0.01;
@@ -15802,7 +15802,11 @@
           selfPriest ? 0 : -formationDistance(candidate, priest), turn] };
     }
     var current = metrics(character);
-    if(recoveryCandidate && !recoveryCandidate.blocked && formationStepSafe(recoveryCandidate,reference,priest,selfPriest,members,safeRange)) {
+    // A melee fighter nothing is attacking may leave healing coverage to get around a
+    // wall while its target fights someone else (#83); any attacker or low HP ends it.
+    var separate=!selfPriest && formationMelee(character) && !attackers.length &&
+      Number(character.hp) >= Number(character.max_hp) * 0.6 && !!reference.target && reference.target !== character.name;
+    if(recoveryCandidate && !recoveryCandidate.blocked && formationStepSafe(recoveryCandidate,reference,priest,selfPriest,members,safeRange,separate)) {
       sendCombatMove(reference,recoveryCandidate,"formation-regrouping");
       root.partyCombatPosition.reason="local detour around blocked approach";
       root.partyCombatPosition.coverageDeficit=metrics(recoveryCandidate).coverage;
