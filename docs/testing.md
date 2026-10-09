@@ -33,6 +33,14 @@ payloads (retained isolated exception; failure inventory written first).
 `scripts/tests/chase-return.test.cjs` covers a refused return home for both chases the
 same way (failure inventory: `e2e/chase-return-failures.md`).
 
+Party terrain recovery goals around a large target use
+`scripts/tests/terrain-recovery-goals.test.cjs` (retained isolated exception;
+failure inventory: `e2e/terrain-goals-hitbox-failures.md`). The live harness has
+no outside player to hold a Phoenix away from the party, and a stunned Phoenix
+desynchronises the clients' view of its position. The test runs the real goal
+search against the game's own `distance()`, from the pinned game files or the
+ChronAL install.
+
 Phoenix split search uses
 `npm test -- -- --project=live --grep "Phoenix patrol splits"`. The declared
 fixture replaces the server's Phoenix with one created from the server's own
