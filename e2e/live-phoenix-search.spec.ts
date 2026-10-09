@@ -121,6 +121,88 @@ test('Phoenix patrol splits the fighters, holds fire until they gather, then spr
   }
 });
 
+// Failure 15a: the Phoenix already fights one fighter before the party gathers.
+// The spotter engages at once; the other fighter must keep converging and join.
+test('Phoenix already fighting the spotter: the other fighter keeps converging and joins the fight',async({live},info)=>{
+  test.setTimeout(1_200_000);
+  const timeline:any[]=[];
+  let sampling=true;
+  const sample=async()=>{
+    while(sampling) {
+      try {
+        const [state,positions]=await Promise.all([live.state(),world(live)]);
+        timeline.push({at:Date.now(),encounter:state.rareHuntState?.encounter,
+          positions:Object.fromEntries([W,P].map(n=>[n,{map:positions.players[n].map,x:Math.round(positions.players[n].x),y:Math.round(positions.players[n].y)}]))});
+      } catch(error) { timeline.push({at:Date.now(),error:String(error)}); }
+      await new Promise(resolve=>setTimeout(resolve,1000));
+    }
+  };
+  let sampler:Promise<void>|undefined;
+  try {
+    await live.post('/formation',{leader:W});
+    await live.post('/formation',{character:P,follow:true});
+    await expect.poll(async()=>(await live.state(true)).monsterChoices?.find((m:any)=>m.id==='phoenix')?.locations?.length,{timeout:120_000}).toBe(5);
+    const order=zones((await live.state(true)).monsterChoices,['phoenix']).map(a=>a.id!);
+    // Declared fixture: as in the first journey, but with enough HP that the spotter
+    // cannot finish it alone before the other fighter arrives.
+    const seeded=await live.admin(`output=(()=>{
+      const found=[];for(const instance of Object.values(instances))for(const m of Object.values(instance.monsters||{}))if(m.type==='phoenix'&&!m.dead)found.push(m);
+      if(found.length!==1)throw Error('Expected one native Phoenix, found '+found.length);
+      const native=found[0],definition=native.map_def,boundaries=definition.boundaries,original=G.monsters.phoenix;
+      remove_monster(native,{nospawn:true,silent:true});
+      try {
+        definition.boundaries=boundaries.filter(b=>b[0]==='halloween');
+        G.monsters.phoenix={...original,hp:2000000,attack:1};
+        const m=new_monster('halloween',definition,{});
+        return {id:m.id,map:m.map,x:m.x,y:m.y,hp:m.hp};
+      } finally {definition.boundaries=boundaries;G.monsters.phoenix=original;}
+    })()`);
+    await live.post('/navigate-to-monster',{monsterId:'phoenix',phoenixRouteOrder:order});
+    sampler=sample();
+    await expect.poll(async()=>(await live.state()).rareHuntState?.encounter?.targetId,{timeout:900_000,intervals:[500],
+      message:'A searcher must find the seeded Phoenix'}).toBe(seeded.id);
+
+    // The Phoenix aggroes the fighter nearest to it, before the other one gathers.
+    const aggro=await live.admin(`output=(()=>{
+      const m=Object.values(instances.halloween.monsters).find(m=>m.id===${JSON.stringify(seeded.id)});
+      const near=Object.values(players).filter(p=>p.map==='halloween'&&[${JSON.stringify(W)},${JSON.stringify(P)}].includes(p.name))
+        .sort((a,b)=>Math.hypot(a.x-m.x,a.y-m.y)-Math.hypot(b.x-m.x,b.y-m.y))[0];
+      if(!near)throw Error('No fighter on the Phoenix map');
+      target_player(m,near);
+      const others=Object.values(players).filter(p=>[${JSON.stringify(W)},${JSON.stringify(P)}].includes(p.name)&&p.name!==near.name)
+        .map(p=>({name:p.name,map:p.map,x:p.x,y:p.y,distance:p.map===m.map?Math.hypot(p.x-m.x,p.y-m.y):null}));
+      return {spotter:near.name,target:m.target,phoenix:{x:m.x,y:m.y},others,at:Date.now()};
+    })()`);
+    await info.attach('phoenix-aggro-before-gather',{body:JSON.stringify(aggro,null,2),contentType:'application/json'});
+    const walker=aggro.others[0];
+    expect(walker.distance===null||walker.distance>300,'The other fighter must still be converging when the fight starts').toBe(true);
+
+    const hitsBy=async(name:string)=>(await live.clients[name].events())
+      .filter((event:any)=>event.event==='hit'&&String(event.data?.id)===String(seeded.id)&&event.data?.hid===name&&event.data?.damage>0);
+    await expect.poll(async()=>(await hitsBy(aggro.spotter)).length,{timeout:60_000,message:'The spotter must fight the Phoenix that targets it'}).toBeGreaterThan(0);
+    const spotterFirstHit=Math.min(...(await hitsBy(aggro.spotter)).map((event:any)=>event.at));
+
+    // The other fighter keeps walking in while the spotter fights, then joins.
+    const distance=async()=>live.admin(`output=(()=>{
+      const m=Object.values(instances.halloween.monsters).find(m=>m.id===${JSON.stringify(seeded.id)});
+      const p=Object.values(players).find(p=>p.name===${JSON.stringify(walker.name)});
+      return m&&p&&p.map===m.map?Math.hypot(p.x-m.x,p.y-m.y):null;
+    })()`);
+    await expect.poll(async()=>{const d=await distance();return d!==null&&d<=300;},{timeout:600_000,intervals:[1000],
+      message:'The other fighter must keep converging after the spotter starts fighting'}).toBe(true);
+    const arrivedAt=Date.now();
+    await expect.poll(async()=>(await hitsBy(walker.name)).length,{timeout:120_000,message:'The arriving fighter must join the fight'}).toBeGreaterThan(0);
+    const walkerFirstHit=Math.min(...(await hitsBy(walker.name)).map((event:any)=>event.at));
+    const walkerSamples=timeline.filter(s=>s.positions&&s.at>=aggro.at).map(s=>({at:s.at,...s.positions[walker.name]}));
+    await info.attach('phoenix-converge-during-fight',{body:JSON.stringify({aggro,spotterFirstHit,arrivedAt,walkerFirstHit,walkerSamples},null,2),contentType:'application/json'});
+    expect(walkerFirstHit,'The arriving fighter attacks only after reaching range').toBeGreaterThanOrEqual(arrivedAt-5000);
+  } finally {
+    sampling=false;
+    await sampler;
+    await info.attach('phoenix-converge-timeline',{body:JSON.stringify(timeline,null,2),contentType:'application/json'});
+  }
+});
+
 // Failure 8a: a lone searcher attacked by aggressive monsters must defend itself
 // and keep searching. Live, FonzeWarrior shuffled in place at this bee spawn.
 test.describe('searcher under attack',()=>{
