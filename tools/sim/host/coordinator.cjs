@@ -21,7 +21,8 @@ function coordinatorProcess({ clock, cwd, env }) {
   hrtime.bigint = () => BigInt(Math.round((clock.now - start) * 1e6));
   return Object.assign(new EventEmitter(), {
     env, argv: [process.execPath, "CharacterCoordinator.js"], execArgv: [], execPath: process.execPath, title: "sim-coordinator",
-    pid: 4242, ppid: 1, arch: process.arch, platform: process.platform, version: process.version, versions: process.versions,
+    // The real pid: the journal's writer lock reads /proc/<pid>/stat and /proc/<pid>/ns/pid.
+    pid: process.pid, ppid: 1, arch: process.arch, platform: process.platform, version: process.version, versions: process.versions,
     release: process.release, config: process.config, features: process.features,
     cwd: () => cwd, chdir: () => { throw new Error("[sim] the coordinator may not change directory"); },
     nextTick: process.nextTick, hrtime, uptime: () => (clock.now - start) / 1000,
