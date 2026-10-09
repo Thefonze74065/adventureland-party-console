@@ -111,6 +111,28 @@ export function installSteamBridge(host: NativeHost): void {
   const realmChoice = createRealmChoice(host.document, (operationId, choice) => post("/steam/realm-choice", { operationId, choice }));
   const starting = new Set<string>();
   const startErrors = new Map<string, string>();
+  let rosterRefreshPending: Promise<void> | null = null;
+  let lastRosterRefreshAt = 0;
+  async function refreshRejectedRoster(error: unknown): Promise<void> {
+    const reason = typeof error === "string" ? error :
+      error && typeof error === "object" && "reason" in error ? error.reason : null;
+    if (reason !== "already_running" || lifecycle.signal.aborted) return;
+    if (rosterRefreshPending) return rosterRefreshPending;
+    if (Date.now() - lastRosterRefreshAt < 3000) return;
+    lastRosterRefreshAt = Date.now();
+    // Verified native 15555 functions.js refreshes X.characters itself through
+    // handle_information. Its ordinary AFK refresh can lag ninety seconds.
+    // Never clear online flags: this request keeps account ownership authoritative.
+    rosterRefreshPending = Promise.resolve().then(async () => {
+      if (lifecycle.signal.aborted) return;
+      await host.api_call("servers_and_characters", {});
+      if (lifecycle.signal.aborted) return;
+    }).catch(refreshError => {
+      if (!lifecycle.signal.aborted)
+        console.warn("[Steam bridge] Refreshing account roster: " + nativeErrorMessage(refreshError));
+    }).finally(() => { rosterRefreshPending = null; });
+    return rosterRefreshPending;
+  }
   let missingSince = 0;
   const recovery = createSteamRecovery(host as NativeHost & GameWindow, bootstrap, ensureBootstrap,
     message => { console.warn("[Steam recovery] " + message); host.add_log?.(message, "#ffcc77"); });
@@ -277,10 +299,16 @@ export function installSteamBridge(host: NativeHost): void {
           starting.add(name);
           // The game launch promise can outlive several bridge polls. Keep
           // heartbeats flowing and retry stale account-roster rejections.
-          void Promise.resolve(host.start_character_runner(name, slot)).catch(error => {
+          void Promise.resolve(host.start_character_runner(name, slot)).catch(async error => {
+            if (lifecycle.signal.aborted) return;
             startErrors.set(name, nativeErrorMessage(error));
             console.warn("[Steam bridge] Starting " + name + ": " + nativeErrorMessage(error));
-          }).finally(() => host.setTimeout(() => starting.delete(name), 3000));
+            await refreshRejectedRoster(error);
+          }).finally(() => {
+            if (!lifecycle.signal.aborted) host.setTimeout(() => {
+              if (!lifecycle.signal.aborted) starting.delete(name);
+            }, 3000);
+          });
         }
       }
       return;

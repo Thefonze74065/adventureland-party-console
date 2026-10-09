@@ -15,7 +15,7 @@ test('completed production history is bounded while unfinished and latest retrie
 function fixture(){
  const state={merchantCharacter:'M',production:{attempts:{}},autoUpgradeMarks:{M:{'cap@+0':{tiers:1,quantity:2}}},autoCompounds:{}};
  const storage=new Map();let lost=false;
- const c=vm.createContext({yieldMerchantForEvent:async()=>{},character:{name:'M',ctype:'merchant',items:[{name:'cap',level:0}]},luckyUpgradeService:null,
+ const c=vm.createContext({productionJournalLoaded:false,productionJournal:null,yieldMerchantForEvent:async()=>{},character:{name:'M',ctype:'merchant',items:[{name:'cap',level:0}]},luckyUpgradeService:null,
   root:{localStorage:{getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)}},fingerprint:item=>item&&({...item}),
   request:async(_path,{body})=>{if(body.action==='pending')return {pending:pendingProduction(state.production,true)};if(body.action==='checkpoint')return checkpointProduction(state,body);if(body.action==='inspect')return inspectProduction(state,body);if(body.action==='complete'){finishProduction(state,body.id,body.success);if(lost){lost=false;throw Error('response lost')}}else beginProduction(state,body);},
  });
@@ -73,7 +73,7 @@ test('prepared admitted attempt finishes without replay, while unknown running i
  f.storage.set('party-production:M',JSON.stringify({id:body.id,item:body.item,slots:[0],phase:'prepared',request:body}));
  await f.c.recoverProductionJournal();assert.equal(f.state.production.attempts.admitted.success,false);
  const missing={...body,id:'missing'};
- f.storage.set('party-production:M',JSON.stringify({id:missing.id,item:missing.item,slots:[0],phase:'running',request:missing}));
+ f.c.writeProductionJournal({id:missing.id,item:missing.item,slots:[0],phase:'running',request:missing});
  await assert.rejects(f.c.recoverProductionJournal(),/missing admitted attempt/);assert.equal(f.storage.size,1);
 });
 

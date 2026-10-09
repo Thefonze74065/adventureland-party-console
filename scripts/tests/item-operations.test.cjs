@@ -103,6 +103,7 @@ test('upgrade preparation follows an item relocated during the protection checkp
   luckySlotTracking:()=>({begin(){}}),
   merchantLuckyUpgrade:()=>({run:async(from,scroll,_selected,action)=>action(from,scroll)}),
   upgradeAtSlotConfirmed:async(slot,scroll)=>{calls.push([slot,scroll]);return {slot,item:{name:'coat',level:3}};}});
+ require('./helpers/client-dependencies.cjs').productionJournalContext(c);
  vm.runInContext(require('./helpers/named-function.cjs').namedFunction(source,'observedUpgradeConfirmed'),c);
  const result=await c.observedUpgradeConfirmed(0,2,'coat',3);
  assert.deepEqual(calls,[[5,2]]);assert.equal(result.slot,5);

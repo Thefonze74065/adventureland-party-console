@@ -132,7 +132,7 @@ export function createSharedWalks(input: unknown, ports: WalkPorts) {
       s.seenAt >= now - 3000 && s.seenAt <= now + 1000 && !s.rip;
   }
   function freshBoss(boss: NonNullable<SharedState["statuses"][string]>["eventCombatSighting"]): boolean {
-    if (!boss || !readRoutePoint(boss) || !Number.isFinite(boss.observedAt)) return false;
+    if (!boss || boss.attackReachable !== true || !readRoutePoint(boss) || !Number.isFinite(boss.observedAt)) return false;
     const now = ports.now();
     return boss.observedAt >= now - 3000 && boss.observedAt <= now + 1000;
   }
@@ -167,7 +167,7 @@ export function createSharedWalks(input: unknown, ports: WalkPorts) {
   function canReplace(r: WalkRequest): boolean {
     const c = state.activeConvoy;
     if (!c) return true;
-    if (failedEntry(c)) return false;
+    if (failedEntry(c)) return runtimeTurnoverReady(c, r);
     if (c.restartRecovery && c.walkingParents && !c.retryExhausted) return ports.allowed(r.activity);
     return r.activity === "event" && !sessions.has(c) && !c.navigationExempt && !c.nonPreemptible && ports.allowed(r.activity);
   }
@@ -198,12 +198,27 @@ export function createSharedWalks(input: unknown, ports: WalkPorts) {
     // A member already at the destination need not be pulled away from it.
     if (expected.some(name => !waiting.some(other => other.name === name) && distance(state.statuses[name]!, r.destination) > 55)) return;
     const names = [leaderName, ...waiting.map(other => other.name).filter(name => name !== leaderName)];
+    const turnover = turnoverBudget(r);
     if (!restoreParents(waiting)) return;
     replaceActive();
     if (!captureParents(waiting)) return;
     const returning = ["town-return", "event-return"].includes(r.activity);
     if (!ports.start(r.destination, r.activity + " walking leg", names, returning ? "shared-walk-return" : "shared-walk")) return;
     attach(waiting, returning);
+    restoreTurnoverBudget(turnover);
+  }
+  function turnoverBudget(r: WalkRequest): SharedConvoy | null {
+    const c = state.activeConvoy;
+    return c && runtimeTurnoverReady(c, r) ? c : null;
+  }
+  function restoreTurnoverBudget(previous: SharedConvoy | null): void {
+    const c = state.activeConvoy;
+    if (!previous || !c) return;
+    // New runtime ownership does not renew the failed route's retry budget.
+    c.recoveryAttempts = previous.recoveryAttempts;
+    c.walkingFailures = previous.walkingFailures;
+    c.returnRuntimeRetries = previous.returnRuntimeRetries;
+    ports.persist();
   }
   function attach(waiting: WalkRequest[], returning: boolean): void {
     const convoy = state.activeConvoy as SharedConvoy | null;
@@ -261,7 +276,33 @@ export function createSharedWalks(input: unknown, ports: WalkPorts) {
     const failed = state.activeConvoy;
     if (r.activity !== "event" || !failed || !failedEntry(failed)) return null;
     if (failed.walkingParents?.[r.name]?.revision !== r.revision) return null;
+    if (runtimeTurnoverReady(failed, r)) return null;
     return { ok: true, phase: "failed", reason: failed.failure || "Event walking retries exhausted" };
+  }
+  function runtimeTurnoverReady(c: SharedConvoy, r: WalkRequest): boolean {
+    if (!turnoverFailure(c, r)) return false;
+    const parent = c.walkingParents?.[r.name];
+    if (!parent || parent.parentId !== r.parentId || parent.revision !== r.revision) return false;
+    return c.participants.every(name => freshTurnoverParticipant(c, name, r.key)) &&
+      c.participants.some(name => characterRuntime(state.statuses[name]) !== c.runtimes?.[name]);
+  }
+  function turnoverFailure(c: SharedConvoy, r: WalkRequest): boolean {
+    if (!preDeathEventFailure(c, r) || c.purpose !== 'shared-walk' || c.failureCode !== 'runtime-lost') return false;
+    return !!c.restartRecovery && c.geometryRepair?.phase !== 'failed' && !!c.routeServer;
+  }
+  function freshTurnoverParticipant(c: SharedConvoy, name: string, event: string): boolean {
+    const s = state.statuses[name];
+    if (!s || !participantOwned(c, name) || !revivedReport(s, Number(c.failedAt) || 0)) return false;
+    return turnoverEvent(c, s, name, event) && turnoverCommand(c, name);
+  }
+  function turnoverEvent(c: SharedConvoy, s: SharedStatus, name: string, event: string): boolean {
+    if (s.server !== c.routeServer || s.joinedEvent !== event || !ports.enabled(name, event)) return false;
+    const runtime = characterRuntime(s);
+    return !!runtime && !!c.runtimes?.[name];
+  }
+  function turnoverCommand(c: SharedConvoy, name: string): boolean {
+    const command = state.commands[name];
+    return !command || command.phase === 'event-walk-release' && command.convoyId === c.id;
   }
   function retirePreDeathWalk(r: WalkRequest): void {
     const c = state.activeConvoy, s = state.statuses[r.name];

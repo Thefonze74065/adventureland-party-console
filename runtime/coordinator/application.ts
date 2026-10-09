@@ -96,6 +96,12 @@ export function startCoordinatorApplication(
       cullVersions: (versions) => game_files.cull_versions(versions),
       environmentSession: () => process.env.AL_SESSION,
       account: (session) => account_info(session),
+      accountHomeRealm: (account) => {
+        const homes = account.response.characters.map((entry) =>
+          entry.home ? "SR_" + entry.home.replace(/^SR_/, "") : null);
+        return homes.length && homes[0] && homes.every((home) => home === homes[0])
+          ? homes[0] : null;
+      },
     });
     let version = initialVersion;
     let clientRevision = await game_files.get_revision?.(version) || String(version);
@@ -1623,6 +1629,15 @@ export function startCoordinatorApplication(
         party.merchantHomeReturnAt = 0;
         return "SR_" + String(party.statuses[merchant]?.server || "").replace(/^SR_/, "") === party.activeRealm;
       }
+      const status = party.statuses[merchant];
+      // A retired native status is not permission to create a headless realm
+      // return. Wait for the assigned worker's own fresh observation so initial
+      // native-home login cannot inherit an offline merchant's phantom request.
+      // Already admitted returns retain their original retry/exhaustion clock
+      // even while the worker disconnects or its status becomes stale.
+      const returningHome = party.merchantRealmRequests[merchant]?.owner === "home";
+      if (!returningHome && (!party.headlessSlots.includes(merchant) || status?.runtime !== "headless" ||
+          !(Number(status.seenAt) >= Date.now() - 10_000))) return false;
       return merchantHomeRecovery.ensureHome(reason);
     }
 

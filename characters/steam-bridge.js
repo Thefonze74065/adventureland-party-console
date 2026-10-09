@@ -488,6 +488,26 @@ globalThis.__partyServer=${JSON.stringify(base)};parent.__partyServer=globalThis
     const realmChoice = createRealmChoice(host.document, (operationId, choice) => post("/steam/realm-choice", { operationId, choice }));
     const starting = /* @__PURE__ */ new Set();
     const startErrors = /* @__PURE__ */ new Map();
+    let rosterRefreshPending = null;
+    let lastRosterRefreshAt = 0;
+    async function refreshRejectedRoster(error) {
+      const reason = typeof error === "string" ? error : error && typeof error === "object" && "reason" in error ? error.reason : null;
+      if (reason !== "already_running" || lifecycle.signal.aborted) return;
+      if (rosterRefreshPending) return rosterRefreshPending;
+      if (Date.now() - lastRosterRefreshAt < 3e3) return;
+      lastRosterRefreshAt = Date.now();
+      rosterRefreshPending = Promise.resolve().then(async () => {
+        if (lifecycle.signal.aborted) return;
+        await host.api_call("servers_and_characters", {});
+        if (lifecycle.signal.aborted) return;
+      }).catch((refreshError) => {
+        if (!lifecycle.signal.aborted)
+          console.warn("[Steam bridge] Refreshing account roster: " + nativeErrorMessage(refreshError));
+      }).finally(() => {
+        rosterRefreshPending = null;
+      });
+      return rosterRefreshPending;
+    }
     let missingSince = 0;
     const recovery = createSteamRecovery(
       host,
@@ -651,10 +671,16 @@ globalThis.__partyServer=${JSON.stringify(base)};parent.__partyServer=globalThis
             if (!host.start_character_runner) throw new Error("This Steam client cannot start background characters");
             const slot = await ensureBootstrap(name);
             starting.add(name);
-            void Promise.resolve(host.start_character_runner(name, slot)).catch((error) => {
+            void Promise.resolve(host.start_character_runner(name, slot)).catch(async (error) => {
+              if (lifecycle.signal.aborted) return;
               startErrors.set(name, nativeErrorMessage(error));
               console.warn("[Steam bridge] Starting " + name + ": " + nativeErrorMessage(error));
-            }).finally(() => host.setTimeout(() => starting.delete(name), 3e3));
+              await refreshRejectedRoster(error);
+            }).finally(() => {
+              if (!lifecycle.signal.aborted) host.setTimeout(() => {
+                if (!lifecycle.signal.aborted) starting.delete(name);
+              }, 3e3);
+            });
           }
         }
         return;

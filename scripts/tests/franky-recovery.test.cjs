@@ -28,8 +28,9 @@ function reentry(overrides = {}) {
     eventTraveling: false, eventTargetTypes: [], eventMissingSince: 0, travellingEventName: null, joinedEvent: 'franky',
     __partyEventRejoinRequired: 'franky', stop: async () => {}, eventDestination: () => ({ map: 'level2w', x: 0, y: 0 }),
     eventRequiresJoin: () => true, join: async () => { c.character.map = 'level2w'; }, nearestEventTarget: () => ({ id: 'boss' }),
-    sharedPartyWalk: async () => {}, game_log() {}, ...overrides });
+    is_in_range: () => true, sharedPartyWalk: async () => {}, game_log() {}, ...overrides });
   c.root = c;
+  vm.runInContext(source.slice(source.indexOf('  function eventCombatReachable('), source.indexOf('  function eventCombatSighting(')), c);
   vm.runInContext(source.slice(source.indexOf('  async function joinCombatEvent('), source.indexOf('  async function pollEvents(')), c);
   const start = source.indexOf('  async function rejoinActiveEventAfterRespawn()');
   vm.runInContext(source.slice(start, source.indexOf('  async function regenerateHpOrMp()', start)), c);

@@ -615,6 +615,7 @@
   var upgradePreviewActive = false;
   var lastUpgradePreview = null;
   var luckyUpgradeService = null;
+  var productionJournalLoaded = false, productionJournal = null;
   var luckySlotTracker = null;
   var luckySlotCharacterId = null;
   function bindLuckySlotCharacterId(id) {
@@ -4463,6 +4464,19 @@
   }
 
   function productionJournalKey() { return "party-production:" + character.name; }
+  function readProductionJournal() {
+    if (!productionJournalLoaded) {
+      productionJournal = JSON.parse(root.localStorage.getItem(productionJournalKey()) || "null");
+      productionJournalLoaded = true;
+    }
+    return productionJournal && JSON.parse(JSON.stringify(productionJournal));
+  }
+  function writeProductionJournal(value) {
+    productionJournalLoaded = true;
+    productionJournal = value && JSON.parse(JSON.stringify(value));
+    if (value) root.localStorage.setItem(productionJournalKey(),JSON.stringify(value));
+    else root.localStorage.removeItem(productionJournalKey());
+  }
   function rememberCommerceProduction(journal) {
     if (!journal.commerce) return;
     var progress = JSON.parse(root.localStorage.getItem(journal.commerce.key) || "null") || journal.commerce.state;
@@ -4471,14 +4485,41 @@
     progress.sequence += 1;
     root.localStorage.setItem(journal.commerce.key, JSON.stringify(progress));
   }
+  function rememberReviewedCommerce(journal, attempt, reviewedCommerce) {
+    if (!journal.commerce || !attempt.resolution || attempt.resolution.outcome !== "unknown" || !attempt.resolution.resumeMissing) return false;
+    var progress = JSON.parse(root.localStorage.getItem(journal.commerce.key) || "null") || journal.commerce.state;
+    if (reviewedCommerce && reviewedCommerce.key === journal.commerce.key && reviewedCommerce.state) {
+      if (!progress || Number(progress.sequence) <= Number(reviewedCommerce.state.sequence))
+        root.localStorage.setItem(journal.commerce.key,JSON.stringify(reviewedCommerce.state));
+      return true;
+    }
+    // The durable queued disposition or a later cycle has already applied this
+    // review. Retire only the old receipt; do not inspect/mutate the new cycle.
+    if (progress && Number(progress.sequence) > Number(journal.commerce.sequence)) return true;
+    if (character.q && (character.q.upgrade || character.q.compound) || character.items.some(function(item){return item && item.name === "placeholder";}))
+      throw Error("Reviewed production is still settling");
+    var upgraded = Object.assign({},journal.item,{level:(journal.item.level || 0)+1});
+    if (character.items.some(function(item){return sameItemState(item,journal.item) || sameItemState(item,upgraded);}))
+      throw Error("Reviewed production still has a possible inventory survivor");
+    if (progress && progress.pendingUpgrade && progress.pendingUpgrade.outcome &&
+        progress.pendingUpgrade.outcome.reviewedMissing === true &&
+        progress.pendingUpgrade.outcome.resolution && progress.pendingUpgrade.outcome.resolution.at === attempt.resolution.at) return true;
+    if (!progress || progress.sequence !== journal.commerce.sequence || !progress.pendingUpgrade || !sameItemState(progress.activeItem,journal.item)) return true;
+    progress.pendingUpgrade.outcome = {reviewedMissing:true,resolution:attempt.resolution};
+    progress.sequence += 1;
+    root.localStorage.setItem(journal.commerce.key,JSON.stringify(progress));
+    return true;
+  }
   async function finishProductionJournal(journal) {
-    if (journal.commerce) rememberCommerceProduction(journal);
-    await request("/merchant/production", {method:"POST",body:{character:character.name,action:journal.request && journal.request.requestId && !journal.issued ? "abort-manual" : "complete",id:journal.id,success:journal.success}});
-    var currentJournal = JSON.parse(root.localStorage.getItem(productionJournalKey()) || "null");
-    if (currentJournal && currentJournal.id === journal.id) root.localStorage.removeItem(productionJournalKey());
+    var receipt = await request("/merchant/production", {method:"POST",body:{character:character.name,action:journal.request && journal.request.requestId && !journal.issued ? "abort-manual" : "complete",id:journal.id,success:journal.success}});
+    var attempt = receipt && receipt.attempt || {};
+    if (attempt.resolution && attempt.resolution.outcome === "unknown") rememberReviewedCommerce(journal,attempt,receipt.reviewedCommerce);
+    else rememberCommerceProduction(journal);
+    var currentJournal = readProductionJournal();
+    if (currentJournal && currentJournal.id === journal.id) writeProductionJournal(null);
   }
   async function saveProductionJournal(journal) {
-    root.localStorage.setItem(productionJournalKey(),JSON.stringify(journal));
+    writeProductionJournal(journal);
     await request("/merchant/production", {method:"POST",body:{character:character.name,action:"checkpoint",id:journal.id,journal:journal}});
   }
   async function recoverProductionJournal() {
@@ -4489,7 +4530,7 @@
     return root.__partyProductionRecovery;
   }
   async function recoverProductionJournalWork() {
-    var journal = JSON.parse(root.localStorage.getItem(productionJournalKey()) || "null");
+    var journal = readProductionJournal();
     if (!journal) {
       var pending = await request("/merchant/production", {method:"POST",body:{character:character.name,action:"pending"}});
       if (!pending || !Array.isArray(pending.pending)) throw Error("Production recovery inspection unavailable");
@@ -4497,7 +4538,7 @@
         var orphaned = pending.pending[0];
         if (!orphaned.journal) throw Error("Production recovery needs review: " + orphaned.id + " (" + orphaned.kind + " " + orphaned.name + " +" + orphaned.level + "); no local journal");
         journal = orphaned.journal;
-        root.localStorage.setItem(productionJournalKey(),JSON.stringify(journal));
+        writeProductionJournal(journal);
         if (journal.phase !== "complete" && journal.lucky && !root.localStorage.getItem("party-lucky-upgrade:" + character.name)) {
           root.localStorage.setItem("party-lucky-upgrade:" + character.name,JSON.stringify(journal.lucky));
           luckyUpgradeService = null;
@@ -4519,14 +4560,15 @@
     // pending identities, then recover the newer coordinator journal normally.
     // Never restore the completed attempt's old lucky layout or replay it.
     if (inspection.attempt && inspection.attempt.completed) {
-      root.localStorage.removeItem(productionJournalKey());
+      rememberReviewedCommerce(journal,inspection.attempt,inspection.reviewedCommerce);
+      writeProductionJournal(null);
       return recoverProductionJournalWork();
     }
     var orphan = inspection.pending.find(function (attempt) { return attempt.id !== journal.id; });
     if (orphan) throw Error("Production recovery needs review: " + orphan.id + " (" + orphan.name + " +" + orphan.level + "); local journal " + journal.id);
     if (!inspection.attempt) {
       if (journal.phase !== "prepared") throw Error("Production recovery missing admitted attempt: " + journal.id);
-      root.localStorage.removeItem(productionJournalKey());
+      writeProductionJournal(null);
       return;
     }
     if (journal.request && journal.request.requestId && !journal.issued) return finishProductionJournal(journal);
@@ -4596,11 +4638,11 @@
     if (kind === "upgrade" && commerceJob && commerceJob.commerceJournalKey)
       journal.commerce = {key: commerceJob.commerceJournalKey, sequence: commerceJob.commerceSequence,
         state: JSON.parse(root.localStorage.getItem(commerceJob.commerceJournalKey) || "null")};
-    root.localStorage.setItem(productionJournalKey(),JSON.stringify(journal));
+    writeProductionJournal(journal);
     try {
       var admission = await request("/merchant/production",{method:"POST",body:Object.assign({},body,{journal:journal})});
       if (admission && admission.attempt && admission.attempt.completed) {
-        root.localStorage.removeItem(productionJournalKey()); return {success:false,alreadyAttempted:true};
+        writeProductionJournal(null); return {success:false,alreadyAttempted:true};
       }
     }
     catch(error) {
@@ -4609,7 +4651,7 @@
       if (error.partyRequest && error.partyRequest.status === 409) {
         try {
           var rejected = await request("/merchant/production", {method:"POST",body:Object.assign({},body,{action:"inspect"})});
-          if (rejected && rejected.attempt === null && Array.isArray(rejected.pending)) root.localStorage.removeItem(productionJournalKey());
+          if (rejected && rejected.attempt === null && Array.isArray(rejected.pending)) writeProductionJournal(null);
         } catch (_inspectionError) { /* Preserve evidence until admission can be confirmed. */ }
       }
       throw error;
@@ -4617,7 +4659,9 @@
     journal.phase="running";await saveProductionJournal(journal);
     var result, failure;
     try { result=await operation(); } catch(error) { failure=error; }
-    if (body.requestId) journal.issued=!!JSON.parse(root.localStorage.getItem(productionJournalKey()) || "{}").issued;
+    var ownedJournal = readProductionJournal();
+    if (ownedJournal && ownedJournal.id === journal.id) journal = Object.assign(journal,ownedJournal);
+    if (body.requestId) journal.issued=!!(readProductionJournal() || {}).issued;
     var live=journal.commerce && result && result.item || character.items[slots[0]];
     if (journal.commerce && !live && !(failure && failure.reason === "upgrade_destroyed" && failure.confirmedDestroyed === true))
       throw Error("Upgrade outcome uncertain; production receipt requires inventory review");
@@ -4694,6 +4738,11 @@
     // Checkpoints yield to inventory updates. Do not use a scroll index that
     // has since moved or was consumed by the preceding step.
     if (intendedScroll) scrollSlot = findInventoryItemByName(intendedScroll);
+    var production = readProductionJournal();
+    if (production && sameItemState(production.item,character.items[itemSlot]) && production.slots[0] !== itemSlot) {
+      production.slots[0] = itemSlot;
+      await saveProductionJournal(production);
+    }
     var selectedUpgradeSlot = Number.isInteger(luckyUpgradeSlot) && luckyUpgradeSlot >= 0 && luckyUpgradeSlot < 42
       ? luckyUpgradeSlot : luckySlotTracking().select();
     var outcome = await merchantLuckyUpgrade().run(itemSlot, scrollSlot, selectedUpgradeSlot, function (slot, scroll, offering) {
@@ -4719,8 +4768,11 @@
         if (value) root.localStorage.setItem(key, JSON.stringify(value)); else root.localStorage.removeItem(key);
       },
       checkpoint: async function (value) {
-        var journal = JSON.parse(root.localStorage.getItem(productionJournalKey()) || "null");
+        var journal = readProductionJournal();
         if (!journal) return;
+        // A delayed layout checkpoint must never attach another attempt's item.
+        if (value.from !== journal.slots[0] || !sameItemState(value.item,journal.item))
+          throw Error("Lucky checkpoint does not belong to the active production attempt");
         journal.lucky = value;
         await saveProductionJournal(journal);
       },
@@ -4775,11 +4827,11 @@
     try {
       var settled = false, result, failure = null, operationEndedAt = 0;
       if (offeringSlot !== undefined) {
-        var pendingProduction = JSON.parse(root.localStorage.getItem(productionJournalKey()) || "null");
+        var pendingProduction = readProductionJournal();
         if (pendingProduction) {
           pendingProduction.issued=true;
           pendingProduction.offeringBefore={slot:offeringSlot,item:fingerprint(character.items[offeringSlot])};
-          root.localStorage.setItem(productionJournalKey(),JSON.stringify(pendingProduction));
+          writeProductionJournal(pendingProduction);
         }
       }
       await merchantMassBuff("massproduction");
@@ -6951,18 +7003,22 @@
       if (character.q && character.q.upgrade || character.items.some(function (item) { return item && item.name === 'placeholder'; }))
         throw new Error("Commerce production is still settling");
       var destroyed = pending.outcome && pending.outcome.destroyed === true;
+      var reviewedMissing = pending.outcome && pending.outcome.reviewedMissing === true && pending.outcome.resolution && pending.outcome.resolution.outcome === "unknown";
+      if (reviewedMissing && character.items.some(function(item){
+        return sameItemState(item,progress.activeItem) || sameItemState(item,Object.assign({},progress.activeItem,{level:pending.level}));
+      })) throw new Error("Reviewed missing production now has a possible survivor; inventory review required");
       var expected = pending.outcome && pending.outcome.item ||
         Object.assign({}, progress.activeItem, {level: pending.level});
-      var receiptSlot = destroyed ? -1 : pending.outcome && pending.outcome.item ? matchingSlot(expected) :
+      var receiptSlot = destroyed || reviewedMissing ? -1 : pending.outcome && pending.outcome.item ? matchingSlot(expected) :
         sameItem(character.items[progress.activeSlot], expected) ? progress.activeSlot : -1;
-      if (receiptSlot < 0 && !destroyed) receiptSlot = ownedSlot();
+      if (receiptSlot < 0 && !destroyed && !reviewedMissing) receiptSlot = ownedSlot();
       var live = receiptSlot >= 0 ? character.items[receiptSlot] : null;
-      if (!destroyed && !live) throw new Error("Upgrade outcome uncertain; owned item missing without confirmed destruction");
+      if (!destroyed && !reviewedMissing && !live) throw new Error("Upgrade outcome uncertain; owned item missing without confirmed destruction");
       if (live) progress.activeSlot = receiptSlot;
-      if (destroyed) {
+      if (destroyed || reviewedMissing) {
         progress.activeItem = null;
         progress.cycleActive = false;
-        await services.activity({level: "info", message: (definition.name || purchase.id) + " went poof upgrading to +" + pending.level});
+        await services.activity({level: "info", message: reviewedMissing ? "Operator reviewed missing " + (definition.name || purchase.id) + "; retaining paid spending and remaining allowance" : (definition.name || purchase.id) + " went poof upgrading to +" + pending.level});
       } else if (live.name === purchase.id && (Number(live.level) || 0) === pending.level) {
         progress.activeItem = fingerprint(live);
       } else if (!sameItem(live, progress.activeItem)) {
@@ -11973,10 +12029,11 @@
     // Some joinable events (notably Giga Crab / crabxx) happen in a normal
     // map instead of a map carrying `map.event`.
     var types = eventMonsterTypes(eventName), location = null;
-    Object.keys(G.maps || {}).some(function (candidateMap) {
+    function findSpawn(exactBoss) {
+      return Object.keys(G.maps || {}).some(function (candidateMap) {
       var monsters = G.maps[candidateMap] && G.maps[candidateMap].monsters || [];
       var monsterSpawn = monsters.find(function (entry) {
-        return entry && types.indexOf(entry.type) >= 0;
+        return entry && (exactBoss ? entry.type === eventName : types.indexOf(entry.type) >= 0);
       });
       if (!monsterSpawn) return false;
       var bounds = monsterSpawn.boundary ||
@@ -11987,7 +12044,9 @@
         x: (Number(bounds[offset]) + Number(bounds[offset + 2])) / 2,
         y: (Number(bounds[offset + 1]) + Number(bounds[offset + 3])) / 2 };
       return true;
-    });
+      });
+    }
+    findSpawn(true) || findSpawn(false);
     return location || { map: character.map, x: Number(character.x) || 0, y: Number(character.y) || 0 };
   }
 
@@ -12151,6 +12210,13 @@
     var interval = untilEnd <= frankyKeepaliveHoldMs ? frankyKeepaliveTightMs : frankyKeepaliveDueMs;
     return Date.now() - lastHit >= interval && frankyKeeper() === character.name;
   }
+  function eventCombatReachable(target) {
+    if (!target || target.dead || target.hp === 0) return false;
+    if (typeof is_in_range === "function" && is_in_range(target)) return true;
+    var point = combatApproachPoint(target);
+    return !!(point && typeof can_move_to === "function" && can_move_to(point.x, point.y) && safeCombatPoint(point, target));
+  }
+
   function eventCombatSighting(target) {
     if (!joinedEvent || eventTraveling || character.rip || character.transporting) return null;
     // Boss location ownership must not follow the temporary selected add.
@@ -12163,7 +12229,7 @@
         !Number.isFinite(target.x) || !Number.isFinite(target.y)) return null;
     return {id:String(target.id),mtype:target.mtype,map:character.map,
       in:String(character.in || character.map),x:target.x,y:target.y,
-      observedAt:Date.now()+coordinatorClockOffset};
+      attackReachable:eventCombatReachable(target),observedAt:Date.now()+coordinatorClockOffset};
   }
 
   function nearestEventTarget() {
@@ -12447,7 +12513,7 @@
     var revision = navigationIntent.revision, deadline = slenderSearch.startedAt + 180000;
     function owns() { return current() && navigationIntent.revision === revision; }
     while (owns() && Date.now() < deadline) {
-      if (nearestEventTarget()) return;
+      if (eventCombatReachable(nearestEventTarget())) return;
       var sighting = freshSlendermanSighting();
       if (sighting) {
         var sightingId = sighting.id, sightingMap = sighting.map;
@@ -12456,7 +12522,7 @@
           return owns() && Date.now() < deadline && latest && latest.id === sightingId && latest.map === sightingMap &&
             Math.hypot(latest.x - sighting.x, latest.y - sighting.y) < 100;
         });
-        if (nearestEventTarget()) return;
+        if (eventCombatReachable(nearestEventTarget())) return;
         await sleep(250); continue;
       }
       if (slenderSearch.mapIndex >= slenderSearch.maps.length) break;
@@ -12477,7 +12543,7 @@
         // A blocked catalog centre is a failed candidate, not a guessed route.
         game_log("Slenderman search candidate: " + String(error.reason || error.message || error), "#f0b429");
       }
-      if (nearestEventTarget()) return;
+      if (eventCombatReachable(nearestEventTarget())) return;
       slenderSearch.pointIndex++;
       await sleep(250);
     }
@@ -12589,7 +12655,7 @@
       }
       if (eventTraveling || banking || stocking || upgrading || departurePending || bankQueued) return;
       if (!await eventTravelAllowed(event.name)) return;
-      if (!event.staging && nearestEventTarget()) {
+      if (!event.staging && eventCombatReachable(nearestEventTarget())) {
         joinedEvent = event.name;
         root.__partyJoinedEvent = event.name;
         return;
@@ -12621,7 +12687,7 @@
           game_log("Traveling to " + ((G.events && G.events[event.name] && G.events[event.name].name) || event.name), "#c084fc");
         }
         if (event.name === "slenderman") { await discoverSlenderman(event, currentEventTravel); return; }
-        if (event.kind !== "pvp" && !nearestEventTarget() && await eventTravelAllowed(event.name) && currentEventTravel())
+        if (event.kind !== "pvp" && !eventCombatReachable(nearestEventTarget()) && await eventTravelAllowed(event.name) && currentEventTravel())
           await sharedPartyWalk(destination,"event",event.name,null,currentEventTravel);
       } catch (error) {
         var reason = error && (error.reason || error.message || error);
@@ -14244,7 +14310,7 @@
           // Join/teleport can finish before the boss entity arrives. Yield the
           // walking owner as soon as combat can acquire it, even while waiting
           // for the rest of the party or a coordinator route.
-          if(nearestEventTarget())return;
+          if(eventCombatReachable(nearestEventTarget()))return;
         }
         if(Date.now()>deadline)throw new Error("Shared walking rendezvous timed out");
         var result;
@@ -17036,6 +17102,9 @@
       return targets[0] || null;
     },
     getRareTarget: rareTarget,
+    getPriorityEventTarget: function () {
+      return joinedEvent === "mrgreen" || joinedEvent === "mrpumpkin" ? nearestEventTarget() : null;
+    },
     getPassingTarget: passingTarget,
     convoyHoldDefenseTarget: convoyHoldDefenseTarget,
     monsterPriority: monsterPriority,

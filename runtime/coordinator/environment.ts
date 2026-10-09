@@ -17,6 +17,7 @@ interface EnvironmentPorts<Store, Version, Config, Account> {
   cullVersions: (versions: Version[]) => Promise<unknown>;
   environmentSession: () => string | undefined;
   account: (session: string | undefined) => Promise<Account>;
+  accountHomeRealm?: (account: Account) => string | null;
 }
 
 /** Keep startup I/O ordered: migrate storage, obtain game data, read config, then log in. */
@@ -42,6 +43,7 @@ export async function initializeCoordinatorEnvironment<
   const account = await ports.account(session);
   const workers: Config["characters"] = configuration.characters;
   const configuredRealm =
+    ports.accountHomeRealm?.(account) ||
     Object.values(workers)
       .map((entry) => entry && entry.realm)
       .find((realm): realm is string => typeof realm === "string" && realm.startsWith("SR_")) ||

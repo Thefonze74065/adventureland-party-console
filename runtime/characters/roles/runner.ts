@@ -132,6 +132,12 @@ export function installRoleRunner(
     return currentEpoch(epoch) && !character.rip && !sharedRoutine.isOccupied();
   }
   function chooseTarget() {
+    return priorityEventTarget() || fallbackTarget();
+  }
+  function priorityEventTarget(): Target | null {
+    return exclusiveCombat() ? null : sharedRoutine.getPriorityEventTarget?.() || null;
+  }
+  function fallbackTarget() {
     if (sharedRoutine.dungeonOwned?.()) return sharedRoutine.getDungeonTarget?.() || null;
     if(sharedRoutine.returnCombatActive?.())return sharedRoutine.returnDefenseTarget?.() || null;
     if (sharedRoutine.bossCombatActive?.()) return sharedRoutine.getEventTarget();
@@ -167,9 +173,10 @@ export function installRoleRunner(
       return;
     }
     if (!sharedRoutine.returnCombatActive?.() && !invalidated && current) {
+      const priorityEvent = priorityEventTarget();
       const rare = sharedRoutine.dungeonOwned?.() ? null : sharedRoutine.getRareTarget?.();
       const nominated = sharedRoutine.dungeonOwned?.() ? sharedRoutine.getDungeonTarget?.() : sharedRoutine.usesLeaderTarget?.() ? sharedRoutine.getGroupedTarget() : null;
-      if ((!rare || rare.id === selectedTarget) && (!(sharedRoutine.dungeonOwned?.() || sharedRoutine.usesLeaderTarget?.()) || nominated?.id === selectedTarget)) return;
+      if ((!priorityEvent || priorityEvent.id === selectedTarget) && (!rare || rare.id === selectedTarget) && (!(sharedRoutine.dungeonOwned?.() || sharedRoutine.usesLeaderTarget?.()) || nominated?.id === selectedTarget)) return;
     }
     invalidated = false;
     selecting = true;

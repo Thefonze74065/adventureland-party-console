@@ -11,9 +11,13 @@ test('unavailable upgrade estimate enforces its gold cap across native purchases
   // cap; restart resets accrued spend; retry purchases beyond the same cap.
   // Native buys/upgrades remain real. Only checkpoint transport is held after
   // the coordinator has persisted the first paid purchase, to place restart.
+  // Protection-only checkpoint probes have no progress state; forward them
+  // normally and retain only actual durable commerce progress for assertions.
   test.setTimeout(300_000);
   await catalog(live,'helmet');
-  // Keep the ordinary 1M bank balance: enough for the 10K cap, but below the
+  // Native helmet starts at 3,200 plus seven 1,000-gold basic scrolls: a 10,000
+  // cap cannot start that retained batch. Use 20,000 to exercise real purchases.
+  // Keep the ordinary 1M bank balance: enough for the 20K cap, but below the
   // complete +12 scroll chain. Preflight must respect the cap before purchases,
   // without requiring tens of millions or fabricating a native receipt.
   const funding=await live.admin(`output=(async()=>{const p=get_player('${merchant}');
@@ -30,15 +34,17 @@ test('unavailable upgrade estimate enforces its gold cap across native purchases
   try {
   await live.clients[merchant].page.route('**/party-api/merchant/checkpoint',async route=>{
     const body=route.request().postDataJSON(),response=await route.fetch();
-    checkpoints.push(body.state);
-    if(!held&&Number(body.state.spent)>0&&!body.state.pendingPurchase){held=true;await gate;}
+    if(body.state&&typeof body.state==='object') {
+      checkpoints.push(body.state);
+      if(!held&&Number(body.state.spent)>0&&!body.state.pendingPurchase){held=true;await gate;}
+    }
     await route.fulfill({response});
   });
-  const order=await live.post('/merchant/order',{buys:[{id:'helmet',quantity:1,level:12,acknowledgeUnavailable:true,goldCap:10000}],crafts:[]});
+  const order=await live.post('/merchant/order',{buys:[{id:'helmet',quantity:1,level:12,acknowledgeUnavailable:true,goldCap:20000}],crafts:[]});
   await expect.poll(()=>held,{timeout:120_000}).toBe(true);
   const before=await live.state();
   const job=[before.merchantCurrent,...before.merchantQueue].find((entry:any)=>entry?.id===order.jobId);
-  expect(job.order.buys[0]).toMatchObject({goldCap:10000,budget:10000,estimateUnavailable:true});
+  expect(job.order.buys[0]).toMatchObject({goldCap:20000,budget:20000,estimateUnavailable:true});
   expect(job.order.buys[0].attempts).toBeUndefined();
   expect(job.resumeState.spent).toBeGreaterThan(0);
   await live.restartCoordinator();release();
@@ -46,7 +52,7 @@ test('unavailable upgrade estimate enforces its gold cap across native purchases
     const state=await live.state();
     return [state.merchantCurrent,...state.merchantQueue].some((entry:any)=>entry?.id===order.jobId&&/budget exhausted|gold cap/i.test(entry.lastError||entry.error||entry.blockedReason||''))||state.merchantActivity.some((entry:any)=>/budget exhausted|gold cap/i.test(JSON.stringify(entry)));
   },{timeout:120_000}).toBe(true);
-  expect(Math.max(...checkpoints.map(state=>Number(state.spent)||0))).toBeLessThanOrEqual(10000);
+  expect(Math.max(...checkpoints.map(state=>Number(state.spent)||0))).toBeLessThanOrEqual(20000);
   expect(checkpoints.some(state=>state.spent>0&&/^scroll/.test(state.pendingPurchase?.name||''))).toBe(true);
   await info.attach('capped-native-upgrade-restart',{body:JSON.stringify({order,before,after:await live.state(),checkpoints,events:await live.clients[merchant].events()}),contentType:'application/json'});
   } finally {
@@ -57,6 +63,61 @@ test('unavailable upgrade estimate enforces its gold cap across native purchases
     if(!live.clients[merchant].page.isClosed())
       await live.clients[merchant].page.unrouteAll({behavior:'ignoreErrors'});
   }
+});
+
+test('production journal storage echoes retain the current native attempt ownership',async({live},info)=>{
+  test.setTimeout(360_000);
+  await live.restoreHistoricalSettings(()=>({luckyUpgradeSlots:{[merchant]:30}}));
+  await catalog(live,'helmet');
+  const before=await economy(live);
+  await live.clients[merchant].run(`(()=>{
+    const key='party-production:'+character.name,set=Storage.prototype.setItem;
+    let older=null;globalThis.__e2eProductionEchoes=0;
+    Storage.prototype.setItem=function(k,value){
+      set.call(this,k,value);
+      if(k!==key)return;
+      const current=JSON.parse(value);
+      if(!older&&current.phase==='complete')older=JSON.stringify({...current,phase:'running'});
+      else if(older&&current.id!==JSON.parse(older).id){
+        set.call(this,k,older);globalThis.__e2eProductionEchoes++;
+      }
+    };return true;
+  })()`);
+  const order=await live.post('/merchant/order',{buys:[{id:'helmet',quantity:2,level:3}],crafts:[]});
+  await expect.poll(async()=>{
+    const state=await live.state();
+    return ![state.merchantCurrent,...state.merchantQueue].some((job:any)=>job?.commerceOrderId===order.jobId);
+  },{timeout:240_000}).toBe(true);
+  expect(await live.clients[merchant].run('globalThis.__e2eProductionEchoes')).toBeGreaterThan(0);
+  const after=await economy(live);
+  const results=(value:Economy)=>value.characters[merchant].items.filter(item=>item?.name==='helmet'&&item.level===3).length;
+  expect(results(after)-results(before)).toBe(2);
+  const pending=await live.post('/merchant/production',{character:merchant,action:'pending'});
+  expect(pending.pending).toEqual([]);
+  await restartAndObserve(live);
+  expect(results(await economy(live))).toBe(results(after));
+  await record(live,info,'production-storage-echo-ownership',before,{order,after,pending,echoes:await live.clients[merchant].run('globalThis.__e2eProductionEchoes')});
+});
+
+test('operator unknown receipt review resumes a missing commerce cycle without resetting spend',async({live},info)=>{
+  test.setTimeout(240_000);
+  await catalog(live,'helmet');
+  const id='reviewed-missing-commerce-cycle',receipt='reviewed-missing-production';
+  const progress={phase:'leveling',buyIndex:0,attempts:1,spent:4200,completedResults:0,results:[],activeItem:{name:'helmet',level:0},activeSlot:10,cycleActive:true,batchItems:[],batchRemaining:0,sequence:2,pendingUpgrade:{level:1}};
+  // Declared interrupted-state input: an admitted attempt's item has no native
+  // inventory survivor. No successful/destroyed receipt is fabricated.
+  await live.restoreHistoricalSettings(()=>({production:{attempts:{[receipt]:{name:'helmet',level:1,kind:'upgrade',rules:[],journal:{id:receipt,item:{name:'helmet',level:0},slots:[10],phase:'running',request:{character:merchant,id:receipt,kind:'upgrade',item:{name:'helmet',level:0}},commerce:{key:'party-commerce:'+id,sequence:2,state:progress}}}}},merchantQueue:[{id,target:merchant,reason:'merchant commerce',queuedAt:Date.now(),commerceOrderId:id,commerceProgressVersion:2,order:{buys:[{id:'helmet',quantity:1,level:1,attempts:20,budget:100000}],crafts:[]},resumeState:progress}]}));
+  await live.clients[merchant].run(`localStorage.setItem(${JSON.stringify('party-commerce:'+id)},${JSON.stringify(JSON.stringify({...progress,sequence:1,activeItem:{name:'helmet',level:2}}))})`);
+  await live.post('/merchant/production',{character:merchant,action:'resolve-unknown',resumeMissing:true,id:receipt,kind:'upgrade',item:{name:'helmet',level:0},reason:'E2E operator reviewed native inventory; interrupted item missing; preserve spending and resume remaining allowance'});
+  await expect.poll(async()=>{
+    const state=await live.state();
+    return ![state.merchantCurrent,...state.merchantQueue].some((job:any)=>job?.commerceOrderId===id);
+  },{timeout:180_000}).toBe(true);
+  expect((await live.clients[merchant].snapshot()).items.some((item:any)=>item?.name==='helmet'&&item.level===1)).toBe(true);
+  const inspection=await live.post('/merchant/production',{character:merchant,action:'inspect',id:receipt,kind:'upgrade',item:{name:'helmet',level:0}});
+  expect(inspection.attempt.resolution.outcome).toBe('unknown');
+  expect(inspection.attempt.success).toBeUndefined();
+  await info.attach('reviewed-unknown-native-continuation',{body:JSON.stringify({progress,inspection,state:await live.state(),events:await live.clients[merchant].events()}),contentType:'application/json'});
 });
 
 test('merchant stand location is valid at first setup and stays saved through restart', async ({ live, page }, info) => {
@@ -101,6 +162,9 @@ test('merchant finishes native upgrades despite delayed lucky journal storage ec
   test.setTimeout(480_000);
   // Failure modes: IPC echoes resurrect a cleared lucky journal, move the next
   // owned item during recovery, and strand the durable order in receipt review.
+  // Reconnect can also reject a missing companion as already_running when the
+  // native account roster still says online; its AFK refresh takes about 90s.
+  // Observe authoritative native roster refreshes without changing online flags.
   await live.restoreHistoricalSettings(() => ({ luckyUpgradeSlots: { [merchant]: 30 } }));
   await catalog(live, 'helmet');
   const before = await economy(live);
@@ -124,7 +188,26 @@ test('merchant finishes native upgrades despite delayed lucky journal storage ec
     j.phase='running';delete j.result;j.item.level=0;
     const target=character.items.findIndex((i,n)=>n!==j.from&&n!==j.to&&!i);
     swap(j.from,target);localStorage.setItem(key,JSON.stringify(j));return true})()`);
-  await live.reconnectClient(merchant);
+  const nativeReconnectRoster = () => live.clients.E2EWarrior.frame.evaluate(() => {
+    const game = window as any;
+    return { at: Date.now(), active: game.get_active_characters(),
+      roster: game.X.characters.map((entry: any) => ({ name: entry.name,
+        online: entry.online, server: entry.server })),
+      frames: Array.from(document.querySelectorAll('iframe')).map(frame => frame.id) };
+  });
+  const reconnectBefore = await nativeReconnectRoster(), rosterRefreshes: number[] = [];
+  const observeRosterRefresh = (request: import('@playwright/test').Request) => {
+    if (request.postData()?.includes('servers_and_characters')) rosterRefreshes.push(Date.now());
+  };
+  live.clients.E2EWarrior.page.on('request', observeRosterRefresh);
+  try { await live.reconnectClient(merchant); }
+  finally {
+    live.clients.E2EWarrior.page.off('request', observeRosterRefresh);
+    await info.attach('native-companion-reconnect-roster', { body: JSON.stringify({
+      before: reconnectBefore, after: await nativeReconnectRoster(), rosterRefreshes,
+      coordinator: (await live.state()).characterConnections,
+    }), contentType: 'application/json' });
+  }
   await expect.poll(async () => (await live.state()).characters[merchant]?.upgradeInventoryBusy,
     { timeout: 30_000, message: 'Idle recovery must clear the inventory gate before another job is dispatched' }).toBe(false);
   const followup = await live.post('/merchant/order', { buys: [{ id: 'helmet', quantity: 1, level: 1 }], crafts: [] });

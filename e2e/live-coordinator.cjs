@@ -39,11 +39,24 @@ const account = {
   resolve_char(name) { return this.response.characters.find(character => character.name === name); },
   resolve_realm(realm) {
     const server = this.response.servers.find(server => server.key === realm || server.region + server.name === realm);
-    return server && { ...server, address: new URL(webUrl).origin.replace(':8083', ':9003').replace(':8090', ':7192') };
+    const port = server?.region==='US' && server?.name==='II' ? '9004' : '9003';
+    return server && { ...server, address: new URL(webUrl).origin.replace(':8083', ':'+port).replace(':8090', ':7192') };
   },
   add_listener(listener) { this.listeners.push(listener); },
 };
 const resolve = createRequire(path.join(root, '.caracal/standalones/CharacterCoordinator.js'));
+const nativeExpress = require('express');
+const fixtureExpress = Object.assign((...args) => nativeExpress(...args), nativeExpress);
+fixtureExpress.json = (...args) => {
+  const parse = nativeExpress.json(...args);
+  return (req, res, next) => parse(req, res, error => {
+    if (error) return next(error);
+    if (req.method === 'POST' && req.originalUrl.split('?')[0] === '/party-api/status' &&
+        req.body?.name === 'E2EMerchant' && fs.existsSync(path.join(directory, 'hold-merchant-status')))
+      return res.status(503).json({error:'Declared E2E merchant status transport hold'});
+    next();
+  });
+};
 let version;
 const platformDirectory = path.join(root, '.build/standalones');
 let gameDirectory;
@@ -132,7 +145,7 @@ async function main() {
     } },
     'bot-web-interface': function() { throw Error('Legacy monitor is disabled'); },
     '../monitoring_util': {},
-    express: require('express'),
+    express: fixtureExpress,
   };
   const { startCoordinatorApplication } = require(path.join(root, '.build/runtime/coordinator-application.cjs'));
   await startCoordinatorApplication({ require: name => Object.hasOwn(adapters, name) ? adapters[name] : resolve(name),

@@ -21,11 +21,11 @@ function client(event='snowman') {
   activeCombatEvent:()=>event?{name:event,state:{},types:[event],kind:event==='abtesting'?'pvp':'monster'}:null,
   eventSelected:()=>true,escapeOwns:()=>false,runtimeCurrent:()=>true,
   eventTravelAllowed:async()=>true,closeMerchantStandForTravel:async()=>calls.push('close'),
-  nearestEventTarget:()=>null,eventDestination:()=>({map:'winterland',x:1,y:2}),
+  is_in_range:()=>true,nearestEventTarget:()=>null,eventDestination:()=>({map:'winterland',x:1,y:2}),
   eventRequiresJoin:()=>event!=='snowman',join:async name=>{calls.push(['join',name]);c.character.map='winterland';},
   sharedPartyWalk:async(...args)=>calls.push(['walk',...args]),game_log(){},Date,
   request:async(...args)=>{calls.push(['request',...args]);return {yield:true};}};
- vm.createContext(c);vm.runInContext(functions(shared,['merchantEventWorkReserved','yieldMerchantForEvent','joinCombatEvent','pollEvents','rejoinActiveEventAfterRespawn','eventExitOwnsMovement']),c);
+ vm.createContext(c);vm.runInContext(functions(shared,['eventCombatReachable','merchantEventWorkReserved','yieldMerchantForEvent','joinCombatEvent','pollEvents','rejoinActiveEventAfterRespawn','eventExitOwnsMovement']),c);
  return {c,calls};
 }
 test('merchant reservations survive restart, deselection and deferred return, then release',()=>{
@@ -72,7 +72,7 @@ test('merchant role and runner use event targets and block ordinary farming and 
  global.sharedRoutine.getEventTarget=()=>null;assert.equal(role.chooseTarget(),null);}finally{global.sharedRoutine=saved;}
  const c={character:{ctype:'merchant',rip:false},active:true,resolvedRole:()=>({...role,chooseTarget:()=>event}),
  sharedRoutine:{merchantEventCombatActive:()=>false,isOccupied:()=>false,getAbtestingMode:()=>'',getRareTarget:()=>farm}};
- vm.createContext(c);vm.runInContext(functions(fs.readFileSync('runtime/characters/roles/runner.ts','utf8'),['combatAllowed','passingTarget','chooseTarget']),c);
+ vm.createContext(c);vm.runInContext(functions(fs.readFileSync('runtime/characters/roles/runner.ts','utf8'),['combatAllowed','passingTarget','chooseTarget','priorityEventTarget','fallbackTarget','exclusiveCombat']),c);
  assert.equal(c.combatAllowed(),false);c.sharedRoutine.merchantEventCombatActive=()=>true;assert.equal(c.combatAllowed(),true);
  assert.equal(c.chooseTarget(),event);assert.equal(c.passingTarget(),null);c.sharedRoutine.isOccupied=()=>true;assert.equal(c.combatAllowed(),false);
 });

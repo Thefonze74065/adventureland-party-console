@@ -5,11 +5,42 @@
 Changes queued for the next release. The release workflow determines its version
 from the commits merged into `main`.
 
+- Event walking keeps its route when a visible boss is separated by native terrain.
+  Combat takes over only in attack range or with a collision-safe local approach;
+  blocked attendees keep participating in formation instead of remaining idle.
+
 ### Added
+
+- Advance admitted merchant realm transitions on party status reports, so native
+  arrivals resume their original work and missing arrival reports retain the
+  original sixty-second timeout instead of leaving the switching job held.
+
+- Production recovery keeps current attempt journals in memory despite delayed
+  storage echoes and rejects another attempt's lucky-slot evidence. Explicit
+  operator review can resume a missing commerce item with an audited unknown
+  outcome while preserving paid spending, attempts and completed-result counts.
+  Reviewed recovery reloads authoritative coordinator progress instead of stale
+  client storage, including receipts reviewed before this fix was activated.
+
+- Event staging now prefers the native boss spawn before subordinate monster
+  spawns, keeping Mr. Green attendance in Spookytown while prioritizing its adds
+  during combat.
+
+- Recover event walking interrupted by an actual CODE runtime replacement and
+  coordinator restart when every participant reports fresh living ownership of
+  the same event, realm and navigation revision, with at least one replaced
+  runtime; unchanged Steam participants can retain their ownership. Preserve existing route retry
+  counts and keep exhausted, manual, stale and unchanged-runtime failures held.
+
+- Mr. Green and Mr. Pumpkin combat now reevaluates native add priority while a
+  living boss is retained, switching onto its spawned adds and resuming the boss
+  afterward while preserving other combat and movement owners.
 
 - Disposable native E2E now runs separate US I and US II game processes with a
   shared account database, enabling actual merchant realm-transition validation
-  and cleanup of native connection/bank leases in both realms.
+  and cleanup of native connection/bank leases in both realms. Transparent internal
+  port forwarding preserves native cross-server account confirmation when both
+  realms use Docker-published addresses.
 
 - Keep merchant upgrade estimates responsive with a shared, cancellable
   60-million-roll budget for each cart/order. Discard incomplete simulations,
@@ -194,6 +225,19 @@ from the commits merged into `main`.
   Persisted action receipts prevent blind retries after lost entry or spending replies.
 
 ### Fixed
+
+- Initial coordinator realm defaults follow the account's unanimous native
+  home instead of a stale saved worker realm. Offline merchants cannot create
+  new headless home-return requests from retired Steam status; managed ownership
+  and fresh headless status are required for admission. Existing returns retain
+  their retry deadline while disconnected. Saved explicit party realms and
+  admitted realm/job transitions retain their destinations.
+
+- Steam companion reconnect refreshes the native account roster after an
+  `already_running` rejection, so stale online entries cannot delay restoring
+  a stopped companion until the native AFK refresh. Concurrent refreshes are
+  coalesced, ownership flags remain authoritative, and retired bridges stop
+  scheduling recovery.
 
 - Preserve progress in large Cave native route searches: extend the 90-second
   initial bound while the same BFS advances, with a 240-second hard limit and

@@ -25,7 +25,7 @@ interface SchedulingState {
   merchantDeliveries?: Record<string, DeliveryRequest[] | undefined>;
   withdrawals?: Record<string, unknown[] | undefined>;
   merchantCharacter: string | null;
-  merchantCurrent: unknown;
+  merchantCurrent: import('../merchant/work.ts').MerchantWork | null;
   merchantQueue: unknown[];
   merchantAutomations: Record<string, boolean | undefined>;
   gatheringModes: string[];
@@ -267,7 +267,8 @@ export function createMerchantScheduling(state: SchedulingState, ports: Scheduli
     if (merchant) merchantInventory(report);
     else collection(report);
     if (merchant) ports.standSync();
-    if (!state.merchantCurrent && (state.merchantQueue.length || state.gatheringModes.length))
+    if (state.merchantCurrent?.phase === 'switching party realm' ||
+        !state.merchantCurrent && (state.merchantQueue.length || state.gatheringModes.length))
       ports.dispatch();
     else ports.idle();
     ports.bankboi();

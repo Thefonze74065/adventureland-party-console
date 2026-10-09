@@ -18,7 +18,7 @@ function fixture(merchant=false){
 function combatAttendanceFixture(extra={}) {
  const t=fixture();
  for(const name of ['F','P'])Object.assign(t.state.statuses[name],{map:'winterland',in:'winterland',x:350,y:100,joinedEvent:'icegolem',
-  eventCombatSighting:{id:'boss-1',mtype:'icegolem',map:'winterland',in:'winterland',x:100,y:100,observedAt:1000,...extra}});
+  eventCombatSighting:{id:'boss-1',mtype:'icegolem',map:'winterland',in:'winterland',x:100,y:100,observedAt:1000,attackReachable:true,...extra}});
  return t;
 }
 test('a recovering event walker leaves fresh current boss combat attendees in place',()=>{

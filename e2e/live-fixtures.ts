@@ -1,7 +1,7 @@
 import { test as base, expect, unusedPort, child, environment, stop } from './fixtures';
 import { launchGameClient, type LiveClient } from './live-game-client';
 import { type ChildProcess } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import type { Page } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
@@ -11,6 +11,7 @@ import { gateway } from '../tools/hosting/gateway';
 import { Access } from '../tools/hosting/access';
 import { selectionFields, stateKeys } from '../runtime/coordinator/persistence/snapshots';
 import { loadouts, seedLoadout, type NativeLoadout } from './game/loadouts';
+import { nativeEventSpawn } from './game/event-spawn';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
@@ -21,23 +22,28 @@ export type LiveGame = {
   state(catalogs?: boolean): Promise<any>;
   post(route: string, body: unknown): Promise<any>;
   admin(code: string): Promise<any>;
+  adminRealm(realm:'USI'|'USII', code:string):Promise<any>;
+  holdMerchantStatus(hold:boolean):void;
   restartCoordinator(): Promise<void>;
   restoreHistoricalSettings(restore: (settings: any) => any): Promise<void>;
   reconnectClient(name: string): Promise<void>;
 };
 
-export const test = base.extend<{ live: LiveGame; loadout: NativeLoadout; primaryClass: 'warrior' | 'ranger'; merchantDefault: string | null; liveHeadless: boolean; staleWorkerRealm: string | null; initialPosition: {map: string; x: number; y: number} | null }>({
+export const test = base.extend<{ live: LiveGame; loadout: NativeLoadout; primaryClass: 'warrior' | 'ranger'; merchantDefault: string | null; liveHeadless: boolean; staleWorkerRealm: string | null; initialPosition: {map: string; x: number; y: number} | null; initialEventSpawn: string | null }>({
   loadout: ['god', {option:true}],
   primaryClass: ['warrior', {option:true}],
   merchantDefault: ['E2EMerchant', {option:true}],
   initialPosition: [null, {option:true}],
+  initialEventSpawn: [null, {option:true}],
   liveHeadless: [false, {option:true}],
   staleWorkerRealm: [null, {option:true}],
-  live: [async ({ browser, dashboard, loadout, primaryClass, merchantDefault, initialPosition, liveHeadless, staleWorkerRealm }, use, testInfo) => {
+  live: [async ({ browser, dashboard, loadout, primaryClass, merchantDefault, initialPosition, initialEventSpawn, liveHeadless, staleWorkerRealm }, use, testInfo) => {
     const directory = path.join(root, '.build/e2e', `live-${randomUUID()}`);
     mkdirSync(directory, { recursive: true });
     const manifest = await game.reset();
     const equipment = await seedLoadout(game.admin, loadout, primaryClass);
+    if(initialEventSpawn){const spawn=await nativeEventSpawn(game.admin,initialEventSpawn);initialPosition={...spawn,x:spawn.x+160};
+      await testInfo.attach('native-event-catalog-initial-position',{body:JSON.stringify({event:initialEventSpawn,spawn,initialPosition}),contentType:'application/json'});}
     if (initialPosition) {
       await game.admin("output=db.collection('character').updateMany({owner:data.owner},{$set:{'info.map':data.map,'info.x':data.x,'info.y':data.y}})", { owner: manifest.auth.split('-')[0], ...initialPosition });
       await testInfo.attach('native-initial-position-seed', { body: JSON.stringify(initialPosition), contentType: 'application/json' });
@@ -109,6 +115,17 @@ export const test = base.extend<{ live: LiveGame; loadout: NativeLoadout; primar
           const result = await game.admin(code);
           exchanges.push({ at: Date.now(), administrative: true, code, result });
           return result;
+        },
+        async adminRealm(realm,code) {
+          const result = await game.admin(code,{},realm);
+          exchanges.push({at:Date.now(),administrative:true,realm,code,result});
+          return result;
+        },
+        holdMerchantStatus(hold) {
+          const marker=path.join(directory,'hold-merchant-status');
+          if(hold) writeFileSync(marker,'Declared missing merchant arrival reports');
+          else rmSync(marker,{force:true});
+          exchanges.push({at:Date.now(),transportFault:'merchant-status',hold});
         },
         async restartCoordinator() { await stop(coordinator!, true); await start(); },
         async restoreHistoricalSettings(restore) {
@@ -199,6 +216,7 @@ export const test = base.extend<{ live: LiveGame; loadout: NativeLoadout; primar
       await testInfo.attach('live-build-manifest', { path: path.join(root, '.build/game/manifest.json'), contentType: 'application/json' });
       await use(live);
     } finally {
+      rmSync(path.join(directory,'hold-merchant-status'),{force:true});
       const attach = async (name: string, body: unknown) => testInfo.attach(name, { body: JSON.stringify(body, null, 2), contentType: 'application/json' });
       const diagnostic = async (work: Promise<unknown>) => {
         let timer: ReturnType<typeof setTimeout>;

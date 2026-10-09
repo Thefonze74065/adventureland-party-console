@@ -7,8 +7,11 @@ const roster = [
   { name: 'E2EPriest', type: 'priest' },
   { name: 'E2EMerchant', type: 'merchant' },
 ];
-async function admin(code, data = {}) {
-  const response = await fetch(gameUrl + '/server.api/eval', {
+async function admin(code, data = {}, realm = 'USI') {
+  if (!['USI','USII'].includes(realm)) throw Error('Unknown disposable native realm: '+realm);
+  if (realm==='USII' && process.env.AL_DEBUG_INSTANCE==='1') throw Error('Debug instance has no second native realm');
+  const endpoint = realm==='USII' ? gameUrl.replace(':9003',':9004') : gameUrl;
+  const response = await fetch(endpoint + '/server.api/eval', {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
     // Upstream logs eval errors but can serialize a rejected output Promise as
     // {}. Preserve an explicit success/error envelope so setup cannot silently
@@ -82,15 +85,17 @@ async function bootstrap() {
 }
 async function reset() {
   const manifest = await bootstrap();
-  await admin("Object.values(players).forEach(p=>p.socket.disconnect(true)); output=true");
+  const realms = process.env.AL_DEBUG_INSTANCE==='1' ? ['USI'] : ['USI','USII'];
+  for (const realm of realms) await admin("Object.values(players).forEach(p=>p.socket.disconnect(true)); output=true",{},realm);
   // Native disconnect persists character/account state and waits for in-flight
   // bank transactions. CI recorded a successful merchant logout 15 seconds
   // after the fighters; the former 10-second ceiling failed the next scenario.
   const disconnectDeadline = Date.now() + 45000;
   for (;;) {
-    if (await admin('output=Object.keys(players).length+Object.keys(dc_players).length') === 0) break;
+    const remainingCounts = await Promise.all(realms.map(realm=>admin('output=Object.keys(players).length+Object.keys(dc_players).length',{},realm)));
+    if (remainingCounts.every(count=>count===0)) break;
     if (Date.now() >= disconnectDeadline) {
-      const remaining = await admin('output=[...Object.values(players),...Object.values(dc_players)].map(p=>({name:p.name,map:p.map,stopping:!!p.stop_call,syncing:!!p.sync_call,mounting:!!p.mount_call,unmounting:!!p.unmount_call}))');
+      const remaining = await Promise.all(realms.map(realm=>admin('output=[...Object.values(players),...Object.values(dc_players)].map(p=>({name:p.name,map:p.map,stopping:!!p.stop_call,syncing:!!p.sync_call,mounting:!!p.mount_call,unmounting:!!p.unmount_call}))',{},realm)));
       throw new Error('Previous game clients did not finish native disconnect: ' + JSON.stringify(remaining));
     }
     await new Promise(resolve => setTimeout(resolve, 100));

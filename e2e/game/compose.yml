@@ -6,6 +6,7 @@ services:
     ports:
       - "127.0.0.1:8083:8090"
       - "127.0.0.1:9003:7192"
+      - "127.0.0.1:9004:7193"
     volumes:
       - database:/data/db
     healthcheck:
@@ -20,7 +21,7 @@ services:
       database:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "node", "-e", "Promise.all([fetch('http://127.0.0.1:8090/'),fetch('http://127.0.0.1:7192/server.api/eval',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({spass:'al-e2e-disposable-admin',code:'output=!!(server.live&&G.maps.main)'})})]).then(async r=>{if(!r[0].ok||await r[1].text()!=='true')process.exit(1)}).catch(()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "Promise.all([fetch('http://127.0.0.1:8090/'),...[7192,7193].map(port=>fetch('http://127.0.0.1:'+port+'/server.api/eval',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({spass:'al-e2e-disposable-admin',code:'output=!!(server.live&&G.maps.main)'})}))]).then(async r=>{if(!r[0].ok||(await Promise.all(r.slice(1).map(v=>v.text()))).some(v=>v!=='true'))process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 5s
       timeout: 10s
       retries: 60

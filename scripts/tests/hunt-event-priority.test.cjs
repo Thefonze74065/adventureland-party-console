@@ -14,13 +14,14 @@ function fixture() {
     departurePending: false, bankQueued: false, eventMissingSince: 0, eventTargetTypes: [], root: {},
     G: { maps: { main: {}, goobrawl: { event: 'goobrawl' } }, events: { goobrawl: { join: true } } },
     activeCombatEvent: () => ({ name: 'goobrawl', types: ['goo'], state: {}, kind: 'pve' }),
-    nearestEventTarget: () => null, eventDestination: () => ({ map: 'goobrawl', x: 0, y: 0 }),
+    is_in_range: () => true, nearestEventTarget: () => null, eventDestination: () => ({ map: 'goobrawl', x: 0, y: 0 }),
     eventRequiresJoin: () => true, join: async name => { actions.push(['join', name]); r.character.map = r.eventDestination().map; },
     smart_move: async point => { actions.push(['move', point.map]); }, game_log() {},
     sharedPartyWalk: async point => { actions.push(['move', point.map]); },
   });
   const exitOwnerCode=source.slice(source.indexOf('  function eventExitOwnsMovement('),source.indexOf('  function reunionBlocked('));
-  vm.runInContext(permissionCode + pollCode + exitOwnerCode, r);
+  const reachabilityCode=source.slice(source.indexOf('  function eventCombatReachable('),source.indexOf('  function eventCombatSighting('));
+  vm.runInContext(permissionCode + pollCode + exitOwnerCode + reachabilityCode, r);
   return { r, actions };
 }
 

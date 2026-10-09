@@ -15,6 +15,7 @@ test('upgrade reselects a scroll moved during its asynchronous protection checkp
     findInventoryItemByName:name=>items.findIndex(item=>item?.name===name),
     merchantLuckyUpgrade:()=>({run:async(item,scroll)=>{selected=scroll;return {success:true};}}),
   });
+  require('./helpers/client-dependencies.cjs').productionJournalContext(context);
   vm.runInContext(namedFunction(shared,'observedUpgradeConfirmed'),context);
   await context.observedUpgradeConfirmed(0,1,'wcap',1);
   assert.equal(selected,2);
@@ -30,6 +31,7 @@ for(const [verified,candidate,expected] of [[null,0,0],[null,null,2],[7,0,7]])te
   luckySlotTracking:()=>({select:()=>candidate,begin:()=>begins++}),verifyMerchantItemMarks:async()=>{},
   findInventoryItemByName:name=>items.findIndex(item=>item?.name===name),merchantLuckyUpgrade:()=>service,
   upgradeAtSlotConfirmed:async(slot,scroll)=>{calls.push([slot,scroll]);items[slot].level++;items[scroll].q--;return {success:true};}});
+ require('./helpers/client-dependencies.cjs').productionJournalContext(context);
  vm.runInContext(namedFunction(shared,'observedUpgradeConfirmed'),context);await context.observedUpgradeConfirmed(2,4,'wcap',1);
  assert.deepEqual(calls,[[expected,4]]);assert.equal(begins,1);assert.equal(items[2].level,1);assert.equal(items[0].name,'tracker');assert.equal(journal,null);
 });

@@ -32,6 +32,7 @@ export interface SharedCombat {
   queueEvidence?(target: Target, state: 'pending' | 'engaged' | 'rejected', action?: string): string | null;
   equipmentTarget?(): { id: string; mtype?: string } | null;
   getRareTarget?: TargetGetter;
+  getPriorityEventTarget?: TargetGetter;
   rareAttackAllowed?(target: Target, skill: string): boolean;
   pollRareHunting?(): boolean;
   describeAttackRange?(target: Target): RangeSample | null;
