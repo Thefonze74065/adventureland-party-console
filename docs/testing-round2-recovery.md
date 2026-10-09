@@ -38,3 +38,8 @@ failed event walking convoy retained indefinitely at the same navigation revisio
 Only a fresh alive report proving a newer native death under the same event,
 runtime and parent/navigation ownership may retire that obsolete failed convoy.
 Ordinary same-episode geometric failures and exhausted retries stay bounded.
+# Native Halloween threshold observer corrections
+
+The first native Mr. Green add run spawned all fifteen native adds, but its observer used `get_monster(entityId)`, which resolves a monster type rather than the instance entity ID. Consequently all quarter-spawn records lacked boss HP and the threshold predicate could never pass. The observer now reads the native instance monster table by ID, preserving the native master binding and actual boss HP ratio.
+
+The client receipt buffer retains only the latest 2,000 events. The threshold poll now accumulates actual positive warrior hit receipts for observed native adds in a local durable ledger, so first-quarter proof survives until the remaining quarters occur. Native five-add-per-quarter spawning, damage, death and loot remain unchanged. A final observer artifact records sampled native boss state, native spawn records, real hit receipts, character coordinates and coordinator state on both success and failure.

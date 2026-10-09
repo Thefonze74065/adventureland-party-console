@@ -7,6 +7,10 @@ from the commits merged into `main`.
 
 ### Added
 
+- Disposable native E2E now runs separate US I and US II game processes with a
+  shared account database, enabling actual merchant realm-transition validation
+  and cleanup of native connection/bank leases in both realms.
+
 - Keep merchant upgrade estimates responsive with a shared, cancellable
   60-million-roll budget for each cart/order. Discard incomplete simulations,
   apply native grade grace modifiers, and clamp targets to attainable levels
@@ -14,6 +18,8 @@ from the commits merged into `main`.
   per-line gold cap covering item/scroll purchases through restart, without
   fabricated attempt counts or replacement prices. Validate grades against
   independent native-formula budget references and native capped commerce.
+  Capped orders fund only their remaining allowance before work, so a +12
+  request with a small cap does not require funding the entire scroll chain.
 
 - Halloween respawn reentry can retire a failed route prepared before the
   character's newly observed death, with fresh alive/event/runtime/navigation
@@ -30,7 +36,9 @@ from the commits merged into `main`.
 
 - Lucky-slot discovery now skips positions with at least 100 observations and
   99.9% ordinary probability, recomputes eligibility as evidence changes, and
-  shows per-slot Ruled out status and the ruled-out count (#23).
+  shows per-slot Ruled out status and the ruled-out count (#23). Keep its source
+  valid UTF-8 so cold dashboard dependency scans prebundle successfully instead
+  of invalidating Base UI imports during first load.
 - Bag-only merchant collection and emergency cleanout can transfer during
   combat, with per-send range/call-cost gates, a bounded partial handoff,
   retained unsent marks and stationary combat targets. Equipped upgrade work

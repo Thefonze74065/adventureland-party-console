@@ -63,6 +63,17 @@ not cover the taunt/absorb aggro-gating or the kill-time luck swap live; those w
 verified by code review against the skill engine and `porcupine-equipment.ts`'s
 established swap/restore pattern. Retain the `tank-dashboard-before-restart` screenshot
 and `tank-melee-override` evidence, then run `npm run test:e2e:verify`.
+Cold dashboard startup must complete dependency scanning before relying on a
+warm browser journey. The Linux console failure in run 37884607630 returned
+200 for `app/page.tsx` but 504 for its Base UI dependency imports. Dashboard
+logs identified a failed Rolldown dependency scan caused by a non-UTF-8 middle
+dot in `lucky-slot-tracker.tsx`; subsequent dependency discovery invalidated
+the initial optimized URLs and reloaded the page. Correcting that byte to
+UTF-8 preserves the text and resolves the failed scan. Retain browser errors
+and traces; successful screenshots after automatic reload do not erase a
+first-load error. Audit maintained text with strict UTF-8 decoding when a
+dependency scan reports invalid input rather than adding import retries.
+
 Merchant upgrade estimates use the console scenarios matching
 `merchant estimates stay responsive|merchant grade estimates` and the native
 scenario `unavailable upgrade estimate enforces its gold cap`.

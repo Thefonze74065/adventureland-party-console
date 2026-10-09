@@ -11,7 +11,7 @@ test('bag-only native merchant collection finishes while the fighter keeps fight
   const hits=async()=> (await live.clients[W].events()).filter((event:any)=>event.event==='hit'&&String(event.data?.id)===String(monster.id)&&event.data?.hid===W&&event.data?.damage>0);
   await expect.poll(async()=>(await hits()).length,{timeout:45000}).toBeGreaterThan(0);
   const before=await live.clients[W].snapshot(),initialHits=(await hits()).length;
-  await live.post('/bank-party',{});
+  await live.post('/bank-party',{group:W});
   await live.post('/merchant/force-stand',{enabled:false});
   await expect.poll(async()=>live.admin(`output=get_player(${JSON.stringify(M)}).items.some(i=>i?.name==='leather'&&i.q>=7)`),{timeout:90000}).toBe(true);
   const during=await live.admin(`output=(()=>{const p=get_player(${JSON.stringify(W)}),m=instances[p.in].monsters[${JSON.stringify(monster.id)}];return {monster:m&&{id:m.id,hp:m.hp},fighter:{x:p.x,y:p.y,hp:p.hp},merchant:get_player(${JSON.stringify(M)}).items}})()`);
@@ -34,13 +34,28 @@ test('native collection times out a held call-cost window and retains unsent mar
   await expect.poll(async()=>(await hits()).length,{timeout:45000}).toBeGreaterThan(0);
   // Declared observation fault: hold only the client-visible call-cost reading.
   // Native attack/send handlers and server call-cost accounting remain active.
-  await live.clients[W].run(`(()=>{let observed=character.cc;globalThis.__e2eHoldHandoffCost=true;
-    Object.defineProperty(character,'cc',{configurable:true,get:()=>globalThis.__e2eHoldHandoffCost?150:observed,set:value=>{observed=value}});return true})()`);
   const receipts:any[]=[];
-  await live.clients[W].page.route('**/party-api/merchant/handoff-complete',async route=>{
+  const receiptRoute=async(route:import('@playwright/test').Route)=>{
     receipts.push(route.request().postDataJSON());await route.continue();
-  });
-  await live.post('/bank-party',{});
+  };
+  try{
+    const fault=await live.clients[W].run(`(()=>{
+      const native=parent.character,descriptor=Object.getOwnPropertyDescriptor(native,'cc');
+      if(!descriptor?.configurable||!('value' in descriptor))throw Error('Expected configurable native client cc data property');
+      let observed=descriptor.value;globalThis.__e2eHoldHandoffCost=true;
+      Object.defineProperty(native,'cc',{configurable:true,enumerable:descriptor.enumerable,
+        get:()=>globalThis.__e2eHoldHandoffCost?150:observed,set:value=>{observed=value}});
+      globalThis.__e2eRestoreHandoffCost=()=>{
+        globalThis.__e2eHoldHandoffCost=false;
+        Object.defineProperty(native,'cc',{...descriptor,value:observed});
+        delete globalThis.__e2eRestoreHandoffCost;
+      };
+      return {runnerCost:character.cc,nativeCost:native.cc,originalCost:observed};
+    })()`);
+    expect(fault.runnerCost).toBe(150);expect(fault.nativeCost).toBe(150);
+    await info.attach('native-handoff-cost-observation-fault',{body:JSON.stringify(fault),contentType:'application/json'});
+    await live.clients[W].page.route('**/party-api/merchant/handoff-complete',receiptRoute);
+  await live.post('/bank-party',{group:W});
   await live.post('/merchant/force-stand',{enabled:false});
   await expect.poll(()=>receipts.some(receipt=>receipt.partial&&receipt.reason.includes('30 seconds')),{timeout:90000}).toBe(true);
   await live.post('/merchant/force-stand',{enabled:true});
@@ -50,10 +65,14 @@ test('native collection times out a held call-cost window and retains unsent mar
   expect(await totalLeather(live)).toBe(total);
   const hitCount=(await hits()).length;
   await expect.poll(async()=>(await hits()).length,{timeout:15000}).toBeGreaterThan(hitCount);
-  await live.clients[W].run('globalThis.__e2eHoldHandoffCost=false');
+  await live.clients[W].run('globalThis.__e2eRestoreHandoffCost?.()');
   await live.post('/merchant/force-stand',{enabled:false});
-  await live.post('/bank-party',{});
+  await live.post('/bank-party',{group:W});
   await expect.poll(async()=>live.admin(`output=get_player(${JSON.stringify(W)}).items.some(i=>i?.name==='leather')`),{timeout:90000}).toBe(false);
   expect(await totalLeather(live)).toBe(total);
   await evidence(live,info,'native-handoff-window-timeout-and-retry',{monster,total,receipts,hits:await hits()});
+  }finally{
+    try{await live.clients[W].page.unroute('**/party-api/merchant/handoff-complete',receiptRoute);}
+    finally{await live.clients[W].run('globalThis.__e2eRestoreHandoffCost?.()');}
+  }
 });

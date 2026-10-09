@@ -7162,16 +7162,36 @@
         }
         return plan;
       }
-      var initialScrollNeeds = {};
+      var initialScrollNeeds = {}, cappedScrollStockNeeds = {};
       buys.forEach(function (line) {
         var definition = G.items[line.id] || {}, targetLevel = Number(line.level) || 0;
         if (!definition.upgrade || !targetLevel) return;
+        if (line.estimateUnavailable) {
+          // Reuse owned scrolls without pricing or funding the full target chain.
+          // Count at most twelve levels, independently of the requested quantity.
+          for (var stockLevel = 0; stockLevel < Math.min(12, targetLevel); stockLevel += 1) {
+            var stockName = "scroll" + item_grade({ name: line.id, level: stockLevel });
+            cappedScrollStockNeeds[stockName] = (cappedScrollStockNeeds[stockName] || 0) +
+              (Number(line.quantity) || 1);
+          }
+          return;
+        }
         var plan = upgradeScrollPlan(line.id, targetLevel, Number(line.quantity) || 1);
         Object.keys(plan).forEach(function (name) {
           initialScrollNeeds[name] = (initialScrollNeeds[name] || 0) + plan[name];
         });
       });
-      var requiredGold = buys.reduce(function (sum, line) { return sum + (prices[line.id] || 0) * line.quantity; }, 0) +
+      var requiredGold = buys.reduce(function (sum, line, index) {
+        if (!line.estimateUnavailable) return sum + (prices[line.id] || 0) * line.quantity;
+        if (!Number.isSafeInteger(line.goldCap) || line.goldCap <= 0)
+          throw new Error("Unavailable upgrade estimate requires a positive gold cap");
+        // Do not require the unaffordable full-target scroll chain before a
+        // capped attempt. Resume funding uses only this line's unspent cap;
+        // actual item/scroll purchases retain their durable spending guards.
+        var spent = resumeState.phase === "leveling" && Number(resumeState.buyIndex) === index
+          ? Number(resumeState.spent) || 0 : 0;
+        return sum + Math.max(0, line.goldCap - spent);
+      }, 0) +
         crafts.reduce(function (sum, line) { return sum + (prices["craft:" + line.id] || 0) * line.quantity; }, 0);
 
       async function retrieveBankQuantity(allocation) {
@@ -7236,9 +7256,11 @@
       if (!prepared) await retrieveMissingCraftMaterials(order.requirements || []);
       // Reuse scrolls already held by the merchant or stored in any bank pack.
       // Retrieve whole stacks; extras are deliberately retained for later jobs.
-      for (var savedScrollName of Object.keys(initialScrollNeeds)) {
+      var savedScrollNames = Array.from(new Set(Object.keys(initialScrollNeeds).concat(Object.keys(cappedScrollStockNeeds))));
+      for (var savedScrollName of savedScrollNames) {
         if (prepared) break;
-        var savedNeeded = Math.max(0, initialScrollNeeds[savedScrollName] - inventoryQuantity(savedScrollName));
+        var savedNeeded = Math.max(0, (initialScrollNeeds[savedScrollName] || 0) +
+          (cappedScrollStockNeeds[savedScrollName] || 0) - inventoryQuantity(savedScrollName));
         while (savedNeeded > 0) {
           var savedScroll = findBankItem({ name: savedScrollName, level: 0 });
           if (!savedScroll) break;
@@ -7247,7 +7269,7 @@
           savedNeeded = Math.max(0, savedNeeded - itemQuantity(savedItem));
         }
         initialScrollNeeds[savedScrollName] = Math.max(0,
-          initialScrollNeeds[savedScrollName] - inventoryQuantity(savedScrollName));
+          (initialScrollNeeds[savedScrollName] || 0) - inventoryQuantity(savedScrollName));
         requiredGold += initialScrollNeeds[savedScrollName] *
           ((G.items[savedScrollName] && G.items[savedScrollName].g) || 0);
       }

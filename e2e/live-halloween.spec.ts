@@ -103,26 +103,32 @@ for (const encounter of [{id:'mrgreen',add:'greenjr',drop:'ashleaf',map:'spookyt
       // Failure inventory: bosses always outrank adds; followers split targets;
       // reflected Green Jr magic; selected add replaces boss reentry coordinates;
       // fabricated spawn/death/loot; add policy survives event deselection.
+      const ledgers:any[]=[];
+      const observedHits=new Map<string,any>();
       const before=await live.admin(`output=${JSON.stringify(fighters)}.map(name=>({name,items:get_player(name).items}))`);
       await live.admin(`output=(()=>{
         globalThis.__e2eThresholdAdds=[];
         const original=new_monster;globalThis.__e2eAddSpawner=original;
         new_monster=function(...args){const m=original.apply(this,args);
           if(m&&m.type===${JSON.stringify(encounter.add)}&&m.master){
-            const boss=get_monster(m.master);globalThis.__e2eThresholdAdds.push({id:String(m.id),master:String(m.master),type:m.type,at:Date.now(),bossHp:boss?.hp,bossMaxHp:boss?.max_hp});
+            const boss=instances[m.in]?.monsters[m.master];globalThis.__e2eThresholdAdds.push({id:String(m.id),master:String(m.master),type:m.type,at:Date.now(),bossHp:boss?.hp,bossMaxHp:boss?.max_hp});
           }return m;};return true;})()`);
       try {
         await prepare(live,encounter.id);
         const seed=await spawn(live,encounter.id,encounter.map,encounter.x,encounter.y,true);
         await info.attach('native-threshold-spawn-definition',{body:JSON.stringify(seed),contentType:'application/json'});
-        const ledgers:any[]=[];
         await expect.poll(async()=>{
-          const sample=await live.admin(`output={adds:globalThis.__e2eThresholdAdds,boss:get_monster(${JSON.stringify(seed.id)})?{hp:get_monster(${JSON.stringify(seed.id)}).hp}:null}`);
+          const sample=await live.admin(`output=(()=>{const boss=instances[${JSON.stringify(seed.map)}]?.monsters[${JSON.stringify(seed.id)}];return {adds:globalThis.__e2eThresholdAdds,boss:boss?{id:String(boss.id),hp:boss.hp,max_hp:boss.max_hp,map:boss.map,x:boss.x,y:boss.y}:null}})()`);
           ledgers.push({at:Date.now(),...sample});
           const events=await live.clients[W].events();
+          for(const event of events) {
+            if(event.event==='hit'&&event.data?.hid===W&&event.data?.damage>0&&
+              sample.adds.some((add:any)=>String(event.data.id)===add.id))
+              observedHits.set(String(event.data.pid||`${event.at}:${event.data.id}`),event);
+          }
           return [0.75,0.5,0.25].every(threshold=>sample.adds.some((add:any)=>
             add.master===String(seed.id)&&add.bossHp/add.bossMaxHp<=threshold&&add.bossHp/add.bossMaxHp>threshold-0.2&&
-            events.some((event:any)=>event.event==='hit'&&String(event.data?.id)===add.id&&event.data?.hid===W&&event.data?.damage>0)));
+            [...observedHits.values()].some((event:any)=>String(event.data.id)===add.id)));
         },{timeout:300_000,intervals:[250,500],message:'Native boss damage must spawn and the warrior must attack adds at each threshold'}).toBe(true);
         await expect.poll(async()=>!(await world(live,encounter.id)).boss,{timeout:180_000}).toBe(true);
         await expect.poll(async()=>{
@@ -133,6 +139,9 @@ for (const encounter of [{id:'mrgreen',add:'greenjr',drop:'ashleaf',map:'spookyt
         await info.attach('native-threshold-add-combat-and-loot',{body:JSON.stringify({seed,before,ledgers,
           events:await live.clients[W].events(),after:await live.admin(`output=${JSON.stringify(fighters)}.map(name=>({name,items:get_player(name).items}))`),state:await live.state()}),contentType:'application/json'});
       } finally {
+        await info.attach('native-threshold-observer-final',{body:JSON.stringify({ledgers,hits:[...observedHits.values()],
+          native:await live.admin(`output={adds:globalThis.__e2eThresholdAdds,players:${JSON.stringify(fighters)}.map(name=>{const p=get_player(name);return {name,map:p.map,x:p.x,y:p.y,rip:p.rip}})}`),
+          state:await live.state()}),contentType:'application/json'});
         await live.admin(`if(globalThis.__e2eAddSpawner){new_monster=globalThis.__e2eAddSpawner;delete globalThis.__e2eAddSpawner;}output=true`);
         await live.post('/formation',{character:W,eventSelections:[]});
       }

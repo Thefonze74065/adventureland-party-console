@@ -13,6 +13,17 @@ test('unavailable upgrade estimate enforces its gold cap across native purchases
   // the coordinator has persisted the first paid purchase, to place restart.
   test.setTimeout(300_000);
   await catalog(live,'helmet');
+  // Keep the ordinary 1M bank balance: enough for the 10K cap, but below the
+  // complete +12 scroll chain. Preflight must respect the cap before purchases,
+  // without requiring tens of millions or fabricating a native receipt.
+  const funding=await live.admin(`output=(async()=>{const p=get_player('${merchant}');
+    const before=await db.collection('user').findOne({_id:p.owner});
+    await db.collection('user').updateOne({_id:p.owner},{$set:{'info.gold':1000000}});
+    for(const member of Object.values(players))if(member.owner===p.owner&&member.user)member.user.gold=1000000;
+    return {beforeBankGold:before.info.gold,bankGold:1000000,merchantGold:p.gold};})()`);
+  expect(funding.bankGold).toBe(1000000);
+  expect(funding.bankGold+funding.merchantGold).toBeLessThan(64000000);
+  await info.attach('declared-capped-commerce-funding',{body:JSON.stringify(funding),contentType:'application/json'});
   const checkpoints:any[]=[];
   let held=false,release!:()=>void;
   const gate=new Promise<void>(resolve=>{release=resolve;});

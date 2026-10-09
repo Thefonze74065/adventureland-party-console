@@ -1,16 +1,20 @@
-import { test, expect } from './live-fixtures';
+import { test, expect, type LiveGame } from './live-fixtures';
+
+async function totalGold(live:LiveGame, merchant:string):Promise<number> {
+  return live.admin(`output=(async()=>{const p=get_player('${merchant}'),user=await db.collection('user').findOne({_id:p.owner});return p.gold+((p.user||user.info).gold||0)})()`);
+}
 
 test('bank NPC sale rule withdraws native stock and respects disabled sales across restart', async ({ live }, info) => {
   test.setTimeout(240_000);
   const merchant = 'E2EMerchant';
   await live.post('/merchant/routine-priorities', { priorities: {}, enabled: { 'auto npc sales': false } });
-  await live.admin(`output=(async()=>{const p=get_player('${merchant}');p.user.items0[0]={name:'helmet',level:0};p.user.items0[1]={name:'helmet',level:0,l:'l'};await db.collection('user').updateOne({_id:p.owner},{$set:{'info.items0':p.user.items0}});return true})()`);
+  await live.admin(`output=(async()=>{const p=get_player('${merchant}');await db.collection('user').updateOne({_id:p.owner},{$set:{'info.items0.0':{name:'helmet',level:0},'info.items0.1':{name:'helmet',level:0,l:'l'}}});return true})()`);
   await live.post('/command', { character: merchant, type: 'bank' });
   await expect.poll(async () => (await live.state()).bankSnapshot?.packs?.items0?.[0]?.item?.name, {timeout:90_000}).toBe('helmet');
   await live.post('/merchant/auto-npc-sale', { item: {name:'helmet',level:0} });
   await live.restartCoordinator();
   const before = await live.state();
-  const goldBefore = await live.admin(`output=(()=>{const p=get_player('${merchant}');return p.gold+(p.user.gold||0)})()`);
+  const goldBefore = await totalGold(live,merchant);
   const observedAt = Date.now();
   await expect.poll(async () => (await live.clients[merchant].snapshot()).statusAt).toBeGreaterThan(observedAt + 2000);
   expect((await live.state()).bankSnapshot.packs.items0[0].item.name).toBe('helmet');
@@ -19,7 +23,7 @@ test('bank NPC sale rule withdraws native stock and respects disabled sales acro
   await expect.poll(async () => (await live.clients[merchant].snapshot()).items.some((item:any) => item?.name==='helmet' && !item.l), {timeout:90_000}).toBe(false);
   const after = await live.state();
   expect(after.bankSnapshot.packs.items0[1].item.l).toBe('l');
-  expect(await live.admin(`output=(()=>{const p=get_player('${merchant}');return p.gold+(p.user.gold||0)})()`)).toBeGreaterThan(goldBefore);
+  expect(await totalGold(live,merchant)).toBeGreaterThan(goldBefore);
   await info.attach('bank-npc-native-evidence', {body:JSON.stringify({before,after,client:await live.clients[merchant].snapshot(),events:await live.clients[merchant].events()}),contentType:'application/json'});
 });
 
@@ -27,7 +31,7 @@ test('bank NPC selection caps ten stacks and excludes persisted NPC stand confli
   test.setTimeout(360_000);
   const merchant='E2EMerchant';
   await live.post('/merchant/routine-priorities',{priorities:{},enabled:{'auto npc sales':false}});
-  const seeded=await live.admin(`output=(async()=>{const p=get_player('${merchant}');for(let i=0;i<12;i++)p.user.items0[i]={name:'helmet',level:0};p.user.items0[12]={name:'helmet',level:0,l:'l'};p.user.items0[13]={name:'shoes',level:0};await db.collection('user').updateOne({_id:p.owner},{$set:{'info.items0':p.user.items0}});return p.user.items0})()`);
+  const seeded=await live.admin(`output=(async()=>{const p=get_player('${merchant}'),items=Array.from({length:12},()=>({name:'helmet',level:0}));items.push({name:'helmet',level:0,l:'l'},{name:'shoes',level:0});const patch=Object.fromEntries(items.map((item,i)=>['info.items0.'+i,item]));await db.collection('user').updateOne({_id:p.owner},{$set:patch});return items})()`);
   await live.post('/command',{character:merchant,type:'bank'});
   await expect.poll(async () => (await live.state()).bankSnapshot?.packs.items0?.[13]?.item.name,{timeout:90_000}).toBe('shoes');
   await expect.poll(async () => (await live.state()).merchantCurrent,{timeout:90_000}).toBeNull();
@@ -42,7 +46,7 @@ test('bank NPC selection caps ten stacks and excludes persisted NPC stand confli
   await expect.poll(async () => (await live.state()).withdrawals[merchant]?.length).toBe(10);
   const first=await live.state();
   expect(first.withdrawals[merchant].every((entry:any)=>entry.item.name==='helmet' && !entry.item.l && !entry.standListingId)).toBe(true);
-  const goldBefore=await live.admin(`output=(()=>{const p=get_player('${merchant}');return p.gold+(p.user.gold||0)})()`);
+  const goldBefore=await totalGold(live,merchant);
   await info.attach('bank-first-ten-selected',{body:JSON.stringify({seeded,first}),contentType:'application/json'});
   await live.post('/merchant/force-stand',{enabled:false});
   await expect.poll(async () => {
@@ -53,7 +57,7 @@ test('bank NPC selection caps ten stacks and excludes persisted NPC stand confli
   const after=await live.state();
   expect(after.bankSnapshot.packs.items0[12].item.l).toBe('l');
   expect(after.bankSnapshot.packs.items0[13].item.name).toBe('shoes');
-  expect(await live.admin(`output=(()=>{const p=get_player('${merchant}');return p.gold+(p.user.gold||0)})()`)).toBeGreaterThan(goldBefore);
+  expect(await totalGold(live,merchant)).toBeGreaterThan(goldBefore);
   await live.restartCoordinator();
   const restored=await live.state();
   expect(restored.bankSnapshot.packs.items0[13].item.name).toBe('shoes');

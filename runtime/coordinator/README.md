@@ -43,7 +43,11 @@ An unavailable estimate requires explicit confirmation and a positive per-line
 gold cap. The coordinator recomputes the batch, validates consent/caps, and
 rechecks the merchant/catalog before queueing. The cap includes base-item and
 scroll purchases; durable checkpoints preserve accrued spending through
-restart. An unavailable estimate supplies no fabricated attempt count or
+restart. Unavailable lines skip full-target scroll purchase funding and fund only
+their remaining persisted cap before work; individual purchases still enforce
+that cap. Existing inventory and bank scrolls are reused for both kinds of
+line. Known estimates retain their ordinary funding.
+An unavailable estimate supplies no fabricated attempt count or
 replacement price. Validate the console/native journeys in `docs/testing.md`;
 publish character, coordinator and dashboard assets with the supported full
 restart.
