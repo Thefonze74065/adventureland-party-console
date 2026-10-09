@@ -15425,7 +15425,8 @@
   // until reached; the full formation optimizer cannot fight it each tick.
   function recoverFormationCorner(reference, priest, selfPriest, members, step) {
     var goal = combatApproachPoint(reference, formationDesiredRange(reference, priest, selfPriest, members, step));
-    if (!selfPriest && character.ctype === "mage" && formationDistance(character, priest) > Number(priest.range) * 0.9) goal = priest;
+    var approaching = true;
+    if (!selfPriest && character.ctype === "mage" && formationDistance(character, priest) > Number(priest.range) * 0.9) { goal = priest; approaching = false; }
     var obstacles = formationFrame.enemies.filter(function (e) { return e.id !== reference.id || !formationMelee(character); });
     var identity = [reference.id, priest.name, character.map, character.in, joinedEvent, eventTraveling].join(":");
     if (formationState.approachIdentity !== identity) {
@@ -15449,14 +15450,39 @@
       recovery.retryAt = now + 1000;
       var best = directClear ? gap : Infinity;
       if (directClear) recovery.point = { x: goal.x, y: goal.y };
+      var goals = [goal];
+      // A wall on our side of the target hides the approach point on our bearing
+      // (#83). Also aim at the nearest points around the target that the target
+      // itself can walk to, so a detour can reach its open side.
+      if (approaching && !directClear && !can_move_to(goal.x, goal.y) && typeof can_move === "function") {
+        var around = Math.hypot(goal.x - reference.x, goal.y - reference.y), sides = [];
+        for (var side = 0; side < 16; side++) {
+          var bearing = side * Math.PI / 8;
+          var open = { x: reference.x + Math.cos(bearing) * around, y: reference.y + Math.sin(bearing) * around };
+          if (Math.hypot(open.x - goal.x, open.y - goal.y) < 1 || !can_move({ map: character.map, x: reference.x, y: reference.y,
+              going_x: open.x, going_y: open.y, base: character.base })) continue;
+          sides.push(open);
+        }
+        sides.sort(function (a, b) { return Math.hypot(a.x - character.x, a.y - character.y) - Math.hypot(b.x - character.x, b.y - character.y); });
+        goals = goals.concat(sides.slice(0, 4));
+        for (var g = 1; g < goals.length; g++) {
+          var span = Math.hypot(goals[g].x - character.x, goals[g].y - character.y);
+          if (span < best && can_move_to(goals[g].x, goals[g].y) && formationSegmentSafe(character, goals[g], obstacles)) {
+            recovery.point = { x: goals[g].x, y: goals[g].y }; best = span;
+          }
+        }
+      }
       if (typeof can_move === "function") for (var ring = 0; ring < 4; ring++) for (var angle = 0; angle < 16; angle++) {
         var radius = 80 * Math.pow(2, ring), radians = angle * Math.PI / 8;
         var point = { x: character.x + Math.cos(radians) * radius, y: character.y + Math.sin(radians) * radius };
-        var score = radius + Math.hypot(goal.x - point.x, goal.y - point.y);
-        if (score >= best || !can_move_to(point.x, point.y) || !can_move({ map: character.map, x: point.x, y: point.y,
-            going_x: goal.x, going_y: goal.y, base: character.base }) ||
-            !formationSegmentSafe(character, point, obstacles) || !formationSegmentSafe(point, goal, obstacles)) continue;
-        recovery.point = point; best = score;
+        if (radius >= best || !can_move_to(point.x, point.y) || !formationSegmentSafe(character, point, obstacles)) continue;
+        for (var k = 0; k < goals.length; k++) {
+          var score = radius + Math.hypot(goals[k].x - point.x, goals[k].y - point.y);
+          if (score >= best || !can_move({ map: character.map, x: point.x, y: point.y,
+              going_x: goals[k].x, going_y: goals[k].y, base: character.base }) ||
+              !formationSegmentSafe(point, goals[k], obstacles)) continue;
+          recovery.point = point; best = score;
+        }
       }
     }
     if (recovery.point) {
