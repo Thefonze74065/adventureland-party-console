@@ -26,3 +26,43 @@ from the target's own position.
    still kill it with no deaths, and the mage must still close to range (#75).
 6. **Cost.** At most 16 `can_move` checks from the target, of which the 4 reachable
    points nearest the fighter join the ring search, at the existing 1 s retry.
+
+## Leaving healing coverage for a detour
+
+Written before the change. Seed 4 showed a second limit. The priest kites the
+Phoenix around a wall and strands the warrior 187 units from it, outside its
+108-unit healing range. The only detour moves farther away (225), and
+`formationStepSafe` refuses any step that increases the priest's distance, so the
+warrior holds for the rest of the fight. The fix lets a detour step leave
+coverage under strict conditions: the fighter is melee and not the priest, no
+monster targets it, its HP is at least 60%, and its own target is attacking
+someone else.
+
+7. **Separated fighter gets attacked.** When anything targets the fighter, the
+   exception ends on the next tick. Ordinary steps may then never move farther
+   from the priest, so it must not keep walking away.
+8. **Low HP away from the healer.** Below 60% HP the exception doesn't apply.
+9. **Scope leak.** Only the local wall-detour steps from `recoverFormationCorner`
+   use it. The formation optimizer, the priest's own steps and ranged classes
+   keep the coverage rule. Monster-safety checks (`safeCombatPoint`, secondary
+   risk) still apply to every detour step.
+10. **Seed 4 still stalls.** On seed 4 the warrior must leave the corner, reach
+    melee, and the Phoenix must die, with no deaths on seeds 1–8.
+
+## Result
+
+ChronAL `phoenix-mage.json`, seeds 1–8, 5 minutes each:
+
+| seed | before #83 | detour only | detour + coverage exception |
+|---|---|---|---|
+| 1 | stalled at 150, alive | killed 3.27 | killed 3.27 |
+| 2 | killed 3.69 | killed 3.61 | killed 3.61 |
+| 3 | stalled at 125–150, 87k HP left | melee, 16.8k left | melee, 2.1k left (fight began 3:43) |
+| 4 | killed 4.09 | stalled at 150 (coverage), alive | killed 4.22 |
+| 5 | killed 4.04 | killed 3.94 | killed 4.11 |
+| 6 | killed 3.79 | killed 3.51 | killed 3.51 |
+| 7 | killed 4.74 | killed 4.39 | killed 4.39 |
+| 8 | killed 4.61 | killed 4.81 | killed 4.79 |
+
+No deaths or errors in any run. While separated on seed 4, the warrior's HP never
+fell below 9,598 of 10,107.
