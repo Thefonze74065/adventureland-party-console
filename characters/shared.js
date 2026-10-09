@@ -15621,7 +15621,10 @@
     }
     var closing = warrior && formationState.warriorPhase === "approaching";
     var secondary = selfPriest || mage ? formationFrame.enemies.filter(function (enemy) {
-      if (!mage && enemy.id === reference.id) return false;
+      // The selected target is scored separately (targetRisk below): its safety radius plus
+      // 0.6 s of a fast target's motion can exceed a mage's range, and as ordinary secondary
+      // risk it held the mage out of range for the whole fight (#75).
+      if (enemy.id === reference.id) return false;
       // Keep every enemy capable of entering the swept safety area, with a
       // nearby clearance preference zone. Distant mobs must
       // not make an otherwise settled formation orbit forever.
@@ -15661,6 +15664,8 @@
       var turn = formationState.heading == null ? 0 : 1 - Math.cos(heading - formationState.heading);
       var clearance = avoiding ? priestSecondaryClearance(point, secondary) : null;
       var secondaryRisk = clearance ? clearance.risk : 0;
+      // A mage keeps away from its own target only as far as its attack range allows.
+      var targetRisk = mage ? priestSecondaryClearance(point, [reference]).risk : 0;
       var orbitCross = (character.x - reference.x) * (point.y - character.y) -
         (character.y - reference.y) * (point.x - character.x);
       return { point: point, coverage: coverage, danger: danger, rangeError: rangeError,
@@ -15668,6 +15673,7 @@
         facing: facing, progress: progress, heading: heading, turn: turn,
         score: mage ? [Math.round((danger + secondaryRisk) * 2), Math.ceil(coverage / 2), facing,
           Math.ceil(Math.max(0, formationDistance(candidate, reference) - Number(character.range)) / 3),
+          Math.round(targetRisk * 2),
           Math.ceil(Math.max(0, formationDistance(candidate, priest) - priestSpacing) / 3),
           chased ? -progress : Math.hypot(dx, dy), rangeError, turn] :
           [Math.round((danger + secondaryRisk) * 2), Math.ceil(coverage / 2),

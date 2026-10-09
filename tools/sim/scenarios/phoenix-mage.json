@@ -1,0 +1,150 @@
+{
+  "description": "Phoenix fight with warrior, priest (leader) and mage: the mage must close to its attack range (#75).",
+  "seed": 1,
+  "threads": true,
+  "realm": "SR_USI",
+  "minutes": 5,
+  "sampleSeconds": 30,
+  "track": [
+    "phoenix"
+  ],
+  "characters": [
+    {
+      "name": "SimWarrior",
+      "type": "warrior",
+      "level": 80,
+      "over": {
+        "level": 80,
+        "info": {
+          "slots": {
+            "mainhand": {
+              "name": "bataxe",
+              "level": 7
+            },
+            "helmet": {
+              "name": "hhelmet",
+              "level": 7
+            },
+            "chest": {
+              "name": "harmor",
+              "level": 7
+            },
+            "pants": {
+              "name": "hpants",
+              "level": 7
+            },
+            "gloves": {
+              "name": "hgloves",
+              "level": 7
+            },
+            "shoes": {
+              "name": "hboots",
+              "level": 7
+            },
+            "ring1": {
+              "name": "strring",
+              "level": 3
+            },
+            "ring2": {
+              "name": "strring",
+              "level": 3
+            },
+            "earring1": {
+              "name": "strearring",
+              "level": 3
+            },
+            "earring2": {
+              "name": "strearring",
+              "level": 3
+            },
+            "amulet": {
+              "name": "stramulet",
+              "level": 3
+            },
+            "belt": {
+              "name": "strbelt",
+              "level": 3
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "SimPriest",
+      "type": "priest",
+      "level": 80,
+      "over": {
+        "level": 80,
+        "info": {
+          "slots": {
+            "mainhand": {
+              "name": "staff",
+              "level": 7
+            },
+            "helmet": {
+              "name": "hhelmet",
+              "level": 7
+            },
+            "chest": {
+              "name": "harmor",
+              "level": 7
+            },
+            "pants": {
+              "name": "hpants",
+              "level": 7
+            },
+            "gloves": {
+              "name": "hgloves",
+              "level": 7
+            },
+            "shoes": {
+              "name": "hboots",
+              "level": 7
+            },
+            "ring1": {
+              "name": "intring",
+              "level": 3
+            },
+            "ring2": {
+              "name": "intring",
+              "level": 3
+            },
+            "earring1": {
+              "name": "intearring",
+              "level": 3
+            },
+            "earring2": {
+              "name": "intearring",
+              "level": 3
+            },
+            "amulet": {
+              "name": "intamulet",
+              "level": 3
+            },
+            "belt": {
+              "name": "intbelt",
+              "level": 3
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "SimMage",
+      "type": "mage",
+      "level": 80
+    }
+  ],
+  "steps": [
+    {
+      "atSeconds": 30,
+      "action": "hunt",
+      "leader": "SimPriest",
+      "followers": [
+        "SimWarrior",
+        "SimMage"
+      ],
+      "monster": "phoenix"
+    }
+  ]
+}
