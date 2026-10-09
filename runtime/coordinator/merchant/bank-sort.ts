@@ -12,6 +12,8 @@ export interface BankSortRequest {
 }
 export interface BankSortState {
   bankSortMode?: "automatic" | "request";
+  /** "gapped" starts each category on its own row and leaves free slots, so later sorts move few items. */
+  bankSortLayout?: "packed" | "gapped";
   bankSortRequest?: BankSortRequest | null;
   merchantCharacter: string | null;
 }
@@ -24,13 +26,15 @@ export function initialBankSort(saved: BankSortState | Partial<BankSortState>) {
   const bankSortMode = saved.bankSortMode === "request" ? "request" : "automatic";
   const pending = bankSortMode === "request" ? saved.bankSortRequest : null;
   return { bankSortMode: bankSortMode as "request" | "automatic",
+    bankSortLayout: (saved.bankSortLayout === "gapped" ? "gapped" : "packed") as "packed" | "gapped",
     bankSortRequest: pending ? { ...pending, status: pending.status === "sorting" ? "retry" as const : pending.status,
       runtime: undefined, visit: undefined } : null };
 }
 
 function validConfiguration(body: Record<string, unknown>): boolean {
   return (body.mode === undefined || body.mode === "automatic" || body.mode === "request") &&
-    (body.enabled === undefined || typeof body.enabled === "boolean");
+    (body.enabled === undefined || typeof body.enabled === "boolean") &&
+    (body.layout === undefined || body.layout === "packed" || body.layout === "gapped");
 }
 function owns(pending: BankSortRequest, body: Record<string, unknown>): boolean {
   return pending.id === body.id && pending.runtime === body.runtime && pending.visit === body.visit;
@@ -83,6 +87,7 @@ export function createBankSortRoutes(state: BankSortState & CraftReservationStat
     const body = requestObject(req.body);
     if (!validConfiguration(body)) return res.status(400).json({ error: "invalid bank sort setting" });
     if (body.mode === "request" || body.mode === "automatic") state.bankSortMode = body.mode;
+    if (body.layout === "packed" || body.layout === "gapped") state.bankSortLayout = body.layout;
     if (state.bankSortMode !== "request" || body.enabled === false) state.bankSortRequest = null;
     else if (body.enabled === true && !state.bankSortRequest)
       state.bankSortRequest = { id: randomUUID(), requestedAt: Date.now(), status: "queued" };
@@ -102,9 +107,10 @@ export function createBankSortRoutes(state: BankSortState & CraftReservationStat
       } });
     }
     if (body.character !== state.merchantCharacter)
-      return res.json({ mode: state.bankSortMode || "automatic", pending: null });
+      return res.json({ mode: state.bankSortMode || "automatic", layout: state.bankSortLayout || "packed", pending: null });
     if (updatePending(state, body)) ports.persist();
-    return res.json({ mode: state.bankSortMode || "automatic", pending: state.bankSortRequest || null });
+    return res.json({ mode: state.bankSortMode || "automatic", layout: state.bankSortLayout || "packed",
+      pending: state.bankSortRequest || null });
   }
   return { configure, checkpoint, reconcile };
 }

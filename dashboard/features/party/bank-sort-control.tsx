@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { usePartyAction } from "./query-actions";
 import type { PartyState } from "./party-state";
 
-export type BankSortState = Pick<PartyState, "bankSortMode" | "bankSortRequest">;
+export type BankSortState = Pick<PartyState, "bankSortMode" | "bankSortLayout" | "bankSortRequest">;
 export function BankSortControl({ state, settings = false }: { state: BankSortState; settings?: boolean }) {
   const action = usePartyAction();
   const mode = state.bankSortMode || "automatic";
@@ -18,6 +18,12 @@ export function BankSortControl({ state, settings = false }: { state: BankSortSt
           <input type="radio" name="bank-sort-mode" value={value} checked={mode === value}
             onChange={() => update({ mode: value })} className="accent-emerald-400" />{label}
       </label>)}
+      <label className="flex cursor-pointer items-center gap-2 border-t border-slate-700 pt-2">
+        <input type="checkbox" checked={state.bankSortLayout === "gapped"}
+          onChange={event => update({ layout: event.target.checked ? "gapped" : "packed" })} className="accent-emerald-400" />
+        Leave gaps between item types
+      </label>
+      <p className="text-xs text-slate-300">Each item category starts on its own row with free slots after it, so new items drop into a gap instead of shifting the whole bank. Falls back to packed sorting when the bank is too full.</p>
       <p className="text-xs text-slate-300">Compatible stacks are always combined during bank visits. This setting controls item ordering.</p>
     </fieldset> : <>
       <div className="flex flex-wrap items-center gap-3">
