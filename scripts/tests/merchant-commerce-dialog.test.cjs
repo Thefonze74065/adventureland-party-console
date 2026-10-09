@@ -5,6 +5,7 @@ const executable=ts.transpileModule('globalThis.submit = '+submitSource,{compile
 const {PartyActionError}=require('./helpers/dashboard-query-module.cjs')('query-actions.ts');
 function fixture(onSubmit){
  const effects=[],r={Error,PartyActionError,pending:{current:false},selected:[{id:'tri'}],cart:{tri:4},catalogKey:i=>i.id,mode:'craft',onSubmit,
+ pendingEstimate:false,unavailable:[],validCaps:true,setConfirmUnavailable:v=>effects.push(['estimate-confirmation',v]),
  bankConfirmation:null,setBankConfirmation:v=>{r.bankConfirmation=v;effects.push(['confirmation',v]);},
  setSubmitting:v=>effects.push(['pending',v]),setSubmitError:v=>effects.push(['error',v]),setCraftCart:v=>effects.push(['cart',v])};
  vm.runInNewContext(executable,r);return {submit:r.submit,effects,r};

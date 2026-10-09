@@ -319,6 +319,7 @@ export function startCoordinatorApplication(
           party.merchantHomeReturnAt = 0;
           delete party.commands[merchant];
           block.realm = realm;
+          block.pendingRealm = party.merchantRealmRequests[merchant] = {realm, owner:'job', requestedAt:Date.now(), attempts:1};
           persistSettings();
           await softkill_block(block);
         },
@@ -920,6 +921,7 @@ export function startCoordinatorApplication(
     const workerSetup = coordinatorPolicies.createWorkerSetup(character_manage, party, {
       // Keep the original TypeError if a queued worker no longer has an account entry.
       configuredRealm,
+      persistRealmRequests: persistSettings,
       homeRealm: (name) => {
         const home = accountHomeRealm() || ownedCharacter(name)?.home;
         return home ? "SR_" + home.replace(/^SR_/, "") : null;

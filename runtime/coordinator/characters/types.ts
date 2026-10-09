@@ -1,5 +1,6 @@
 import type { ChildProcess } from "node:child_process";
 import type { FSWatcher } from "node:fs";
+import type { RealmRequest } from './realm-request.ts';
 
 export type Worker = ChildProcess & { partyStopReason?: string };
 export type Lifecycle = "starting" | "realm-error" | "repairing" | "online" | "failed" | "offline";
@@ -10,6 +11,7 @@ export interface CharacterBlock {
   enabled?: boolean;
   connected?: boolean;
   realm?: string;
+  pendingRealm?: RealmRequest;
   script?: string;
   typescript?: string | null;
   version?: number;

@@ -14,7 +14,7 @@ exports.passingContext = values => {
     groupedCombat: null, passiveHunting: {rules: {}, useFieldGenerators: true},
     navigationIntent: {}, partyTownActive: false, banking: false, stocking: false,
     upgrading: false, gatheringActive: false, forceTraveling: false, townTraveling: false,
-    eventTraveling: false, joinedEvent: false, root: {},
+    eventTraveling: false, joinedEvent: false, anniversaryStaging: false, anniversaryBusy: false, root: {},
     escapeOwns: () => false, combatRecoveryActive: () => false,
     activeCombatEvent: () => false, rareActive: () => false, unfinishedFight: () => false,
     reunionRealm: () => 'USII', ...values,

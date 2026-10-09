@@ -86,17 +86,19 @@ function visitDue(
   );
 }
 
-/**
- * The pre-window and a live round hold the merchant in Main, except while the
- * featured player is unavailable (offline, dead, hidden or on a private map):
- * queued work runs then, and `kissDue` reclaims the merchant if it returns.
- */
-function movementReserved(preWindow: boolean, live: boolean, complete: boolean, unavailable: boolean): boolean {
-  return preWindow || (live && !complete && !unavailable);
+function movementReserved(preWindow: boolean, live: boolean, complete: boolean): boolean {
+  return preWindow || (live && !complete);
+}
+function availableReservation(preWindow: boolean, featured: boolean, event: AnniversaryEvent | undefined,
+  state: NonNullable<AnniversaryMerchantStatus['anniversaryState']>): boolean {
+  return preWindow || featured || event?.available !== false || busy(state);
 }
 
 function busy(state: NonNullable<AnniversaryMerchantStatus["anniversaryState"]>): boolean {
   return !!state.busy || state.mode === "kiss-active";
+}
+function liveBusy(live: boolean, state: NonNullable<AnniversaryMerchantStatus['anniversaryState']>): boolean {
+  return live && busy(state);
 }
 
 function completedVisit(
@@ -107,11 +109,6 @@ function completedVisit(
     state.mode === "complete" &&
     (state.completedRound === undefined || state.completedRound === String(event?.round))
   );
-}
-
-/** A live round whose featured player (someone other than the merchant) cannot be visited. */
-function unavailableRound(event: AnniversaryEvent | undefined, live: boolean, featured: boolean): boolean {
-  return live && !featured && event?.available === false;
 }
 
 /** The featured merchant waits one minute; other visits retain their existing retry ownership. */
@@ -141,8 +138,9 @@ export function merchantAnniversaryControl(
     featured,
     kissDue,
     preWindow,
-    reserved: movementReserved(preWindow, live, completed, unavailableRound(event, live, featured)),
-    busy: live && busy(state),
+    reserved: movementReserved(preWindow, live, completed) &&
+      availableReservation(preWindow, featured, event, state),
+    busy: liveBusy(live, state),
     retryAt,
     mode: state.mode || "idle",
   };

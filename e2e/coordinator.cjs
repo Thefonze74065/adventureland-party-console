@@ -75,7 +75,7 @@ const adapters = {
       ? path.join(directory, 'game_files', String(version), 'data.js') : file;
     return fs.readFileSync(scenarioFile, ...args);
   } },
-  '../config': { characters: {}, merchant: process.env.E2E_MERCHANT_CONNECTED === 'false' ? null : 'M', watch_CODE: false, enable_TYPECODE: false,
+  '../config': { characters: process.env.E2E_MANAGED_MERCHANT === 'true' ? {M:{enabled:false,realm:'SR_USII'}} : {}, merchant: process.env.E2E_MERCHANT_CONNECTED === 'false' ? null : 'M', watch_CODE: false, enable_TYPECODE: false,
     web_app: { party_dashboard: true, port } },
   '../account_info': async () => account,
   '../game_files': { ensure_latest: async () => version, cull_versions: async () => {},

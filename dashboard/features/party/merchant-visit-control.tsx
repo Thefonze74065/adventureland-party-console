@@ -17,7 +17,7 @@ export function MerchantVisitControl({ characters, merchant }: { characters: Cha
     setMessage("");
     try {
       await action.mutateAsync({ path: "/command", body: { character: name, type: "bank" } });
-      setMessage(`Merchant visit queued for ${name}`);
+      setMessage(name === merchant ? 'Bank visit queued' : `Merchant visit queued for ${name}`);
       setOpen(false);
     } finally { submitting.current = false; }
   }
@@ -30,6 +30,7 @@ export function MerchantVisitControl({ characters, merchant }: { characters: Cha
       <DialogContent className="border-amber-700 bg-[#081713] text-emerald-50">
         <DialogHeader><DialogTitle>Send merchant to</DialogTitle></DialogHeader>
         <div className="grid gap-2">
+          {merchant && <Button disabled={action.isPending} onClick={() => void visit(merchant).catch(() => {})} className="justify-start border border-amber-700 bg-[#071719] text-amber-100 hover:border-amber-400 hover:bg-amber-950 hover:text-white">Visit bank</Button>}
           {eligible.map(char => <Button key={char.name} disabled={action.isPending} onClick={() => void visit(char.name).catch(() => {})} className="justify-start border border-amber-700 bg-[#071719] text-amber-100 hover:bg-amber-950 hover:text-white">{char.name}</Button>)}
           {!eligible.length && <p>No other characters are online.</p>}
         </div>

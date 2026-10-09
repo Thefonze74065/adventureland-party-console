@@ -66,8 +66,9 @@ export function installRoleRunner(
   });
   const recoverFromDeath = createDeathRecovery({
     isDead: () => !!character.rip,
-    blocked: () => !!sharedRoutine.dungeonOwned?.(),
-    respawn: () => sharedRoutine.dungeonOwned?.() ? Promise.reject(Error('Dungeon owns revival')) : Promise.resolve(respawn()),
+    blocked: () => !!sharedRoutine.dungeonOwned?.() || !!sharedRoutine.escapeOwnsRevival?.(),
+    respawn: () => sharedRoutine.dungeonOwned?.() || sharedRoutine.escapeOwnsRevival?.()
+      ? Promise.reject(Error('Recovery owns revival')) : Promise.resolve(respawn()),
     releaseCombat: () => {
       working = false;
     },

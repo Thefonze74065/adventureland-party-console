@@ -6,15 +6,16 @@ function fixture() {
     merchantQueue: [], merchantCurrent: null, statuses: {}, commands: {}, autoCompounds: {}, autoExchanges: {},
     autoNpcSales: {}, autoStandMarks: {}, npcSaleMarks: [], standListings: []};
   const calls = [], timers = [], block = {realm: 'SR_EUI'};
+  let now = 100000;
   const service = createCoordinatorMerchantAutomation(state, {
-    now: () => 100000, stamp: job => ({...job, priority: 50}), log: () => calls.push('log'),
+    now: () => now, stamp: job => ({...job, priority: 50}), log: () => calls.push('log'),
     persist: () => calls.push('persist'), queue: () => calls.push('queue'), publish: () => calls.push('publish'),
     syncStand: () => false, idle: () => calls.push('idle'), dispatch: () => calls.push('dispatch'),
     names: () => Object.keys(state.statuses), strong: () => false, remaining: () => 0, lead: () => 30000,
     block: () => block, realmLabel: realm => realm, stop: async value => calls.push(value),
     later: (callback, delay) => timers.push({callback, delay}),
   });
-  return {state, calls, timers, block, service};
+  return {state, calls, timers, block, service, setNow: value => { now = value; }};
 }
 
 test('automatic schedulers share the current command counter and replacement collections', () => {
@@ -41,6 +42,7 @@ test('home recovery persists realm reassignment before a deferred restart and wa
   assert.deepEqual(t.calls, ['log', 'persist']); assert.equal(t.timers[0].delay, 150);
   assert.equal(t.service.home.ensureHome('exchange'), false); assert.equal(t.timers.length, 1);
   await t.timers[0].callback(); assert.equal(t.calls.at(-1), t.block);
-  t.state.statuses = {M: {server: 'USII'}};
+  t.setNow(100001);
+  t.state.statuses = {M: {server: 'USII', seenAt:100001}};
   assert.equal(t.service.home.ensureHome('exchange'), true); assert.equal(t.state.merchantHomeReturnAt, 0);
 });

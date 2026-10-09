@@ -28,14 +28,6 @@ function createGameFixture(directory) {
         id: reward, kind: reward, name: game.items[reward].name, quantity: 1, chance: 0.5, sprite: null,
       })), { id: 'gold', kind: 'gold', name: 'Gold', quantity: 10000, chance: 0.1, sprite: null },
       { id: 'empty', kind: 'empty', name: 'Nothing', quantity: 1, chance: 0.05, sprite: null }] }));
-  if (process.env.E2E_UPGRADE_ESTIMATES === 'true') {
-    // Shaped like characters/shared.js's buyable catalog entry (grade-0 chance table).
-    const staff = game.items.staff;
-    merchantCatalog.buyable = [{ id: 'staff', name: staff.name, cost: staff.g, seller: 'basics',
-      upgradeable: true, compoundable: false, upgradeGrade: Number(staff.igrade) || 0, grades: staff.grades || [9, 10, 11, 12],
-      upgradeChances: [1, 0.9999999, 0.98, 0.95, 0.7, 0.6, 0.4, 0.25, 0.15, 0.07, 0.024, 0.14, 0.11],
-      scrollCosts: [0, 1, 2, 3].map(grade => game.items['scroll' + grade].g), sprite: null }];
-  }
   const gooSpawn = game.maps.main.monsters.find(spawn => spawn.type === 'goo');
   const boundary = gooSpawn.boundary;
   const location = { map: 'main', mapName: game.maps.main.name || 'main', boundary,
@@ -61,8 +53,7 @@ function createGameFixture(directory) {
       items: Array.from({ length: 42 }, (_, slot) => (name === 'M' || name === 'W' && process.env.E2E_PLAYER_INVENTORY === 'true') && slot === 0
         ? { slot, item: { name: 'sword', level: 0 }, meta: itemMeta('sword') } : name === 'M' && slot === 1
         ? { slot, item: { name: 'gem0', q: 1 }, meta: itemMeta('gem0') } : name === 'M' && slot === 2
-        ? { slot, item: { name: 'coat', level: 0 }, meta: itemMeta('coat') } : name === 'M' && slot === 3 && process.env.E2E_UPGRADE_ESTIMATES === 'true'
-        ? { slot, item: { name: 'staff', level: 12 }, meta: itemMeta('staff') } : null),
+        ? { slot, item: { name: 'coat', level: 0 }, meta: itemMeta('coat') } : null),
       ...(process.env.E2E_MERCHANT_DIALOGS === 'true' && name === 'M' ? {
         bank: {gold:1000000,packs:{items0:[{slot:0,item:{name:'bkey'},meta:itemMeta('bkey')}]}},
         bankVaults: [

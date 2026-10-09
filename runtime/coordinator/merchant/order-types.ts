@@ -17,6 +17,9 @@ export interface OrderLine {
   attempts?: number;
   budget?: number;
   scrolls?: number[];
+  goldCap?: number;
+  estimateUnavailable?: boolean;
+  acknowledgeUnavailable?: boolean;
 }
 export interface Allocation {
   slot?: number;

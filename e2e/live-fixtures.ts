@@ -121,7 +121,7 @@ export const test = base.extend<{ live: LiveGame; loadout: NativeLoadout; primar
             ? JSON.parse(stored[stateKey]) : structuredClone(stored[stateKey] || {});
           const settings = decoded(key);
           const historical = await restore(structuredClone(settings));
-          const allowed = new Set(['characterLocations', 'location', 'farmingPolicy', 'farmingProfiles', 'eventSelectionsByCharacter', 'activeConvoy', 'deferredEventReturns', 'eventReturn', 'monsterHunt', 'merchantDeliveries', 'npcSaleMarks', 'merchantCurrent', 'merchantCharacter', 'bankbois', 'bankboiTransaction', 'production', 'nativeStand', 'standBids', 'luckyUpgradeSlots', 'autoItemMarks', 'autoUpgradeMarks', 'autoCompounds', 'gatheringCooldowns']);
+          const allowed = new Set(['characterLocations', 'location', 'farmingPolicy', 'farmingProfiles', 'eventSelectionsByCharacter', 'activeConvoy', 'deferredEventReturns', 'eventReturn', 'monsterHunt', 'merchantDeliveries', 'npcSaleMarks', 'merchantCurrent', 'merchantQueue', 'merchantRealmRequests', 'autoNpcSales', 'autoStandMarks', 'merchantCharacter', 'bankbois', 'bankboiTransaction', 'production', 'nativeStand', 'standBids', 'luckyUpgradeSlots', 'autoItemMarks', 'autoUpgradeMarks', 'autoCompounds', 'gatheringCooldowns']);
           if (Object.keys(historical).some(key => !allowed.has(key))) throw Error('Historical seed may only patch declared recovery, Hunt, navigation and native WTB settings');
           await testInfo.attach('declared-historical-settings-seed', { body: JSON.stringify(historical), contentType: 'application/json' });
           const bankKeys = new Set(['bankbois', 'bankboiTransaction']);

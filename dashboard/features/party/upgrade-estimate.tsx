@@ -1,25 +1,85 @@
-"use client";
-import { estimateUpgrade } from "../../../runtime/upgrade-estimate";
-import { MerchantBuyItem } from "./merchant-buy-item";
-import { upgradeEstimateCache } from "./upgrade-estimate-cache";
-
-/**
- * 90% buy-and-upgrade budget, shared with the coordinator's order estimate. Approximate for
- * targets too hard to simulate (#63); a level past the chance table is priced as its base item.
- */
-export function upgradeEstimate(item: MerchantBuyItem, quantity: number, target: number) {
-  const base = { attempts: quantity, gold: item.cost * quantity, scrolls: [] as number[], approximate: false };
-  if (!target || !item.upgradeable) return base;
-  const cacheKey = `${item.id}:${item.cost}:${item.upgradeGrade || 0}:${quantity}:${target}`;
-  const cached = upgradeEstimateCache.get(cacheKey);
-  if (cached) return cached;
-  let result: typeof base | null = null;
-  try {
-    result = estimateUpgrade(item, quantity, target, []);
-  } catch (error) {
-    if (!(error instanceof RangeError)) throw error;
-  }
-  const estimate = result || base;
-  upgradeEstimateCache.set(cacheKey, estimate);
-  return estimate;
+'use client';
+import { useEffect, useState } from 'react';
+import {
+  estimateUpgradeBatch,
+  type UpgradeChoice,
+  type UpgradeEstimate,
+} from '../../../runtime/upgrade-estimate.ts';
+export { highestUpgradeLevel } from '../../../runtime/upgrade-estimate.ts';
+export type { UpgradeEstimate } from '../../../runtime/upgrade-estimate.ts';
+export type EstimateState = UpgradeEstimate | { status: 'pending' };
+export function useUpgradeEstimates(
+  lines: {
+    item: UpgradeChoice;
+    quantity: number;
+    target: number;
+    key: string;
+  }[],
+) {
+  const signature = JSON.stringify(
+    lines.map((line) => ({
+      ...line,
+      item: {
+        id: line.item.id,
+        cost: line.item.cost,
+        upgradeable: line.item.upgradeable,
+        upgradeGrade: line.item.upgradeGrade,
+        upgradeChances: line.item.upgradeChances,
+        grades: line.item.grades,
+        scrollCosts: line.item.scrollCosts,
+      },
+    })),
+  );
+  const [stored, setStored] = useState<{
+    signature: string;
+    values: Record<string, EstimateState>;
+  }>({ signature: '', values: {} });
+  useEffect(() => {
+    const lines = JSON.parse(signature) as {
+      item: UpgradeChoice;
+      quantity: number;
+      target: number;
+      key: string;
+    }[];
+    let current = true;
+    const abort = new AbortController();
+    const values: Record<string, EstimateState> = {};
+    for (const line of lines) values[line.key] = { status: 'pending' };
+    void estimateUpgradeBatch(
+      lines.map((line) => ({
+        choice: line.item,
+        quantity: line.quantity,
+        target: line.target,
+      })),
+      abort.signal,
+    )
+      .then((results) => {
+        if (current) {
+          lines.forEach((line, index) => {
+            values[line.key] = results[index]!;
+          });
+          setStored({ signature, values: { ...values } });
+        }
+      })
+      .catch(() => {
+        if (current) {
+          for (const line of lines)
+            values[line.key] = {
+              status: 'unavailable',
+              completed: 0,
+              rolls: 0,
+            };
+          setStored({ signature, values: { ...values } });
+        }
+      });
+    return () => {
+      current = false;
+      abort.abort();
+    };
+  }, [signature]);
+  return stored.signature === signature
+    ? stored.values
+    : Object.fromEntries(
+        lines.map((line) => [line.key, { status: 'pending' } as EstimateState]),
+      );
 }

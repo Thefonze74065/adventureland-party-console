@@ -276,12 +276,27 @@
     }
     function alignArrival(current, p) {
       if (distance(p, current.step) <= 1 || distance(p, current.step) > 150) return;
-      if (current.aligned && now() - current.progressAt < 1e3) return;
-      if (!current.aligned && !validation.walk(p, current.step)) throw Error(`Arrival connector collision between ${JSON.stringify(p)} and ${JSON.stringify(current.step)}`);
+      if (current.aligned) {
+        if (now() - current.progressAt >= 1e3 && now() - (current.connectorSentAt || 0) >= 1e3) {
+          if (!current.connectorFrom || distance(p, current.connectorFrom) >= 1) {
+            if (!validation.walk(p, current.step)) throw Error("Arrival connector collision after native position correction");
+            current.connectorFrom = point(p);
+          }
+          sendConnector(current);
+        }
+        return;
+      }
+      if (!validation.walk(p, current.step)) throw Error(`Arrival connector collision between ${JSON.stringify(p)} and ${JSON.stringify(current.step)}`);
       current.aligned = true;
+      current.connectorFrom = point(p);
       current.progressAt = now();
+      sendConnector(current);
+    }
+    function sendConnector(current) {
+      current.connectorSentAt = now();
+      const version = current.connectorVersion = (current.connectorVersion || 0) + 1;
       void Promise.resolve(host.move(current.step.x, current.step.y)).catch((error) => {
-        if (issued === current) current.error = String(error);
+        if (issued === current && current.connectorVersion === version) current.error = String(error);
       });
     }
     function transitionReady(current, options, transition) {

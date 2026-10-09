@@ -48,6 +48,16 @@ scrolls or upgrade jobs are purchased or queued for discovery.
 
 ## Persistence and operation
 
+Discovery computes each position's ordinary probability as one minus its lucky
+probability in the existing joint posterior. With at least 100 observations and
+ordinary probability of 99.9% or higher, a position is ruled out and skipped when
+choosing the least-sampled next candidate. Elimination is recalculated on every
+decision: evidence weakening another candidate can immediately restore a position.
+This per-position threshold is not a 99.9% bound for the entire remaining set.
+The statistics dialog shows per-row Ruled out status and an X/42 count. Manual
+locks and the one-roll unlock checkpoint retain precedence; observations continue
+even when a manually selected position is statistically ruled out.
+
 Each game client keeps a durable stream ID, slot counters and duplicate receipt
 under an account-and-character local storage key. Coordinator settings retain
 `luckySlotTracking[character][streamId]`. Cumulative stream reports are merged only

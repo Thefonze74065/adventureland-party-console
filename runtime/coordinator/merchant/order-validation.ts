@@ -1,14 +1,25 @@
 import { requestObject } from "../http/contracts.ts";
 import type { OrderChoice, OrderLine } from "./order-types.ts";
+import { highestUpgradeLevel } from "./upgrade-estimate.ts";
 
 function validLevel(choice: OrderChoice, level: number): boolean {
-  const max = choice.compoundable ? 7 : choice.upgradeable ? 13 : 0;
+  const max = highestUpgradeLevel(choice);
   return (
     Number.isSafeInteger(level) && level >= 0 && level <= max && !(level > 0 && !choice.upgradeable)
   );
 }
 function validQuantity(quantity: number): boolean {
   return Number.isSafeInteger(quantity) && quantity >= 1 && quantity <= 9999;
+}
+function validCap(cap: unknown): cap is number | undefined {
+  return cap === undefined || (typeof cap === "number" && Number.isSafeInteger(cap) && cap > 0);
+}
+function levelFields(line: Record<string, unknown>, level: number): Partial<OrderLine> {
+  const fields: Partial<OrderLine> = {};
+  if (level) fields.level = level;
+  if (typeof line.goldCap === "number") fields.goldCap = line.goldCap;
+  if (line.acknowledgeUnavailable === true) fields.acknowledgeUnavailable = true;
+  return fields;
 }
 
 function normalizeLine(
@@ -22,7 +33,13 @@ function normalizeLine(
   if (typeof line.id !== "string" || !choice || !validQuantity(quantity)) return null;
   const level = Number(line.level) || 0;
   if (allowLevel && !validLevel(choice, level)) return null;
-  return { id: line.id, quantity, ...(allowLevel && level ? { level } : {}) };
+  const cap = line.goldCap;
+  if (!validCap(cap)) return null;
+  return {
+    id: line.id,
+    quantity,
+    ...(allowLevel ? levelFields(line, level) : {}),
+  };
 }
 
 export function normalizeOrderLines(

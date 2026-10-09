@@ -1,10 +1,12 @@
 import { requestObject, type HttpRequest, type HttpResponse } from "./contracts.ts";
 import type { MerchantWork } from "../merchant/work.ts";
+import type { RealmRequest } from '../characters/realm-request.ts';
 
 interface MerchantRealmState {
   merchantCharacter: string | null;
   merchantCurrent: MerchantWork | null;
   activeRealm: string;
+  merchantRealmRequests?: Record<string, RealmRequest | undefined>;
 }
 interface RealmBlock {
   realm?: string;
@@ -46,6 +48,7 @@ export function createMerchantRealmRoutes<Block extends RealmBlock>(
     const block = ports.block(merchant);
     if (block.realm === realm && block.connected) return res.json({ ok: true, alreadyThere: true });
     block.realm = realm;
+    (state.merchantRealmRequests ||= {})[merchant] = {realm, owner:'job', requestedAt:ports.now(), attempts:1};
     current.phase = "switching realm";
     current.heartbeatAt = current.progressAt = ports.now();
     ports.log(
@@ -74,6 +77,7 @@ export function createMerchantRealmRoutes<Block extends RealmBlock>(
     const block = ports.block(merchant);
     if (block.realm === realm && block.connected) return res.json({ ok: true, alreadyThere: true });
     block.realm = realm;
+    (state.merchantRealmRequests ||= {})[merchant] = {realm, owner:'home', requestedAt:ports.now(), attempts:1};
     ports.log(
       "Returning " + merchant + " to active realm " + ports.label(realm) + " before opening stand",
       "info",

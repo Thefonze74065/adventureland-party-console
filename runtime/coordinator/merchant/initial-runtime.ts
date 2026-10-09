@@ -1,4 +1,5 @@
 import type { MerchantWork } from "./work.ts";
+import type { RealmRequest } from '../characters/realm-request.ts';
 import type { LuckySlotHistory } from '../../lucky-slot-tracking.ts';
 import type { recoverMerchantQueue } from "./restart-queue.ts";
 import type { createMerchantItemCommands } from "../inventory/merchant-item-commands.ts";
@@ -13,6 +14,7 @@ interface SavedMerchant extends Partial<BankSortState> {
   luckySlotLocks?: Record<string, number | null>;
   luckySlotResume?: Record<string, {slot: number; rolls: number}>;
   merchantCharacter?: string | null;
+  merchantRealmRequests?: Record<string, RealmRequest | undefined>;
   merchantForceStand?: unknown;
   merchantStandLocation?: MerchantStandLocation;
   merchantWeapon?: Parameters<typeof createMerchantItemCommands>[0]["merchantWeapon"];
@@ -22,6 +24,10 @@ interface SavedMerchant extends Partial<BankSortState> {
 }
 
 /** Restore pending merchant work before the restart recovery service reconciles it. */
+function homeReturnTimestamp(saved: SavedMerchant, merchant: string | null): number {
+  const request = saved.merchantRealmRequests?.[String(merchant)];
+  return request?.owner === 'home' && !request.exhausted ? request.requestedAt : 0;
+}
 export function initialMerchantRuntime<DefaultMerchant extends string | null = string>(
   saved: SavedMerchant,
   defaultMerchant?: DefaultMerchant,
@@ -35,6 +41,7 @@ export function initialMerchantRuntime<DefaultMerchant extends string | null = s
   return {
     ...initialBankSort(saved),
     merchantCharacter,
+    merchantRealmRequests: {...saved.merchantRealmRequests},
     luckyUpgradeSlots,
     luckySlotLocks: {...saved.luckySlotLocks},
     luckySlotResume: {...saved.luckySlotResume},
@@ -45,7 +52,7 @@ export function initialMerchantRuntime<DefaultMerchant extends string | null = s
     merchantWeapon: saved.merchantWeapon || null,
     merchantQueue: Array.isArray(saved.merchantQueue) ? saved.merchantQueue : [],
     merchantCurrent: saved.merchantCurrent || null,
-    merchantHomeReturnAt: 0,
+    merchantHomeReturnAt: homeReturnTimestamp(saved, merchantCharacter),
     merchantCargo: saved.merchantCargo || { bank: [], gold: 0 },
   };
 }

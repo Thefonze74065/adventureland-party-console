@@ -7,6 +7,49 @@ from the commits merged into `main`.
 
 ### Added
 
+- Keep merchant upgrade estimates responsive with a shared, cancellable
+  60-million-roll budget for each cart/order. Discard incomplete simulations,
+  apply native grade grace modifiers, and clamp targets to attainable levels
+  (currently +12). Unavailable estimates require confirmation and a positive
+  per-line gold cap covering item/scroll purchases through restart, without
+  fabricated attempt counts or replacement prices. Validate grades against
+  independent native-formula budget references and native capped commerce.
+
+- Halloween respawn reentry can retire a failed route prepared before the
+  character's newly observed death, with fresh alive/event/runtime/navigation
+  ownership checks. Same-episode route failures and exhausted budgets retain
+  their existing holds. Native Town recovery records War Cry's actual speed
+  bonus and checks the unbuffed Ice Skates baseline without disabling skills.
+- Prioritize Mr. Green's Green Jr. and Mr. Pumpkin's Jr. HP-threshold spawns
+  during attendance, then resume boss combat while retaining boss reentry sightings.
+- Keep Anniversary staging through old-round slice handoffs and suppress farm
+  movement during staging, preventing repeated Town warps before the round.
+- Retry dropped, already validated Town/door arrival connectors once per second
+  without extending their transition deadline; throttle escape respawn requests
+  and give recovering Escape sole ownership of revival.
+
+- Lucky-slot discovery now skips positions with at least 100 observations and
+  99.9% ordinary probability, recomputes eligibility as evidence changes, and
+  shows per-slot Ruled out status and the ruled-out count (#23).
+- Bag-only merchant collection and emergency cleanout can transfer during
+  combat, with per-send range/call-cost gates, a bounded partial handoff,
+  retained unsent marks and stationary combat targets. Equipped upgrade work
+  still waits for combat; partial cleanout retries wait ten seconds (#66).
+- Automatic NPC-sale rules now retrieve up to ten eligible whole bank stacks per
+  pass, respecting locked stock, reservations, conflicting stand rules and the
+  automation toggle. The merchant destination dialog includes Visit bank (#28).
+- Merchant realm returns retain their requested destination across reconnects
+  and coordinator restarts, stop after three failed attempts, and support manual
+  job retry without holding unrelated work. Each request keeps its sixty-second
+  arrival window and requires a report no older than three seconds (#74).
+- Cross-realm party visits retain their own 60-second transition deadline instead
+  of being cancelled by the generic worker-expiry sweep (#69).
+- An unavailable Anniversary target releases idle merchant work while preserving
+  staging, featured-merchant and active-visit ownership (#70).
+
+- Native Cave validation yields to a newly opened native choice during required-room
+  selection, then resumes through the choice UI without claiming an accepted move.
+
 - Native Cave validation resumes the selected destination after its matching
   native vote resolves, including retained vote receipts, and reports verified
   journey stages explicitly.
@@ -427,6 +470,9 @@ from the commits merged into `main`.
   verified live; Linux has protocol tests and still needs live desktop validation.
 
 ### Added
+
+- Native Cave validation yields to a newly opened native choice during required-room
+  selection, then resumes through the choice UI without claiming an accepted move.
 
 - Merchant setting for upgrade purchase batches (default 1), with bulk starting-tier scrolls, durable item ownership, and completion of every purchased item.
 

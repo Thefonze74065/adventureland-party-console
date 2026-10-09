@@ -6,7 +6,7 @@ function movement() {
  let now=10000,calls=0,stops=0,resolve;
  const target={id:'bee',x:0,y:200,map:'main'},character={name:'W',map:'main',x:0,y:0,speed:60};
  const c=vm.createContext({character,parent:{entities:{}},partyLocation:{id:'a',map:'main',x:0,y:200,shapes:[{boundary:[-50,150,50,250]}]},
-  runtimeCurrent:()=>true,sharedRoutine:{isOccupied:()=>false},activeCombatEvent:()=>false,joinedEvent:null,
+  runtimeCurrent:()=>true,sharedRoutine:{isOccupied:()=>false},activeCombatEvent:()=>false,joinedEvent:null,anniversaryStaging:false,anniversaryBusy:false,
   groupedFarming:()=>false,requestGroupApproach:()=>false,
   navigationIntent:{revision:1},Date:{now:()=>now},is_in_range:()=>false,combatDistance:()=>200,lastAttackAt:0,
   partyConvoyActive:false,convoyTraveling:null,farmTravelPaused:false,can_walk:()=>true,can_move:()=>true,can_move_to:()=>false,safeCombatPoint:()=>true,formationBody:()=>({}),recoverFormationCorner:()=>false,

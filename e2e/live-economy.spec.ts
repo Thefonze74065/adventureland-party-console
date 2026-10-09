@@ -6,6 +6,48 @@ import { location } from './game/hunt-lifecycle';
 
 const merchant = 'E2EMerchant';
 
+test('unavailable upgrade estimate enforces its gold cap across native purchases and restart',async({live},info)=>{
+  // Failure inventory: fabricated attempt allowance; base/scroll spending skips
+  // cap; restart resets accrued spend; retry purchases beyond the same cap.
+  // Native buys/upgrades remain real. Only checkpoint transport is held after
+  // the coordinator has persisted the first paid purchase, to place restart.
+  test.setTimeout(300_000);
+  await catalog(live,'helmet');
+  const checkpoints:any[]=[];
+  let held=false,release!:()=>void;
+  const gate=new Promise<void>(resolve=>{release=resolve;});
+  try {
+  await live.clients[merchant].page.route('**/party-api/merchant/checkpoint',async route=>{
+    const body=route.request().postDataJSON(),response=await route.fetch();
+    checkpoints.push(body.state);
+    if(!held&&Number(body.state.spent)>0&&!body.state.pendingPurchase){held=true;await gate;}
+    await route.fulfill({response});
+  });
+  const order=await live.post('/merchant/order',{buys:[{id:'helmet',quantity:1,level:12,acknowledgeUnavailable:true,goldCap:10000}],crafts:[]});
+  await expect.poll(()=>held,{timeout:120_000}).toBe(true);
+  const before=await live.state();
+  const job=[before.merchantCurrent,...before.merchantQueue].find((entry:any)=>entry?.id===order.jobId);
+  expect(job.order.buys[0]).toMatchObject({goldCap:10000,budget:10000,estimateUnavailable:true});
+  expect(job.order.buys[0].attempts).toBeUndefined();
+  expect(job.resumeState.spent).toBeGreaterThan(0);
+  await live.restartCoordinator();release();
+  await expect.poll(async()=>{
+    const state=await live.state();
+    return [state.merchantCurrent,...state.merchantQueue].some((entry:any)=>entry?.id===order.jobId&&/budget exhausted|gold cap/i.test(entry.lastError||entry.error||entry.blockedReason||''))||state.merchantActivity.some((entry:any)=>/budget exhausted|gold cap/i.test(JSON.stringify(entry)));
+  },{timeout:120_000}).toBe(true);
+  expect(Math.max(...checkpoints.map(state=>Number(state.spent)||0))).toBeLessThanOrEqual(10000);
+  expect(checkpoints.some(state=>state.spent>0&&/^scroll/.test(state.pendingPurchase?.name||''))).toBe(true);
+  await info.attach('capped-native-upgrade-restart',{body:JSON.stringify({order,before,after:await live.state(),checkpoints,events:await live.clients[merchant].events()}),contentType:'application/json'});
+  } finally {
+    // A failed assertion must not leave a real checkpoint response held while
+    // the fixture disposes its browser/request context. Suppress route errors
+    // only during teardown, after ordinary assertions and response handling.
+    release();
+    if(!live.clients[merchant].page.isClosed())
+      await live.clients[merchant].page.unrouteAll({behavior:'ignoreErrors'});
+  }
+});
+
 test('merchant stand location is valid at first setup and stays saved through restart', async ({ live, page }, info) => {
   test.setTimeout(240_000);
   // Failure modes: a shared constant survives first setup; a wall point is saved;

@@ -41,6 +41,7 @@ export interface SharedCombat {
   getScatterBreakTarget: TargetGetter;
   getEngagedTarget: TargetGetter;
   getEventTarget: TargetGetter;
+  escapeOwnsRevival?(): boolean;
   sharedTargetId?(): string | null;
   frankyCombatActive?(): boolean;
   frankyMovementTick?(target: Target | null): boolean;

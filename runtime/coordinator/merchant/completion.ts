@@ -86,8 +86,19 @@ export function createMerchantCompletion(state: CompletionState, ports: Completi
     authenticate(job, body);
     retries.enqueue(job, decision);
     if (deferred) deferredImprovements(job);
-    if (repeatCleanout) ports.queue([name], "inventory cleanout");
+    if (repeatCleanout) repeatCleanoutAfterWindow(job);
     finish(job);
+  }
+  function repeatCleanoutAfterWindow(job: CompletionJob): void {
+    if (!job.handoff?.partial) { ports.queue([job.target], "inventory cleanout"); return; }
+    if (state.merchantAutomations?.['inventory cleanout'] === false) return;
+    // Queue before dispatch with a durable eligibility time. Automatic pulses
+    // merge into this pickup and retain retryAt instead of revisiting instantly.
+    const now = ports.now();
+    const existing = state.merchantQueue.find(queued => queued.target === job.target && queued.reason === "inventory cleanout");
+    if (existing) existing.retryAt = Math.max(Number(existing.retryAt) || 0, now + 10000);
+    else state.merchantQueue.push(ports.stamp({id: job.id + '-cleanout-' + now, target: job.target,
+      reason: "inventory cleanout", queuedAt: now, retryAt: now + 10000}));
   }
   function releaseFailedRecipient(name: CompletionJob['target'], job: CompletionJob, body: CompletionReport): void {
     const recipient = state.commands[String(name)];

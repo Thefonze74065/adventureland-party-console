@@ -21,11 +21,15 @@ for (const {restart, lateTransport} of [{restart:false,lateTransport:false},{res
     await expect.poll(() => live.clients[P].run('character.items[10]?.name')).toBe('iceskates');
     const equipReceipt = await live.clients[P].run('(async()=>({result:await equip(10),shoes:character.slots.shoes,speed:character.speed}))()');
     await expect.poll(() => live.admin(`output=get_player(${JSON.stringify(P)}).slots.shoes?.name`)).toBe('iceskates');
-    const equipmentStats = await live.admin(`output=(()=>{const p=get_player(${JSON.stringify(P)});return {shoes:p.slots.shoes,speed:p.speed,hp:p.hp,max_hp:p.max_hp}})()`);
-    expect(equipmentStats.speed).toBeLessThanOrEqual(40);
-    expect(equipmentStats.speed).toBeGreaterThan(0);
+    const equipmentStats = await live.admin(`output=(()=>{const p=get_player(${JSON.stringify(P)}),warcry=p.s.warcry||null,definition=G.conditions.warcry;
+      const active=!!warcry&&Number(warcry.ms)>0;
+      if(active&&(!Number.isFinite(definition?.speed)||definition.speed<0))throw Error('Unknown native War Cry speed definition');
+      return {shoes:p.slots.shoes,speed:p.speed,hp:p.hp,max_hp:p.max_hp,warcry,warcryDefinition:definition,
+        baselineSpeed:p.speed-(active?definition.speed:0)}})()`);
+    expect(equipmentStats.baselineSpeed).toBeLessThanOrEqual(40);
+    expect(equipmentStats.baselineSpeed).toBeGreaterThan(0);
     await info.attach('town-native-iceskates-equipment', { body: JSON.stringify({ equipmentSeed, equipReceipt, equipmentStats,
-      rationale: 'Native Ice Skates extend the obstacle detour beyond30s; the pinned2561-unit full walk at40speed takes about64s, under120s absolute bound.' }), contentType: 'application/json' });
+      rationale: 'Native Ice Skates have baseline speed <=40; subtract only an active native War Cry speed bonus for this equipment assertion. Retain actual speed and buff definition: maintained War Cry can temporarily accelerate the real walk. The pinned2561-unit full walk at40speed takes about64s, under120s absolute bound.' }), contentType: 'application/json' });
     const candidates = zones((await live.state(true)).monsterChoices, ['bee']).filter(area => area.map === 'main');
     // Native 15555 Bee boundary [448,694,592,812] contains the incident's
     // Main(520,710) origin. Returning on foot must detour southeast first.

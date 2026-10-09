@@ -1,4 +1,5 @@
 import { dungeonOwns } from '../../dungeons/contracts.ts';
+import { realmRequestArrived, type RealmRequest } from '../characters/realm-request.ts';
 import { pendingProduction, type ProductionState } from '../inventory/production.ts';
 import { upgradeOfferingReady } from '../inventory/offering-waits.ts';
 import { deliveryReady } from './delivery-recovery.ts';
@@ -28,6 +29,7 @@ interface DispatchCoordinatorState extends BankImprovementState, MerchantEventSt
   nextCommandId: number;
   merchantCharacter: string | null;
   merchantHomeReturnAt?: unknown;
+  merchantRealmRequests?: Record<string, RealmRequest | undefined>;
   bankbois?: Record<string, BankboiInventory>;
   bankboiTransaction: unknown;
   merchantForceStand: unknown;
@@ -141,7 +143,13 @@ export function createCoordinatorMerchantDispatcher(
       enabled: job => !(job.target && dungeonOwns(state, job.target)) && routineEnabled(job, state.merchantAutomations || {}),
       nextCommand: () => state.nextCommandId++,
       merchant: () => state.merchantCharacter,
-      returningHome: () => !!state.merchantHomeReturnAt,
+      returningHome: () => !!state.merchantHomeReturnAt && !state.merchantRealmRequests?.[String(state.merchantCharacter)]?.exhausted,
+      homeBlocked: () => {
+        const request = state.merchantRealmRequests?.[String(state.merchantCharacter)];
+        const status = state.statuses[String(state.merchantCharacter)];
+        if (!request || request.owner !== 'home' || request.realm !== state.activeRealm || !request.exhausted) return false;
+        return !realmRequestArrived(status, request, ports.now());
+      },
       bankboi: (name) => !!state.bankbois?.[String(name)],
       storagePending: () =>
         !!(ports.storageBusy() || state.bankboiTransaction || ports.storagePlan()),

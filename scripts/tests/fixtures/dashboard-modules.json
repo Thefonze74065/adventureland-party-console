@@ -1173,7 +1173,7 @@
     "file": "dashboard/features/party/upgrade-estimate.tsx",
     "declarations": [
       {
-        "name": "upgradeEstimate",
+        "name": "useUpgradeEstimates",
         "position": 244049
       }
     ]
@@ -1191,7 +1191,7 @@
     "file": "dashboard/features/party/suggested-item-value.tsx",
     "declarations": [
       {
-        "name": "suggestedItemValue",
+        "name": "useSuggestedItemValue",
         "position": 219026
       }
     ]

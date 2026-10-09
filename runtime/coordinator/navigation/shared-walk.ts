@@ -1,4 +1,4 @@
-import { characterRuntime, distance, type RoutePoint, type SharedConvoy, type SharedState } from "./shared-route-types.ts";
+import { characterRuntime, distance, type RoutePoint, type SharedConvoy, type SharedState, type SharedStatus } from "./shared-route-types.ts";
 import { readRoutePoint } from "./shared-route-store.ts";
 
 interface WalkRequest {
@@ -209,6 +209,7 @@ export function createSharedWalks(input: unknown, ports: WalkPorts) {
     const convoy = state.activeConvoy as SharedConvoy | null;
     if (!convoy) return;
     convoy.walkingActivity = waiting[0]?.activity;
+    if (convoy.walkingActivity === "event") convoy.walkingEvent = waiting[0]?.key;
     // Staging shares the moving-defense return policy with Hunt turn-in.
     convoy.navigationExempt = returning;
     if (convoy.walkingActivity === "anniversary-staging" || halloweenExit(convoy, waiting)) convoy.continuousReturn = 1;
@@ -262,6 +263,54 @@ export function createSharedWalks(input: unknown, ports: WalkPorts) {
     if (failed.walkingParents?.[r.name]?.revision !== r.revision) return null;
     return { ok: true, phase: "failed", reason: failed.failure || "Event walking retries exhausted" };
   }
+  function retirePreDeathWalk(r: WalkRequest): void {
+    const c = state.activeConvoy, s = state.statuses[r.name];
+    if (!c || !s || !preDeathEventFailure(c, r)) return;
+    if (!eventReentryOwner(c, r, s) || !deathInvalidatedPreparation(c, r, s)) return;
+    if (!c.participants.every(name => participantOwned(c, name))) return;
+    cancelObsoleteWalk(c);
+  }
+  function preDeathEventFailure(c: SharedConvoy, r: WalkRequest): boolean {
+    return r.activity === 'event' && c.phase === 'failed' && c.walkingActivity === 'event' &&
+      !c.retryExhausted && c.participants.includes(r.name) && walkingEventMatches(c, r);
+  }
+  function walkingEventMatches(c: SharedConvoy, r: WalkRequest): boolean {
+    return c.walkingEvent === r.key || !!sessions.get(c)?.requests.some(entry => entry.name === r.name && entry.key === r.key);
+  }
+  function eventReentryOwner(c: SharedConvoy, r: WalkRequest, s: SharedStatus): boolean {
+    const parent = c.walkingParents?.[r.name];
+    if (!parent) return false;
+    return parent.revision === r.revision && parent.parentId === r.parentId &&
+      c.runtimes?.[r.name] === r.runtimeId && characterRuntime(s) === r.runtimeId && s.server === c.routeServer;
+  }
+  function deathInvalidatedPreparation(c: SharedConvoy, r: WalkRequest, s: SharedStatus): boolean {
+    const death = s.lastDeath, preparedAt = c.sharedPreparationStartedAt ?? c.sharedStartedAt;
+    if (!death || typeof preparedAt !== 'number' || !Number.isFinite(preparedAt)) return false;
+    return Number.isFinite(death.at) && death.at > preparedAt && revivedReport(s, death.at) && deathBindsEvent(death, r, s);
+  }
+  function revivedReport(s: SharedStatus, deathAt: number): boolean {
+    return !s.rip && Number(s.hp) > 0 && s.seenAt > deathAt &&
+      s.seenAt >= ports.now() - 3000 && s.seenAt <= ports.now() + 1000;
+  }
+  function deathBindsEvent(death: NonNullable<SharedStatus['lastDeath']>, r: WalkRequest, s: SharedStatus): boolean {
+    return death.eventTrip?.event === r.key && s.joinedEvent === r.key && ports.enabled(r.name, r.key);
+  }
+  function participantOwned(c: SharedConvoy, name: string): boolean {
+    const owner = c.walkingParents?.[name], command = state.commands[name];
+    if (!owner || owner.revision !== (state.navigationIntents?.[name]?.revision || 0)) return false;
+    return !command || command.convoyId === c.id && command.navigationRevision === owner.revision;
+  }
+  function cancelObsoleteWalk(c: SharedConvoy): void {
+    // Only the pre-death owner's release commands and in-memory session retire.
+    for (const name of c.participants) {
+      const command = state.commands[name];
+      if (command?.convoyId === c.id && command.phase === 'event-walk-release') delete state.commands[name];
+    }
+    for (const [name, request] of requests) if (request.convoyId === c.id) requests.delete(name);
+    sessions.delete(c);
+    ports.cancel();
+    ports.persist();
+  }
   function retainedReturn(r:WalkRequest):Record<string,unknown> | null {
     const c=state.activeConvoy;
     if(!c?.continuousReturn || c.walkingActivity!==r.activity || c.walkingParents?.[r.name]?.revision!==r.revision)return null;
@@ -271,6 +320,7 @@ export function createSharedWalks(input: unknown, ports: WalkPorts) {
     const r = parse(body, ports.now());
     if (!r || !authorized(r)) return { error: "unauthorized walking leg" };
     if (body.cancel === true) return cancel(r);
+    retirePreDeathWalk(r);
     const failure = retainedFailure(r);
     if (failure) return failure;
     const retained = retainedReturn(r);

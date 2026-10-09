@@ -1,6 +1,7 @@
 import { releaseMerchantInterruption } from "../navigation/merchant-interruption.ts";
 import { requestObject, requestText, type HttpRequest, type HttpResponse } from "./contracts.ts";
 import type { MerchantWork } from "../merchant/work.ts";
+import type { RealmRequest } from '../characters/realm-request.ts';
 
 interface ControlState {
   merchantCharacter: string | null;
@@ -18,6 +19,7 @@ interface ControlState {
   gatheringModes: unknown[];
   merchantForceStand: boolean;
   merchantHomeReturnAt?: number;
+  merchantRealmRequests?: Record<string, RealmRequest | undefined>;
   activeRealm: string;
 }
 interface ControlPorts {
@@ -34,6 +36,8 @@ export function createMerchantControlRoutes(state: ControlState, ports: ControlP
   function retry(req: HttpRequest, res: HttpResponse): unknown {
     const job = state.merchantQueue.find(entry => entry.id === requestObject(req.body).id);
     if (!job) return res.status(404).json({ error: "queued merchant job not found" });
+    if (state.merchantCharacter) delete state.merchantRealmRequests?.[state.merchantCharacter];
+    state.merchantHomeReturnAt = 0;
     delete job.realmRetryExhausted;
     delete job.realmBlockedReason;
     delete job.realmError;

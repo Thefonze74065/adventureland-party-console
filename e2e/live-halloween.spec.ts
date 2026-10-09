@@ -72,7 +72,7 @@ async function announceSpawn(live: LiveGame, event: string, leadMs: number) {
   })()`);
 }
 
-async function spawn(live: LiveGame, event: string, map: string, x: number, y: number) {
+async function spawn(live: LiveGame, event: string, map: string, x: number, y: number, nativeAdds = false) {
   return live.admin(`output=(()=>{
     const type=${JSON.stringify(event)}, original=G.monsters[type];
     if(get_monster(type))throw Error('Expected clean native encounter');
@@ -83,7 +83,7 @@ async function spawn(live: LiveGame, event: string, map: string, x: number, y: n
     const dps=eligible.reduce((n,p)=>n+p.attack*p.frequency,0);
     if(!dps)throw Error('No native fighter eligible for declared encounter');
     try {
-      G.monsters[type]={...original,hp:Math.ceil(dps*90),attack:1,speed:0,charge:0,range:1,aggro:0,phresistance:0,spawns:[]};
+      G.monsters[type]={...original,hp:Math.ceil(dps*90),attack:1,speed:0,charge:0,range:1,aggro:0,phresistance:0,spawns:${nativeAdds ? 'original.spawns' : '[]'}};
       const m=new_monster(${JSON.stringify(map)},{type,count:1,boundary:[${x},${y},${x},${y}]},{temp:1});
       m.e2eHalloween=true;
       E[type]={live:true,map:m.map,hp:m.hp,max_hp:m.max_hp,target:m.target};
@@ -92,6 +92,52 @@ async function spawn(live: LiveGame, event: string, map: string, x: number, y: n
       broadcast_e();return {id:m.id,type,map:m.map,x:m.x,y:m.y,hp:m.hp,eligibleFighters:eligible.map(p=>p.name),difficultyDps:dps,initialDefinition:G.monsters[type],nativeStatus:E[type]};
     } finally {G.monsters[type]=original;}
   })()`);
+}
+
+for (const encounter of [{id:'mrgreen',add:'greenjr',drop:'ashleaf',map:'spookytown',x:636,y:995},
+  {id:'mrpumpkin',add:'jr',drop:'pstem',map:'halloween',x:-495,y:685}]) {
+  test.describe(`${encounter.id} native adds`,()=>{
+    test.use({initialPosition:{map:encounter.map,x:encounter.x+160,y:encounter.y}});
+    test(`Halloween ${encounter.id} prioritizes native threshold adds, loots and resumes boss`,async({live},info)=>{
+      test.setTimeout(600_000);
+      // Failure inventory: bosses always outrank adds; followers split targets;
+      // reflected Green Jr magic; selected add replaces boss reentry coordinates;
+      // fabricated spawn/death/loot; add policy survives event deselection.
+      const before=await live.admin(`output=${JSON.stringify(fighters)}.map(name=>({name,items:get_player(name).items}))`);
+      await live.admin(`output=(()=>{
+        globalThis.__e2eThresholdAdds=[];
+        const original=new_monster;globalThis.__e2eAddSpawner=original;
+        new_monster=function(...args){const m=original.apply(this,args);
+          if(m&&m.type===${JSON.stringify(encounter.add)}&&m.master){
+            const boss=get_monster(m.master);globalThis.__e2eThresholdAdds.push({id:String(m.id),master:String(m.master),type:m.type,at:Date.now(),bossHp:boss?.hp,bossMaxHp:boss?.max_hp});
+          }return m;};return true;})()`);
+      try {
+        await prepare(live,encounter.id);
+        const seed=await spawn(live,encounter.id,encounter.map,encounter.x,encounter.y,true);
+        await info.attach('native-threshold-spawn-definition',{body:JSON.stringify(seed),contentType:'application/json'});
+        const ledgers:any[]=[];
+        await expect.poll(async()=>{
+          const sample=await live.admin(`output={adds:globalThis.__e2eThresholdAdds,boss:get_monster(${JSON.stringify(seed.id)})?{hp:get_monster(${JSON.stringify(seed.id)}).hp}:null}`);
+          ledgers.push({at:Date.now(),...sample});
+          const events=await live.clients[W].events();
+          return [0.75,0.5,0.25].every(threshold=>sample.adds.some((add:any)=>
+            add.master===String(seed.id)&&add.bossHp/add.bossMaxHp<=threshold&&add.bossHp/add.bossMaxHp>threshold-0.2&&
+            events.some((event:any)=>event.event==='hit'&&String(event.data?.id)===add.id&&event.data?.hid===W&&event.data?.damage>0)));
+        },{timeout:300_000,intervals:[250,500],message:'Native boss damage must spawn and the warrior must attack adds at each threshold'}).toBe(true);
+        await expect.poll(async()=>!(await world(live,encounter.id)).boss,{timeout:180_000}).toBe(true);
+        await expect.poll(async()=>{
+          const items=await live.admin(`output=${JSON.stringify(fighters)}.flatMap(name=>get_player(name).items)`);
+          return items.reduce((n:number,item:any)=>n+(item?.name===encounter.drop?(item.q||1):0),0)>
+            before.flatMap((p:any)=>p.items).reduce((n:number,item:any)=>n+(item?.name===encounter.drop?(item.q||1):0),0);
+        },{timeout:30_000,message:'Real native add loot must reach party inventory'}).toBe(true);
+        await info.attach('native-threshold-add-combat-and-loot',{body:JSON.stringify({seed,before,ledgers,
+          events:await live.clients[W].events(),after:await live.admin(`output=${JSON.stringify(fighters)}.map(name=>({name,items:get_player(name).items}))`),state:await live.state()}),contentType:'application/json'});
+      } finally {
+        await live.admin(`if(globalThis.__e2eAddSpawner){new_monster=globalThis.__e2eAddSpawner;delete globalThis.__e2eAddSpawner;}output=true`);
+        await live.post('/formation',{character:W,eventSelections:[]});
+      }
+    });
+  });
 }
 
 for (const encounter of [{ id: 'mrgreen', map: 'spookytown', x: 636, y: 995 }, { id: 'mrpumpkin', map: 'halloween', x: -495, y: 685 }]) {

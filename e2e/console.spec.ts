@@ -10,6 +10,90 @@ import { gateway } from '../tools/hosting/gateway';
 import { Access } from '../tools/hosting/access';
 import { startupRealms } from '../tools/hosting/realms';
 import { accountConfig, sessionValue } from '../tools/hosting/account';
+const graceReference:{nativeSha256:string;results:{grade:number;choice:Record<string,unknown>;quantity:number;target:number;result:{attempts:number;budget:number;scrolls:number[]}}[]}=JSON.parse(readFileSync(new URL('./upgrade-grace-reference.json',import.meta.url),'utf8'));
+
+test('merchant grade estimates match the native grace reference in dashboard and queued orders',async({page,app},info)=>{
+  // Failure modes: grade replaces igrace; dashboard/server disagree; a partial
+  // simulation produces a false percentile. Fixed reference numbers were
+  // calculated with the published server's grace expressions, zero unobservable
+  // server/overall grace, and the existing deterministic seed (not this estimator).
+  test.setTimeout(90_000);
+  const initial=await app.state(),original=initial.merchantCatalog,observed:any[]=[];
+  await page.goto('/');
+  const merchant=page.locator('article').filter({has:page.getByRole('heading',{name:'M',exact:true})});
+  await expect(merchant.getByRole('button',{name:'Buy',exact:true})).toBeVisible();
+  for(const reference of graceReference.results){
+    const choice={...reference.choice,name:`Native grace staff (grade ${reference.grade})`,seller:'basics',sprite:null};
+    await app.deliverStatus({...initial.characters.M,name:'M',ctype:'merchant',clientVersion:17175,merchantCatalog:{...original,buyable:[choice]}});
+    await merchant.getByRole('button',{name:'Buy',exact:true}).click();
+    const shopping=page.getByRole('dialog',{name:'Merchant shopping'});
+    await expect(shopping.getByText(choice.name,{exact:true})).toBeVisible();
+    await shopping.getByRole('button',{name:'Add',exact:true}).click();
+    await shopping.getByTitle('Desired upgrade level').fill(String(reference.target));
+    await expect(shopping.getByText(`Gold (est): ${reference.result.budget.toLocaleString()}g`,{exact:true})).toBeVisible({timeout:30_000});
+    await expect(shopping.getByText(new RegExp(`90% budget: ${reference.result.attempts} base items`))).toBeVisible();
+    await info.attach(`native-grace-grade-${reference.grade}`,{body:await page.screenshot(),contentType:'image/png'});
+    await shopping.getByRole('button',{name:'Buy all',exact:true}).click();
+    await expect(shopping).not.toBeVisible();
+    await expect.poll(async()=>{
+      const state=await app.state();return [state.merchantCurrent,...state.merchantQueue].some((job:any)=>job?.order?.buys.some((line:any)=>line.budget===reference.result.budget&&line.attempts===reference.result.attempts&&JSON.stringify(line.scrolls)===JSON.stringify(reference.result.scrolls)));
+    }).toBe(true);
+    observed.push({reference,state:await app.state()});
+  }
+  await info.attach('native-grace-reference-and-queued-budgets',{body:JSON.stringify({reference:graceReference,observed}),contentType:'application/json'});
+});
+
+test('merchant estimates stay responsive and require capped confirmation when unavailable', async ({page,app},info)=>{
+  // Failure inventory: impossible target hangs rendering; partial simulations
+  // invent a price; cancellation submits; missing/invalid caps bypass consent;
+  // coordinator trusts a supplied estimate; restart loses the spending cap.
+  // The console fixture owns account/game reports, not native production.
+  test.setTimeout(90_000);
+  const state=await app.state();
+  // Declare one actual gold-shop item's catalog metadata at the fixture's
+  // external game boundary; the coordinator handles and persists real orders.
+  const source=state.merchantCatalog.allItems.find((entry:any)=>entry.id==='staff');
+  const choice={id:'staff',name:source.name,cost:Number(source.meta.definition.g),seller:'basics',sprite:null,upgradeable:true,upgradeGrade:0,
+    upgradeChances:[1,.9999999,.98,.95,.7,.6,.4,.25,.15,.07,.024,.14,.11],grades:[9,10,11,12],scrollCosts:[1000,40000,1600000,64000000]};
+  const report={...state.characters.M,name:'M',ctype:'merchant',clientVersion:17175,merchantCatalog:{...state.merchantCatalog,buyable:[choice]}};
+  await app.deliverStatus(report);
+  await page.goto('/');
+  const card=page.locator('article').filter({has:page.getByRole('heading',{name:'M',exact:true})});
+  await card.getByRole('button',{name:'Buy',exact:true}).click();
+  const shopping=page.getByRole('dialog',{name:'Merchant shopping'});
+  await shopping.getByPlaceholder('Search items…').fill(choice.name);
+  await shopping.getByRole('button',{name:'Add',exact:true}).click();
+  const target=shopping.getByTitle('Desired upgrade level');
+  await target.fill('91');
+  await expect(target).toHaveValue('+12');
+  await shopping.getByPlaceholder('Search items…').fill('responsive');
+  await expect(shopping.getByPlaceholder('Search items…')).toHaveValue('responsive');
+  await expect(shopping.getByText('Unable to estimate',{exact:true})).toBeVisible({timeout:30_000});
+  await shopping.getByRole('button',{name:'Buy all',exact:true}).click();
+  const warning=page.getByRole('dialog',{name:'Unable to estimate this order'});
+  await expect(warning).toContainText('Unable to estimate how many operations are required to fill this order. Are you sure?');
+  await expect(warning.getByRole('button',{name:'Confirm order',exact:true})).toBeDisabled();
+  await warning.getByRole('button',{name:'Cancel',exact:true}).click();
+  const before=await app.state();
+  const invalidPromise=page.request.post('/party-api/merchant/order',{headers:{Origin:app.url},data:{buys:[{id:'staff',quantity:1,level:12,goldCap:1000}]}});
+  const responsiveAt=Date.now();
+  await page.request.get('/party-api/state?section=core');
+  expect(Date.now()-responsiveAt).toBeLessThan(2000);
+  const invalid=await invalidPromise;
+  expect(invalid.status()).toBe(400);
+  const past=await page.request.post('/party-api/merchant/order',{headers:{Origin:app.url},data:{buys:[{id:'staff',quantity:1,level:13}]}});
+  expect(past.status()).toBe(400);
+  await shopping.getByRole('button',{name:'Buy all',exact:true}).click();
+  await warning.getByLabel(`${choice.name} maximum gold`).fill('100000');
+  await info.attach('unknown-estimate-confirmation',{body:await page.screenshot(),contentType:'image/png'});
+  await warning.getByRole('button',{name:'Confirm order',exact:true}).click();
+  await expect.poll(async()=> {const state=await app.state();return [state.merchantCurrent,...state.merchantQueue].some((job:any)=>job?.order?.buys.some((line:any)=>line.id==='staff'&&line.goldCap===100000&&line.estimateUnavailable===true));}).toBe(true);
+  await app.restartCoordinator();
+  await app.deliverStatus(report);
+  const after=await app.state();
+  expect([after.merchantCurrent,...after.merchantQueue].some((job:any)=>job?.order?.buys.some((line:any)=>line.goldCap===100000&&line.budget===100000&&!line.attempts))).toBe(true);
+  await info.attach('unknown-estimate-persisted-order',{body:JSON.stringify({before,after,invalid:await invalid.json(),past:await past.json()}),contentType:'application/json'});
+});
 
 test('held escape shows its reason and resumes only through an explicit action', async ({page},info) => {
   // Failure inventory: hidden hold reason; no release control; active rescue

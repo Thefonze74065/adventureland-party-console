@@ -5,7 +5,7 @@ import type { MovementHost, MovementOptions, MoveState } from './movement-host.t
 function transitionLabel(step: Step): string {
   return step.method === 'leave' ? 'leave transition' : step.town ? 'town warp' : 'map transition';
 }
-interface Issued { step: Step; from: Point; at: number; progressAt: number; position: Point; error?: Error | string; townUnavailable?: boolean; acknowledged?: boolean; finished?: boolean; aligned?: boolean; reissued?: boolean; sendVersion?: number }
+interface Issued { step: Step; from: Point; at: number; progressAt: number; position: Point; error?: Error | string; townUnavailable?: boolean; acknowledged?: boolean; finished?: boolean; aligned?: boolean; connectorFrom?: Point; connectorSentAt?: number; connectorVersion?: number; reissued?: boolean; sendVersion?: number }
 export function createMovementExecutor(host: MovementHost, state: MoveState, validation: ValidationPorts, now: () => number, townReady = () => true, lootCollected = () => true) {
   let issued: Issued | undefined, index = 0, barrierPending = false, barrierReady = false, lastBarrier = 0, waitingBarrier = false;
   let walkingEdge: {from: Point; to: Step} | undefined;
@@ -59,15 +59,32 @@ export function createMovementExecutor(host: MovementHost, state: MoveState, val
   }
   function alignArrival(current: Issued, p: Point) {
     if (distance(p, current.step) <= 1 || distance(p, current.step) > 150) return;
-    // The server drops, without a response, a move carrying the map counter from
-    // before the warp's new_map. Resend a connector that has made no progress for
-    // a second; the transition's 12 s deadline still bounds the step.
-    if (current.aligned && now() - current.progressAt < 1000) return;
+    if (current.aligned) {
+      // Native new_map can arrive after the first move's map counter. Retry
+      // only the already checked connector, without renewing transition time.
+      if (now() - current.progressAt >= 1000 && now() - (current.connectorSentAt || 0) >= 1000) {
+        // A later authoritative scatter correction changes the connector's
+        // origin. Revalidate that new leg rather than reusing old geometry.
+        if (!current.connectorFrom || distance(p, current.connectorFrom) >= 1) {
+          if (!validation.walk(p, current.step)) throw Error('Arrival connector collision after native position correction');
+          current.connectorFrom = point(p);
+        }
+        sendConnector(current);
+      }
+      return;
+    }
     // The server scatters Town/door arrivals around their advertised spawn. Join
     // the shared route at its exact spawn using a newly collision-checked leg.
-    if (!current.aligned && !validation.walk(p, current.step)) throw Error(`Arrival connector collision between ${JSON.stringify(p)} and ${JSON.stringify(current.step)}`);
-    current.aligned = true; current.progressAt = now();
-    void Promise.resolve(host.move(current.step.x, current.step.y)).catch(error => { if (issued === current) current.error = String(error); });
+    if (!validation.walk(p, current.step)) throw Error(`Arrival connector collision between ${JSON.stringify(p)} and ${JSON.stringify(current.step)}`);
+    current.aligned = true; current.connectorFrom = point(p); current.progressAt = now();
+    sendConnector(current);
+  }
+  function sendConnector(current: Issued) {
+    current.connectorSentAt = now();
+    const version = current.connectorVersion = (current.connectorVersion || 0) + 1;
+    void Promise.resolve(host.move(current.step.x, current.step.y)).catch(error => {
+      if (issued === current && current.connectorVersion === version) current.error = String(error);
+    });
   }
   function transitionReady(current: Issued, options: MovementOptions, transition: boolean): boolean {
     if (transition && !barrier(options, current.step, true)) { current.progressAt = now(); return false; }

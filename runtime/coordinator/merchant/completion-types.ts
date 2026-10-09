@@ -12,7 +12,7 @@ export interface DeliveryReceipt extends DeliveryRequest {
 }
 export interface CompletionJob extends RecoverableWork {
   mail?: { id: string };
-  handoff?: { cleanoutRemaining?: unknown } | null;
+  handoff?: { cleanoutRemaining?: unknown; partial?: unknown } | null;
   retryCount?: number;
   rendezvousRetryCount?: number;
 }
@@ -57,6 +57,7 @@ export interface CompletionCommand {
   npcSales?: { id: string }[];
 }
 export interface CompletionState {
+  merchantAutomations?: Record<string, boolean>;
   merchantCharacter: string | null;
   merchantCurrent: CompletionJob | null;
   merchantQueue: CompletionJob[];

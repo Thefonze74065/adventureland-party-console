@@ -27,6 +27,7 @@ interface AnniversaryControl {
   busy: boolean;
 }
 export interface DispatchPorts {
+  homeBlocked?(): boolean;
   productionPending?(): {id: string; name: string; level: number; kind: string}[];
   eventReserved?(): boolean;
   enabled?(job: MerchantWork): boolean;
@@ -112,6 +113,12 @@ export function createMerchantDispatcher(state: DispatchState, ports: DispatchPo
   }
 
   function ready(job: MerchantWork): boolean {
+    const homeError = 'Merchant realm return failed after 3 attempts; manual retry required';
+    if (ports.homeBlocked?.() && job.target === ports.merchant() && ports.routineNeedsHome(job.reason)) {
+      if (job.realmBlockedReason !== homeError) { job.realmBlockedReason = homeError; ports.persist(); }
+      return false;
+    }
+    if (job.realmBlockedReason === homeError) { delete job.realmBlockedReason; ports.persist(); }
     if (ports.enabled?.(job) === false) return false;
     return merchantJobReady(job, {now: ports.now(), priority: candidate => ports.priority(candidate as MerchantWork),
       capacityBlocked: candidate => ports.capacityBlocked(candidate as MerchantWork), collectionReady: candidate => ports.collectionReady(candidate as MerchantWork)});
@@ -228,10 +235,12 @@ export function createMerchantDispatcher(state: DispatchState, ports: DispatchPo
   }
 
   function available(): boolean {
+    // Realm reconnect recovery must continue its bounded deadline even while
+    // the departing worker no longer supplies fresh inventory/status reports.
+    if (ports.returningHome() && !ports.ensureHome("resuming merchant work")) return false;
     // Preserve queued work until a fresh living merchant can execute it.
     if (!merchantAlive()) return false;
     state.queue = mergePickupJobs(state.queue, ports.merchant()).map(job => ports.stamp(job));
-    if (ports.returningHome() && !ports.ensureHome("resuming merchant work")) return false;
     state.queue = state.queue.flatMap(job => splitLegacyWork(job)).filter(hasQueuedWork).filter((job) => !ports.bankboi(job.target) && (buyUpgradeOrder(job) || ports.enabled?.(job) !== false) && !(job.reason === "join giveaway" && Number(job.expiresAt) < ports.now()));
     return !state.current && !!ports.merchant() && !ports.manualEquipmentPending() && !reserved();
   }

@@ -175,10 +175,7 @@ export function createMerchantRecovery(state: RecoveryState, ports: RecoveryPort
   function expire(name: string): void {
     const job = state.current;
     // A timer can recover offline workers. Marketplace sales retain their
-    // existing no-replay recovery because completion may be ambiguous. A party
-    // realm switch has no heartbeat while the merchant reconnects and its own
-    // 60-second timeout (party-realm.ts); expiring it here cancelled every
-    // cross-realm visit within a second.
+    // existing no-replay recovery because completion may be ambiguous.
     if (!job || job.reason === 'ALData marketplace sales' || job.phase === 'switching party realm') return;
     if (ports.now() - Number(job.heartbeatAt || job.startedAt || 0) <= 180_000) return;
     requeue(name, ['phase', 'startedAt', 'checkpointAt', 'heartbeatAt', 'progressAt', 'handoff'],

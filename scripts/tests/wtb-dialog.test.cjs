@@ -24,7 +24,7 @@ function setup() {
     },
     useWTBReplacement: () => ({ save: action => action(), dialog: null }),
     standBuyExplanation: 'stand', higherLevelExplanation: 'levels',
-    suggestedItemValue: () => ({ suggested: 100, defaultPrice: 100 }),
+    useSuggestedItemValue: () => ({ suggested: 100, defaultPrice: 100 }),
   };
   for (const name of ['Info','Popover','PopoverContent','PopoverTrigger','SuggestedPriceDetails','Dialog', 'DialogContent', 'DialogHeader', 'DialogTitle', 'DialogDescription', 'DialogFooter', 'Input', 'Button', 'WTBPriorityInput', 'StandPriceButton', 'WTBPreference']) context[name] = name;
   vm.createContext(context);

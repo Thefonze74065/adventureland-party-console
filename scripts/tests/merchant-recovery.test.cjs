@@ -7,21 +7,24 @@ const {createMerchantHomeRecovery,merchantRoutineNeedsHome}=require('../../runti
 function runtime() {
   const party = { merchantCharacter: 'M', activeRealm: 'SR_USII', statuses: { M: { server: 'USIII' } }, commands: {} };
   const block = { realm: 'SR_USIII' }, logs = [], restarts = [];
+  let now = Date.now();
   const r = vm.createContext({ party, ensureCharacterBlock: () => block, merchantLog: message => logs.push(message),
     realmLabel: value => value, persistSettings() {}, setTimeout: fn => restarts.push(fn), softkill_block() {} });
-  const recovery=createMerchantHomeRecovery(party,{now:()=>Date.now(),block:r.ensureCharacterBlock,
+  const recovery=createMerchantHomeRecovery(party,{now:()=>now,block:r.ensureCharacterBlock,
     realmLabel:r.realmLabel,log:r.merchantLog,persist:r.persistSettings,restart:(block,delay)=>r.setTimeout(()=>r.softkill_block(block),delay)});
   Object.assign(r,{ensureMerchantHome:recovery.ensureHome,recoverStalledMerchantSale:recovery.recoverStalledSale,merchantRoutineNeedsHome});
-  return { r, party, block, logs, restarts };
+  return { r, party, block, logs, restarts, setNow:value=>{now=value;} };
 }
 
 test('local work waits for actual home arrival and restarts only once', () => {
-  const { r, party, block, restarts } = runtime();
+  const { r, party, block, restarts, setNow } = runtime();
   assert.equal(r.ensureMerchantHome('compounding'), false);
   assert.equal(block.realm, 'SR_USII');
   assert.equal(r.ensureMerchantHome('compounding'), false);
   assert.equal(restarts.length, 1);
   party.statuses.M.server = 'USII';
+  party.statuses.M.seenAt = party.merchantRealmRequests.M.requestedAt + 1;
+  setNow(party.statuses.M.seenAt);
   assert.equal(r.ensureMerchantHome('compounding'), true);
   assert.equal(party.merchantHomeReturnAt, 0);
   assert.equal(r.merchantRoutineNeedsHome('upgrades and compounds'), true);
@@ -48,15 +51,17 @@ test('fresh WTB and long compounding jobs are not stopped by WTB deadline', () =
   assert.equal(r.recoverStalledMerchantSale(), false);
 });
 
-test('home restart retries only after fifteen seconds and requires matching worker realm',()=>{
+test('home restart preserves sixty second arrival window and requires fresh matching worker realm',()=>{
   let now=20000;const delays=[],block={realm:'SR_USIII'};
   const state={merchantCharacter:'M',activeRealm:'SR_USII',statuses:{M:{server:'SR_USII'}},commands:{M:{}}};
   const service=createMerchantHomeRecovery(state,{now:()=>now,block:()=>block,realmLabel:x=>x,
     log(){},persist(){},restart:(_block,delay)=>delays.push(delay)});
   assert.equal(service.ensureHome('bank'),false);assert.deepEqual(delays,[150]);assert.equal(state.commands.M,undefined);
   state.statuses.M.server='USIII';now=35000;service.ensureHome('bank');assert.deepEqual(delays,[150]);
+  now=79999;service.ensureHome('bank');assert.deepEqual(delays,[150]);
   now++;service.ensureHome('bank');assert.deepEqual(delays,[150,150]);
-  state.statuses.M.server='SR_USII';assert.equal(service.ensureHome('bank'),true);assert.equal(state.merchantHomeReturnAt,0);
+  state.statuses.M.server='SR_USII';state.statuses.M.seenAt=++now;
+  assert.equal(service.ensureHome('bank'),true);assert.equal(state.merchantHomeReturnAt,0);
 });
 
 test('WTB recovery honors the exact deadline and the original missing-start fallback',()=>{

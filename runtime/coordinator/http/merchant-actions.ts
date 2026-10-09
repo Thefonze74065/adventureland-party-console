@@ -42,6 +42,7 @@ export function createCoordinatorMerchantActions<Block extends { realm?: string 
     returnHome: (merchant, realm) => {
       const block = ports.block(merchant);
       block.realm = realm;
+      (state.merchantRealmRequests ||= {})[merchant] = {realm, owner:'home', requestedAt:ports.now(), attempts:1};
       ports.log("Force stand returning " + merchant + " to " + ports.realmLabel(realm), "info");
       state.merchantHomeReturnAt = ports.now();
       ports.later(() => ports.stop(block), 100);

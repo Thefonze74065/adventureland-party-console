@@ -413,11 +413,11 @@ test('Cave entry closes settings, shows native choices and keeps follower maps a
   await controls.getByRole('button', { name: 'Stop travel', exact: true }).click();
   await waitForStoppedTravel();
   const roomChoices=new Map<string,{initial:string|undefined;resumed:Set<string>}>();
-  const acceptRoom=async(point:{id:string;label:string;map:string})=>{
+  const acceptRoom=async(point:{id:string;label:string;map:string},deferNativeChoice=false)=>{
     if(!roomChoices.has(point.id))roomChoices.set(point.id,{initial:(await dungeon()).members[0].observation.cave.choice?.id,resumed:new Set()});
     const expectedRun=point.map.slice(5,point.map.lastIndexOf('_')),expectedFloor=Number(point.map.split('_').at(-1));
     const requests:{request:import('@playwright/test').Request;response?:Promise<{status:number;body:any;request:any}>}[]=[],attempts:unknown[]=[];
-    let consumed=0,acceptedState:any;
+    let consumed=0,acceptedState:any,deferred=false;
     const match=(request:import('@playwright/test').Request)=>request.method()==='POST'&&new URL(request.url()).pathname==='/party-api/daily-dungeons'&&
       request.postDataJSON()?.action==='move'&&request.postDataJSON()?.target===point.id;
     const requested=(request:import('@playwright/test').Request)=>{if(match(request))requests.push({request});};
@@ -427,14 +427,23 @@ test('Cave entry closes settings, shows native choices and keeps follower maps a
     };
     const identity=async()=>{
       const view=await dungeon();expect(view.state.phase).toBe('active');expect(view.state.run).toBe(expectedRun);
-      expect(view.members.every((m:any)=>m.observation?.alive&&m.observation.cave?.run===expectedRun&&m.observation.cave.floor===expectedFloor&&!m.observation.cave.paused)).toBe(true);
+      expect(view.members.every((m:any)=>m.observation?.alive&&m.observation.cave?.run===expectedRun&&m.observation.cave.floor===expectedFloor)).toBe(true);
+      const paused=view.members.some((m:any)=>m.observation.cave.paused);
+      if(paused&&deferNativeChoice&&requests.length===consumed){
+        const nativeChoice=view.members.find((m:any)=>m.observation.cave.paused)?.observation.cave.choice;
+        expect(view.members.every((m:any)=>m.fresh)&&nativeChoice&&!nativeChoice.resolved&&
+          view.members.every((m:any)=>!m.observation.cave.paused||m.observation.cave.choice?.id===nativeChoice.id),
+          'Only a fresh unresolved native choice may defer required-room selection').toBe(true);
+        deferred=true;attempts.push({submitted:false,deferredChoice:nativeChoice.id});return null;
+      }
+      expect(paused,'Native room selection requires an unpaused run').toBe(false);
       return view;
     };
     page.on('request',requested);page.on('response',responded);
     try{
       await expect.poll(async()=>{
         if(requests.length===consumed){
-          await identity();
+          if(!await identity())return true;
           if(requests.length===consumed){
             const button=controls.getByRole('button',{name:point.label,exact:true}).first();
             if(!await button.isEnabled()){attempts.push({submitted:false,disabled:true});return false;}
@@ -454,14 +463,14 @@ test('Cave entry closes settings, shows native choices and keeps follower maps a
           noEffect=snapshot.enabled;return noEffect;
         },{timeout:10_000,message:'Room selection must receive its own response or remain an enabled no-effect control'}).toBe(true);
         if(noEffect&&requests.length===consumed){
-          await identity();
+          if(!await identity())return true;
           if(requests.length===consumed){attempts.push({submitted:false,noEffect:true});return false;}
         }
         await expect.poll(()=>!!requests[consumed]?.response,{timeout:10_000,message:'A pending room move must receive its own response before retry'}).toBe(true);
         const result=await requests[consumed++].response!;
         expect(result.request.run).toBe(expectedRun);expect(result.request.target).toBe(point.id);
         attempts.push({submitted:true,status:result.status,error:result.body.error});
-        if(result.status===409&&result.body.error==='Fresh matching dungeon run required'){await identity();return false;}
+        if(result.status===409&&result.body.error==='Fresh matching dungeon run required'){if(!await identity())return true;return false;}
         expect(result.status,'Room selection must be accepted; unrelated errors are not retried').toBe(200);
         const accepted=result.body.state;expect(accepted.run).toBe(expectedRun);
         const targets=[accepted.travel?.target,...Object.values(accepted.commands).filter((c:any)=>c.action==='move'&&c.run===expectedRun).map((c:any)=>c.target)];
@@ -473,7 +482,7 @@ test('Cave entry closes settings, shows native choices and keeps follower maps a
       page.off('request',requested);page.off('response',responded);
       await info.attach('native-cave-room-selection-acceptance',{body:JSON.stringify({point,attempts,consumed,requests:requests.map(entry=>({body:entry.request.postDataJSON(),responseObserved:!!entry.response}))}),contentType:'application/json'});
     }
-    return acceptedState;
+    return deferred?undefined:acceptedState;
   };
   const continueRoomChoice=async(point:{id:string;label:string;map:string})=>{
     let view=await dungeon();
@@ -628,6 +637,7 @@ test('Cave entry closes settings, shows native choices and keeps follower maps a
     const native=await live.state();
     await info.attach('native-cave-duel-combat-result',{body:JSON.stringify({duel,latest:latestDuel,party:['E2EWarrior','E2EPriest'].map(name=>({name,target:native.characters[name].activeCombatTarget,approach:native.characters[name].groupedCombat?.approach}))}),contentType:'application/json'});
   }
+  console.log('[Cave verified] Native duelist combat completed with ally alive and rival dead');
   await info.attach('native-cave-help-duelist',{body:JSON.stringify(duel),contentType:'application/json'});
   const blades=await live.admin(`output=(()=>{
     const p=get_player('E2EWarrior'),run=generated_entry(p).record;
@@ -645,6 +655,7 @@ test('Cave entry closes settings, shows native choices and keeps follower maps a
   await controls.getByRole('button',{name:'View full map',exact:true}).click();
   await fullMap.getByRole('button',{name:'Native-size view',exact:true}).click();
   await expect(fullMap.getByText('E2EPriest',{exact:true})).toBeVisible();
+  console.log('[Cave verified] Native Rogue blades rendered');
   await info.attach('native-cave-rogue-blades',{body:JSON.stringify({seed:blades,frame:bladeFrame}),contentType:'application/json'});
   await info.attach('native-cave-rogue-map',{body:await fullMap.screenshot(),contentType:'image/png'});
   await page.keyboard.press('Escape');
@@ -658,8 +669,9 @@ test('Cave entry closes settings, shows native choices and keeps follower maps a
     const required=c.points.find((p:any)=>p.required&&!p.done&&p.map.endsWith('_0'));
     if(!required)return true;
     const v=await dungeon();
+    if(v.members.some((m:any)=>m.observation.cave.choice&&!m.observation.cave.choice.resolved))return false;
     const current=v.state.travel?.target?.id || (Object.values(v.state.commands).find((c:any)=>c.action==='move') as any)?.target?.id;
-    if(current!==required.id)await acceptRoom(required);
+    if(current!==required.id)await acceptRoom(required,true);
     return false;
   // Random floors can require several long trips with native combat along the
   // corridors. Allow the final vote's acknowledged result to reach telemetry.
