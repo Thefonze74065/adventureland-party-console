@@ -23,3 +23,27 @@ completed production attempt. Native buys/upgrades and receipts stay real. Verif
 the original order finishes, two requested results exist, no pending receipt
 remains, and restart preserves result counts and spend. Attach native events,
 receipt state and the transport-fault count.
+
+Historical prepared-journal recovery has a separate fixture boundary: injecting
+persisted storage into an already active CODE runtime does not replace its owned
+in-memory journal. Shard 6 correctly held the orphaned receipt and preserved the
+bank job when that activation boundary was omitted. Replace the native CODE runner
+after declaring the historical storage and coordinator receipt so genuine CODE
+activation reads the persisted journal. Keep the journal-clear and native bank
+arrival assertions; do not bypass ownership by refreshing the cache from storage.
+Use upstream `start_runner` and verify a new unique dashboard runtime identity
+plus a fresh successful report. The in-frame generation counter restarts in a
+new CODE iframe and cannot prove replacement. A full Steam reconnect immediately after coordinator restart
+can race the bridge heartbeat and reject restoration before CODE activation.
+The restarted coordinator initially has no character reports. Wait for a fresh
+merchant report before capturing its old runtime identity, and tolerate that
+absence while polling the replacement runtime's first report.
+
+Batch recovery failure inventory (live sequence 3667): native inventory sorting
+moved three owned base wands from recorded slots 22/24/25 to 17/18/19. Stale
+batch reservations left all three candidates available to the active-item lookup,
+which correctly refused to guess. Recovery must remap every member disjointly,
+preserve accrued spending/attempts/results, and checkpoint the corrected slots.
+Only an exact carried fingerprint count equal to the recorded owned group permits
+remapping; surplus identical cargo must remain held for review. Missing members,
+pending upgrade outcomes, or mixed fingerprints must not confer ownership.

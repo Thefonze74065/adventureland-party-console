@@ -4,6 +4,11 @@ import {W,P,hunt,observed,prepareHunt,beginHunt,reward,spawnGoo,killedByParty,ev
 test.describe('native Hunt travel combat and death ownership',()=>{
   test.setTimeout(480000);
   test('armadillo Hunt kills passing goos outbound and returning before claiming Daisy',async({live},info)=>{
+    // Failure inventory: a reachable low-HP encounter can be passed without
+    // proposal, cohort acknowledgement, or an admitted native attack. Preserve
+    // bounded real client observations even when the existing kill check fails.
+    const passingObservations:unknown[]=[];
+    try {
     const setup=await prepareHunt(live);
     await live.post('/rare-hunting',{rules:{goo:{enabled:true,keepMoving:true,priority:100}},useFieldGenerators:false});
     await beginHunt(live,setup);
@@ -16,7 +21,7 @@ test.describe('native Hunt travel combat and death ownership',()=>{
     // reservation exchange can precede reaching melee range on slower hosts.
     const outbound=await spawnGoo(live,W,0,400);
     await info.attach('outbound-passing-goo-seed',{body:JSON.stringify(outbound),contentType:'application/json'});
-    const outboundKill=await killedByParty(live,String(outbound.id));
+    const outboundKill=await killedByParty(live,String(outbound.id),45000,passingObservations);
     expect((await observed(live))[W].quest?.id).toBe('armadillo');
     await evidence(live,info,'outbound-passing-goo-killed',{outbound,outboundKill});
     await expect.poll(async()=>{const p=(await observed(live))[W];return p.quest?.id==='armadillo'&&p.quest.c===0;},{timeout:240000,intervals:[100,250]}).toBe(true);
@@ -27,9 +32,12 @@ test.describe('native Hunt travel combat and death ownership',()=>{
     },{timeout:90000,intervals:[100,250],message:'Introduce the return Goo during native walking, after any Town cast'}).toBe(true);
     const returning=await spawnGoo(live,W,0,400);
     await info.attach('returning-passing-goo-seed',{body:JSON.stringify(returning),contentType:'application/json'});
-    const returningKill=await killedByParty(live,String(returning.id));
+    const returningKill=await killedByParty(live,String(returning.id),45000,passingObservations);
     await reward(live,setup.before);
     await evidence(live,info,'armadillo-return-goo-and-daisy-reward',{outbound,outboundKill,returning,returningKill});
+    } finally {
+      await info.attach('native-passing-admission-observations',{body:JSON.stringify(passingObservations),contentType:'application/json'});
+    }
   });
 
   test('fighter death during Hunt releases the failed mission and recovers with native respawn',async({live},info)=>{

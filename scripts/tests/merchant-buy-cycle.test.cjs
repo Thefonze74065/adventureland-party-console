@@ -29,7 +29,7 @@ function worker(poofs = 0) {
       items[slot].level++; upgradeHook(items[slot]);
     },
   });
-  vm.runInContext(namedFunction(source, 'verifyCommerceResults') + '\n' + lineSource, context);
+  vm.runInContext(['sameItemState', 'remapCommerceOwnedItems', 'verifyCommerceResults'].map(name => namedFunction(source, name)).join('\n') + '\n' + lineSource, context);
   const services = {fund: async () => {}, move: async name => calls.push(['move',name]), activity: async () => {},
     checkpoint: async (progress, boundary) => {command._commerceState = copy(progress); checkpointHook(command._commerceState, boundary);}};
   return {context,items, calls, command, purchase, services, run: () => context.merchantBuyUpgradeLine(command,purchase,0,services),

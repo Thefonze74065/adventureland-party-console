@@ -6914,6 +6914,37 @@
   }
 
   // One durable item cycle. Progress saves never imply permission to yield.
+  function remapCommerceOwnedItems(progress) {
+    var entries = progress.results.concat(progress.batchItems);
+    var active = progress.activeItem && {slot: progress.activeSlot, item: progress.activeItem};
+    if (active) entries.push(active);
+    var groups = [];
+    entries.forEach(function(entry) {
+      var group = groups.find(function(group) { return sameItemState(group[0].item, entry.item); });
+      if (group) group.push(entry); else groups.push([entry]);
+    });
+    var changed = false;
+    groups.forEach(function(group) {
+      var used = new Set();
+      var displaced = group.filter(function(entry) {
+        if (!used.has(entry.slot) && sameItemState(character.items[entry.slot],entry.item)) {
+          used.add(entry.slot); return false;
+        }
+        return true;
+      });
+      if (!displaced.length) return;
+      var matches = character.items.map(function(item,slot) { return sameItemState(item,group[0].item) ? slot : -1; })
+        .filter(function(slot) { return slot >= 0; });
+      // Surplus identical cargo has no proven membership in this paid batch.
+      if (matches.length !== group.length)
+        throw new Error(matches.length > group.length ? "Owned upgrade item is ambiguous; order requires inventory review" : "Owned upgrade item missing; order requires inventory review");
+      var available = matches.filter(function(slot) { return !used.has(slot); });
+      displaced.forEach(function(entry) { entry.slot = available.shift(); changed = true; });
+    });
+    if (active) progress.activeSlot = active.slot;
+    return changed;
+  }
+
   async function merchantBuyUpgradeLine(command, purchase, buyIndex, services) {
     if (purchase.estimateUnavailable) {
       if (!Number.isSafeInteger(purchase.goldCap) || purchase.goldCap <= 0)
@@ -6938,6 +6969,9 @@
       progress.results = legacyResults.map(function (entry) { return {item: fingerprint(entry.item), slot: entry.slot, buyIndex: buyIndex}; });
       if (progress.results.length !== progress.completedResults) throw new Error("Owned upgrade results missing; order requires inventory review");
     }
+    // A pending native attempt owns its separate receipt/lucky reconciliation.
+    // Otherwise remap the whole paid group before individual slot lookups.
+    if (!progress.pendingUpgrade && remapCommerceOwnedItems(progress)) await services.checkpoint(progress, false);
     verifyCommerceResults(progress.results);
     // A legacy survivor already consumed an attempt before its checkpoint.
     if (progress.activeItem) progress.cycleActive = true;

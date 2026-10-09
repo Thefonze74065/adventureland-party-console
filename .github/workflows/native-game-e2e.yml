@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: native-game-e2e-${{ github.ref }}
+  group: native-game-e2e-${{ github.ref }}-${{ inputs.grep != '' && 'focused' || 'full' }}
   cancel-in-progress: false
 
 jobs:

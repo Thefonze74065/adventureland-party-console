@@ -80,6 +80,27 @@ test.describe('stale merchant recovery', () => {
       merchantCurrent: { id: 'held-bank-job', target: merchant, reason: 'manual bank exchange', phase: 'assigned', startedAt: Date.now() },
     }));
     if (localJournal) {
+      // This is persisted historical input, so activate genuine native CODE to
+      // load it. The active runtime deliberately owns its cached journal rather
+      // than adopting asynchronous storage echoes as a new production attempt.
+      let previousRuntime: string | undefined;
+      await expect.poll(async () => {
+        const status = (await live.state()).characters[merchant];
+        if (!status?.dashboardRuntime || Date.now() - status.seenAt > 3000) return false;
+        previousRuntime = status.dashboardRuntime;
+        return true;
+      }, { timeout: 60_000 }).toBe(true);
+      const activatedAt = Date.now();
+      await live.clients[merchant].frame.evaluate(() => {
+        const game = window as any;
+        const runner = (document.getElementById('maincode') as HTMLIFrameElement).contentWindow as any;
+        game.start_runner('maincode', `$.getScript(${JSON.stringify(runner.__partyServer + '/CODE/adventure_land/universal-loader.js')});`);
+      });
+      await expect.poll(async () => {
+        const status = (await live.state()).characters[merchant];
+        return !!status?.dashboardRuntime && status.dashboardRuntime !== previousRuntime &&
+          status.seenAt >= activatedAt;
+      }, { timeout: 60_000 }).toBe(true);
       await expect.poll(() => live.clients[merchant].run(`localStorage.getItem('party-production:'+character.name)`)).toBeNull();
       await expect.poll(async () => (await live.clients[merchant].snapshot()).map, { timeout: 90_000 }).toBe('bank');
     } else {

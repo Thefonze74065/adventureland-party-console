@@ -194,11 +194,45 @@ for (const original of [{ id: 'mrgreen' }, { id: 'mrpumpkin' }]) {
         return native.players[W] && !native.players[W].rip && native.players[W].map === encounter.map && state.characters[W]?.joinedEvent === encounter.id && reentryHit;
       }, { timeout: 180_000, message: 'Native death must preserve event reentry instead of losing the saved activity' }).toBe(true);
       await info.attach('native-halloween-death-and-reentry', { body: JSON.stringify({ death, native: await world(live, encounter.id), coordinator: await live.state() }), contentType: 'application/json' });
+      const returnDeadline = Date.now() + (encounter.id === 'mrgreen' ? 240_000 : 180_000);
       await live.post('/formation', { character: W, eventSelections: [] });
+      if (encounter.id === 'mrgreen') {
+        let before:any, after:any;
+        const observations:any[]=[];
+        try {
+          await expect.poll(async () => {
+            const state=await live.state(), convoy=state.activeConvoy, warrior=state.characters[W];
+            const parent=convoy?.walkingParents?.[W];
+            if(convoy?.purpose!=='shared-walk-return'||convoy.walkingActivity!=='event-return'||
+              convoy.phase!=='travel'||parent?.command?.type!=='event-return-town'||
+              parent.command.cycleId!==state.eventReturn?.cycleId) return false;
+            if(!Number.isFinite(warrior?.convoyNavigation?.commandId)||!Number.isFinite(warrior?.lastCommandId)||
+              warrior.convoyNavigation.commandId<=parent.command.id||
+              warrior.lastCommandId<=parent.command.id||warrior?.movement?.progress?.phase!=='walking')return false;
+            before=state;return true;
+          },{timeout:90_000,message:'Turn over CODE only during the actual owned event-exit child walk'}).toBe(true);
+          await live.clients[W].frame.evaluate(()=>{
+            const game=window as any,runner=(document.getElementById('maincode') as HTMLIFrameElement).contentWindow as any;
+            game.start_runner('maincode',`$.getScript(${JSON.stringify(runner.__partyServer+'/CODE/adventure_land/universal-loader.js')});`);
+          });
+          await expect.poll(async()=>{
+            const state=await live.state(),warrior=state.characters[W];
+            observations.push({at:Date.now(),recovery:state.eventReturn,warrior});
+            if(!warrior||warrior.dashboardRuntime===before.characters[W].dashboardRuntime||
+              Date.now()-warrior.seenAt>3000)return false;
+            const original=before.eventReturn;
+            expect(state.eventReturn?.cycleId).toBe(original.cycleId);
+            for(const name of fighters)expect(state.eventReturn?.waypoints[name].revision).toBe(original.waypoints[name].revision);
+            after=state;return true;
+          },{timeout:30_000,message:'A fresh replacement CODE runtime must retain the original event-return owner'}).toBe(true);
+        } finally {
+          await info.attach('native-green-exit-code-turnover',{body:JSON.stringify({before,after,observations,native:await world(live,encounter.id)}),contentType:'application/json'});
+        }
+      }
       await expect.poll(async () => {
         const native = await world(live, encounter.id);
         return fighters.every(name => native.players[name] && native.players[name].map === encounter.map && Math.hypot(native.players[name].x - (encounter.x + 160), native.players[name].y - encounter.y) < 100);
-      }, { timeout: encounter.id === 'mrgreen' ? 240_000 : 180_000, message: 'Deselection must return both actual clients to their saved pre-event checkpoint' }).toBe(true);
+      }, { timeout: Math.max(1,returnDeadline-Date.now()), message: 'Deselection must return both actual clients to their saved pre-event checkpoint' }).toBe(true);
       await info.attach('halloween-saved-checkpoint-return', { body: JSON.stringify({ native: await world(live, encounter.id), coordinator: await live.state() }), contentType: 'application/json' });
     });
   });
@@ -233,10 +267,18 @@ test.describe('Slenderman', () => {
     await expect.poll(async () => {
       const native = await world(live, 'slenderman');
       const state = await live.state();
+      const checkpointPhase = !!state.eventReturn?.returnDispatchedAt ||
+        !state.eventReturn && (!state.activeConvoy || state.activeConvoy.phase === 'complete');
+      return checkpointPhase && fighters.every(name => native.players[name] && !state.characters[name]?.joinedEvent && native.players[name].map === 'halloween' &&
+        Math.hypot(native.players[name].x, native.players[name].y) < 100);
+    }, { timeout: 180_000, message: 'Both native clients must actually return to the saved point' }).toBe(true);
+    await expect.poll(async () => {
+      const native = await world(live, 'slenderman');
+      const state = await live.state();
       const recoveryFinished = !state.eventReturn && (!state.activeConvoy || state.activeConvoy.phase === 'complete');
       return recoveryFinished && fighters.every(name => native.players[name] && !state.characters[name]?.joinedEvent &&
         native.players[name].map === 'halloween' && Math.hypot(native.players[name].x, native.players[name].y) < 100);
-    }, { timeout: 180_000, message: 'Actual saved-point arrival must coincide with retired recovery, rather than an intermediate evacuation crossing' }).toBe(true);
+    }, { timeout: 30_000, message: 'Saved-point arrival must be acknowledged and retire recovery before resuming activity' }).toBe(true);
     await info.attach('slenderman-native-completion-and-return', { body: JSON.stringify({ native: await world(live, 'slenderman'), coordinator: await live.state(), packets: await live.clients[W].events() }), contentType: 'application/json' });
   });
 });
@@ -244,7 +286,7 @@ test.describe('Slenderman', () => {
 test.describe('Absent Halloween spawn', () => {
   test.use({ initialPosition: { map: 'halloween', x: -335, y: 685 } });
   test('Halloween staging abandons an absent native spawn after its fixed deadline and returns without reopening', async ({ live }, info) => {
-    test.setTimeout(300_000);
+    test.setTimeout(420_000);
     const announcement = await announceSpawn(live, 'mrpumpkin', 15000);
     await prepare(live, 'mrpumpkin');
     await expect.poll(async () => (await live.state()).characters[W]?.joinedEvent, { timeout: 30_000 }).toBe('mrpumpkin');
@@ -252,6 +294,10 @@ test.describe('Absent Halloween spawn', () => {
       const state = await live.state();
       return state.eventReturn?.event === 'mrpumpkin' || fighters.every(name => !state.characters[name]?.joinedEvent);
     }, { timeout: 155_000, message: 'No native boss may hold saved activity beyond spawn plus 120 seconds' }).toBe(true);
+    await expect.poll(async () => {
+      const state = await live.state();
+      return !!state.eventReturn?.returnDispatchedAt || !state.eventReturn;
+    }, { timeout: 120_000, message: 'Both native Main exits must be explicitly acknowledged before checkpoint dispatch' }).toBe(true);
     await expect.poll(async () => {
       const native = await world(live, 'mrpumpkin'), state = await live.state();
       return fighters.every(name => native.players[name] && native.players[name].map === 'halloween' && Math.hypot(native.players[name].x + 335, native.players[name].y - 685) < 100 && !state.characters[name]?.joinedEvent);

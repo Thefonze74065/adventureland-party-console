@@ -11,7 +11,7 @@ import { gateway } from '../tools/hosting/gateway';
 import { Access } from '../tools/hosting/access';
 import { selectionFields, stateKeys } from '../runtime/coordinator/persistence/snapshots';
 import { loadouts, seedLoadout, type NativeLoadout } from './game/loadouts';
-import { nativeEventSpawn } from './game/event-spawn';
+import { nativeEventSpawn, nativeMonsterInitialPosition } from './game/event-spawn';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
@@ -29,21 +29,24 @@ export type LiveGame = {
   reconnectClient(name: string): Promise<void>;
 };
 
-export const test = base.extend<{ live: LiveGame; loadout: NativeLoadout; primaryClass: 'warrior' | 'ranger'; merchantDefault: string | null; liveHeadless: boolean; staleWorkerRealm: string | null; initialPosition: {map: string; x: number; y: number} | null; initialEventSpawn: string | null }>({
+export const test = base.extend<{ live: LiveGame; loadout: NativeLoadout; primaryClass: 'warrior' | 'ranger'; merchantDefault: string | null; liveHeadless: boolean; staleWorkerRealm: string | null; initialPosition: {map: string; x: number; y: number} | null; initialEventSpawn: string | null; initialMonsterSpawn: string | null }>({
   loadout: ['god', {option:true}],
   primaryClass: ['warrior', {option:true}],
   merchantDefault: ['E2EMerchant', {option:true}],
   initialPosition: [null, {option:true}],
+  initialMonsterSpawn: [null, {option:true}],
   initialEventSpawn: [null, {option:true}],
   liveHeadless: [false, {option:true}],
   staleWorkerRealm: [null, {option:true}],
-  live: [async ({ browser, dashboard, loadout, primaryClass, merchantDefault, initialPosition, initialEventSpawn, liveHeadless, staleWorkerRealm }, use, testInfo) => {
+  live: [async ({ browser, dashboard, loadout, primaryClass, merchantDefault, initialPosition, initialEventSpawn, initialMonsterSpawn, liveHeadless, staleWorkerRealm }, use, testInfo) => {
     const directory = path.join(root, '.build/e2e', `live-${randomUUID()}`);
     mkdirSync(directory, { recursive: true });
     const manifest = await game.reset();
     const equipment = await seedLoadout(game.admin, loadout, primaryClass);
     if(initialEventSpawn){const spawn=await nativeEventSpawn(game.admin,initialEventSpawn);initialPosition={...spawn,x:spawn.x+160};
       await testInfo.attach('native-event-catalog-initial-position',{body:JSON.stringify({event:initialEventSpawn,spawn,initialPosition}),contentType:'application/json'});}
+    if(initialMonsterSpawn){const spawn=await nativeMonsterInitialPosition(game.admin,initialMonsterSpawn);initialPosition={map:spawn.map,x:spawn.x,y:spawn.y};
+      await testInfo.attach('native-monster-collision-safe-initial-position',{body:JSON.stringify(spawn),contentType:'application/json'});}
     if (initialPosition) {
       await game.admin("output=db.collection('character').updateMany({owner:data.owner},{$set:{'info.map':data.map,'info.x':data.x,'info.y':data.y}})", { owner: manifest.auth.split('-')[0], ...initialPosition });
       await testInfo.attach('native-initial-position-seed', { body: JSON.stringify(initialPosition), contentType: 'application/json' });

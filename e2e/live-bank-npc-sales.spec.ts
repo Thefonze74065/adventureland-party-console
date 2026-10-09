@@ -65,7 +65,8 @@ test('bank NPC selection caps ten stacks and excludes persisted NPC stand confli
   await expect.poll(async () => {
     const state=await live.state();
     return unlockedHelmets(state).length===0 &&
-      !state.characters[merchant].items.some((entry:any)=>entry?.item?.name==='helmet'&&!entry.item.l);
+      !state.characters[merchant].items.some((entry:any)=>entry?.item?.name==='helmet'&&!entry.item.l) &&
+      (await helmetSaleReceipts(live,merchant)).length===12;
   },{timeout:240_000}).toBe(true);
   const after=await live.state();
   expect(bankItems(after).filter(item=>item.name==='helmet'&&item.l==='l')).toHaveLength(1);

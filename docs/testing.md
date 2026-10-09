@@ -63,6 +63,16 @@ not cover the taunt/absorb aggro-gating or the kill-time luck swap live; those w
 verified by code review against the skill engine and `porcupine-equipment.ts`'s
 established swap/restore pattern. Retain the `tank-dashboard-before-restart` screenshot
 and `tank-melee-override` evidence, then run `npm run test:e2e:verify`.
+Native bank-sale completion must include the full expected set of real sale
+receipts: a transient empty inventory report between bank withdrawal and its
+next status report does not establish that the second batch sold. Cave floor
+validation requires fresh matching-run observations before submitting the
+wrong-floor request. Native Cave staging must search beyond the entry's immediate
+neighborhood while retaining collision checks and combat-room clearance; a
+generated Bat room can be only 392 pixels from the entry, so a 200-pixel search
+can fail before assembly is exercised. These are the failure inventory for the
+retained bank and Cave scenarios from native run 37896522250, shard 1.
+
 Cold dashboard startup must complete dependency scanning before relying on a
 warm browser journey. The Linux console failure in run 37884607630 returned
 200 for `app/page.tsx` but 504 for its Base UI dependency imports. Dashboard

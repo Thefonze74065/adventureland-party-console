@@ -273,6 +273,13 @@ test('Cave entry closes settings, shows native choices and keeps follower maps a
       !Object.values(state.commands).some((c:any)=>['move','gather'].includes(c.action));
   },{timeout:20_000,message:'Initial waypoint ownership must be released before native fixture staging'}).toBe(true);
   await info.attach('native-cave-map-waypoint',{body:JSON.stringify(await dungeon()),contentType:'application/json'});
+  // The wrong-floor check is meaningful only after the preceding stop has
+  // fresh matching-run observations; stale status is a separate valid rejection.
+  await expect.poll(async()=>{
+    const view=await dungeon();
+    return view.state.phase==='active'&&view.state.run===initialWaypoint!.run&&
+      view.members.length===2&&view.members.every((m:any)=>m.fresh&&m.observation?.ready&&m.observation?.cave?.run===initialWaypoint!.run);
+  },{timeout:30_000,message:'Fresh matching native dungeon observations precede wrong-floor validation'}).toBe(true);
   const wrongFloor=await page.request.post(live.url+'/party-api/daily-dungeons',{headers:{Origin:live.url},data:{action:'waypoint',operationId:crypto.randomUUID(),run:(await dungeon()).state.run,map:before.characters.E2EWarrior.map.replace(/_0$/,'_1'),x:432,y:384}});
   expect(wrongFloor.status()).toBe(409);
   expect((await wrongFloor.json()).error).toContain('different floor');
@@ -848,7 +855,10 @@ test('Cave assembly regroups displaced completed participants before departure',
         if(can_move({map:p.map,x:origin.x,y:origin.y,going_x:target.x,going_y:target.y,base:p.base})&&pathClear(origin,target,rooms,420))return target;
       }
     };
-    for(let radius=0;radius<=200;radius+=20)for(let i=0;i<32;i++){
+    // Generated entry neighborhoods can have a combat room inside the required
+    // clearance. Search a larger bounded native corridor without changing walls,
+    // actors, room activation, or either displacement's safety requirements.
+    for(let radius=0;radius<=1200;radius+=20)for(let i=0;i<32;i++){
       const a=i*Math.PI/16,target={map:p.map,x:p.x+radius*Math.cos(a),y:p.y+radius*Math.sin(a)};
       if(!people.every(actor=>actor.map===p.map&&can_move({map:p.map,x:actor.x,y:actor.y,going_x:target.x,going_y:target.y,base:actor.base})&&pathClear(actor,target,enemies,300)))continue;
       const offset=displacement(target,160),displaced=displacement(target,85);

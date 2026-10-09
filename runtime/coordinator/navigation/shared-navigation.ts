@@ -1,4 +1,5 @@
 import { stepHuntArrival } from './hunt-arrival.ts';
+import { movingEventDestination } from './event-pursuit.ts';
 import { ownsHuntRoute, inheritedHuntRoute } from '../hunt/route-recovery.ts';
 import { recordConvoyHistory } from "./convoy-history.ts";
 import { createCommunicationRecovery } from './communication-recovery.ts';
@@ -86,7 +87,9 @@ function begin(state: SharedState, c: SharedConvoy, now: number): boolean {
   delete c.returnTownRally;
 
   c.routeServer = leader.server;
-  c.sharedStartedAt = now; c.sharedProgressAt = now; c.sharedPreparationStartedAt = now; c.sharedDistances = {}; c.sharedPositions = {};
+  c.sharedStartedAt = c.eventRetargetTravelStartedAt ?? now;
+  delete c.eventRetargetTravelStartedAt;
+  c.sharedProgressAt = now; c.sharedPreparationStartedAt = now; c.sharedDistances = {}; c.sharedPositions = {};
   delete c.sharedWaitingAt;
   delete c.routePublishedAt;
   c.runtimes = Object.fromEntries(members(c).map(n => [n, characterRuntime(state.statuses[n])!]));
@@ -227,6 +230,7 @@ export function createSharedConvoyNavigation(legacy: ConvoyNavigationPlatform,
   }
   function recover(state: SharedState, reason: string, now: number): boolean {
     const c = state.activeConvoy!;
+    delete c.eventRetargetTravelStartedAt;
     if (/game geometry mismatch/i.test(reason)) return repairGeometry(state, c, reason, now);
     if (c.phase === "shared-hold" || c.phase === "failed") return false;
     if (readinessFailure(c, reason)) return prepareAgain(state, c, reason, now);
@@ -364,8 +368,23 @@ export function createSharedConvoyNavigation(legacy: ConvoyNavigationPlatform,
       c.failureDetails=state.statuses[failed]!.convoyNavigation?.failureDetails || c.failureDetails;
       return recover(state, failed + ': ' + (state.statuses[failed]!.convoyNavigation?.failure || 'Character requested route recovery'), now);
     }
+    const destination = movingEventDestination(state, c, now);
+    if (destination) {
+      c.location = destination; c.eventRetargetedAt = now;
+      recordConvoyHistory(state, c, 'event boss moved', now, { destination, bossId: c.eventPursuitBossId });
+      return prepareMovingEvent(state, c, now);
+    }
     if (c.phase === "shared-prepare") return prepare(state, c, now);
     return travel(state, c, now);
+  }
+
+  function prepareMovingEvent(state: SharedState, c: SharedConvoy, now: number): boolean {
+    c.eventRetargetTravelStartedAt = c.sharedStartedAt;
+    c.readinessStartedAt = now;
+    c.epoch++; c.phase = 'shared-hold'; c.departAt = null; c.sharedReadySince = 0;
+    c.sharedStoppedAt = now; clearSharedRoute(c); issue(state, c, 'shared-hold');
+    recordConvoyHistory(state, c, 'event pursuit preparation', now, { destination: c.location });
+    return true;
   }
   function bootstrap(state: SharedState, c: SharedConvoy, now: number): boolean {
     if (c.retryExhausted) return terminal(state, "Regroup retries exhausted; select the destination again", "route-failed");

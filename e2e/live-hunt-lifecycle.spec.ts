@@ -21,20 +21,39 @@ test.describe('native Hunt lifecycle', () => {
     await artifact(live, info, 'booboo-native-door-combat-reward', { before, destination, loadout: 'god' });
   });
 
+  test.describe('native Boo Boo walking-return cache',()=>{
+  test.use({initialMonsterSpawn:'booboo'});
   test('native Boo Boo walking return reuses its validated route after a communication hold', async ({ live }, info) => {
     test.setTimeout(900_000);
+    const initialClearance=await live.admin(`output=${JSON.stringify(fighters)}.map(name=>{const p=get_player(name);return {name,map:p.map,x:p.x,y:p.y,base:p.base,
+      selfClear:can_move({map:p.map,x:p.x,y:p.y,going_x:p.x,going_y:p.y,base:p.base})};})`);
+    expect(initialClearance.every((p:any)=>p.selfClear)).toBe(true);
+    await info.attach('native-booboo-initial-clearance',{body:JSON.stringify(initialClearance),contentType:'application/json'});
     await party(live);
     await quests(live,info,{[W]:{id:'booboo',count:1},[P]:{id:'booboo',count:1}});
     const before=await world(live),destination=await start(live,W,'booboo');
-    await expect.poll(async()=>{
-      const s=await live.state();
-      return s.characters[W]?.monsterHunt?.count===0 && profile(s).monsterHunt?.stage==='returning' &&
-        s.activeConvoy?.returnRouting && s.characters[W].map===destination.map;
-    },{timeout:300_000,intervals:[100],message:'Real Boo Boo kill must establish the existing return checkpoint'}).toBe(true);
+    const preparation:any[]=[];
+    const observe=(s:any)=>{
+      if(preparation.length>=64)preparation.shift();
+      preparation.push({at:Date.now(),stage:profile(s).monsterHunt?.stage,message:profile(s).monsterHunt?.message,
+        convoy:s.activeConvoy&&{id:s.activeConvoy.id,phase:s.activeConvoy.phase,returnRouting:s.activeConvoy.returnRouting},
+        participants:Object.fromEntries(fighters.map(name=>{const c=s.characters[name];return [name,{map:c?.map,x:c?.x,y:c?.y,
+          count:c?.monsterHunt?.count,lastAttackAt:c?.combat?.lastAttackAt,lastAttackTarget:c?.combat?.lastAttackTarget}];}))});
+    };
+    try{
+      await expect.poll(async()=>{
+        const current=await world(live),s=await live.state();observe(s);
+        return fighters.every(name=>current[name].quest?.c===0)&&profile(s).monsterHunt?.stage==='returning'&&
+          s.activeConvoy?.returnRouting&&s.characters[W].map===destination.map;
+      },{timeout:300_000,intervals:[100],message:'Real Boo Boo kills must establish the existing return checkpoint'}).toBe(true);
+    }finally{
+      await info.attach('native-booboo-return-preparation',{body:JSON.stringify({before,destination,preparation,native:await world(live)}),contentType:'application/json'});
+    }
     const cycle=profile(await live.state()).monsterHunt.cycleId;
     await live.restoreHistoricalSettings(settings=>{
       const owner=settings.farmingProfiles[W],hunt=owner.monsterHunt,convoy=owner.activeConvoy||settings.activeConvoy;
       expect(hunt.cycleId).toBe(cycle);expect(convoy.returnRouting).toBe(true);
+      expect(convoy.location.map).toBe('main');
       const policy={map:destination.map,interruptions:0,walking:true};
       hunt.returnDisableTown=true;hunt.returnTown=policy;
       convoy.disableTown=true;convoy.returnTown=policy;convoy.nativeFallback=false;
@@ -91,6 +110,8 @@ test.describe('native Hunt lifecycle', () => {
       blocking=false;await context.unroute('**/party-api/status',intercept);
       await info.attach('native-walking-return-cache-fault-ledger',{body:JSON.stringify({cycle,original,held,resumed,faults}),contentType:'application/json'});
     }
+  });
+
   });
 
   test('native quest expiration records one failure, survives restart and obtains a fresh Daisy quest', async ({ live }, info) => {

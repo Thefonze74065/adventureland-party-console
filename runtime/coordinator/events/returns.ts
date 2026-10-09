@@ -261,8 +261,30 @@ export function createEventReturns(state: EventReturnState, ports: EventReturnPo
 
   function restoreCommands(recovery: EventRecovery): void {
     for (const name of recovery.pending) {
-      if (ports.activeNames().includes(name) && !ports.commands()[name]) ports.town(name, recovery);
+      if (!ports.activeNames().includes(name)) continue;
+      if (!ports.commands()[name] || consumedIdleExit(name, recovery)) ports.town(name, recovery);
     }
+  }
+
+  function consumedIdleExit(name: string, recovery: EventRecovery): boolean {
+    const command = ports.commands()[name], status = ports.statuses()[name];
+    if (command?.type !== "event-return-town" || command.cycleId !== recovery.cycleId) return false;
+    if (!idleExitConsumed(status, command.id)) return false;
+    if (!savedExitRevision(name, recovery)) return false;
+    const convoy = ports.convoy();
+    return !convoy?.participants.includes(name) || ["complete", "failed"].includes(convoy.phase);
+  }
+
+  function savedExitRevision(name: string, recovery: EventRecovery): boolean {
+    const saved = recovery.waypoints?.[name];
+    return !!saved && ports.capture([name])[name]?.revision === saved.revision;
+  }
+
+  function idleExitConsumed(status: ReturnType<EventReturnPorts["statuses"]>[string], commandId: number | undefined): boolean {
+    if (!status || status.rip || status.eventRecovery?.phase !== "idle") return false;
+    const seen = Number(status.seenAt), last = Number(status.lastCommandId);
+    return Number.isFinite(seen) && seen >= ports.now() - 3000 && seen <= ports.now() + 1000 &&
+      Number.isFinite(commandId) && Number.isFinite(last) && last >= Number(commandId);
   }
 
   return {

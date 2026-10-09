@@ -6,6 +6,32 @@ import { location } from './game/hunt-lifecycle';
 
 const merchant = 'E2EMerchant';
 
+for (const surplus of [false,true]) test(`restarted upgrade batch ${surplus ? 'holds surplus identical cargo' : 'remaps compacted owned items'}`,async({live},info)=>{
+  test.setTimeout(240_000);
+  await catalog(live,'helmet');
+  const id='compacted-owned-upgrade-batch',item={name:'helmet',level:0};
+  const inventory:Record<number,Item>={17:item,18:item,19:item};
+  if(surplus) inventory[20]=item;
+  await seed(live,inventory);
+  const before=await economy(live);
+  const progress={phase:'leveling',buyIndex:0,attempts:3,spent:9600,completedResults:0,results:[],
+    activeItem:item,activeSlot:22,cycleActive:true,batchItems:[{slot:24,item},{slot:25,item}],batchRemaining:0,sequence:2};
+  await live.restoreHistoricalSettings(()=>({merchantQueue:[{id,target:merchant,reason:'merchant commerce',queuedAt:Date.now(),commerceOrderId:id,
+    commerceProgressVersion:2,order:{buys:[{id:'helmet',quantity:3,level:1,attempts:3,budget:100000}],crafts:[]},resumeState:progress}]}));
+  if(surplus){
+    await expect.poll(async()=> (await live.state()).merchantQueue.some((job:any)=>job.commerceOrderId===id&&/ambiguous/.test(job.lastError||'')),{timeout:90_000}).toBe(true);
+    expect((await economy(live)).characters[merchant].items).toEqual(before.characters[merchant].items);
+  }else{
+    await expect.poll(async()=>{const s=await live.state();return ![s.merchantCurrent,...s.merchantQueue].some((job:any)=>job?.commerceOrderId===id);},{timeout:180_000}).toBe(true);
+    const after=await economy(live);
+    expect(after.characters[merchant].items.filter(item=>item?.name==='helmet'&&item.level===1)).toHaveLength(3);
+    expect((await live.clients[merchant].events()).filter((event:any)=>event.event==='game_response'&&event.data?.response==='upgrade_success')).toHaveLength(3);
+    await live.restartCoordinator();
+    expect((await economy(live)).characters[merchant].items.filter(item=>item?.name==='helmet'&&item.level===1)).toHaveLength(3);
+  }
+  await record(live,info,'compacted-upgrade-batch-ownership',before,{progress,surplus,state:await live.state()});
+});
+
 test('unavailable upgrade estimate enforces its gold cap across native purchases and restart',async({live},info)=>{
   // Failure inventory: fabricated attempt allowance; base/scroll spending skips
   // cap; restart resets accrued spend; retry purchases beyond the same cap.
@@ -14,12 +40,17 @@ test('unavailable upgrade estimate enforces its gold cap across native purchases
   // Protection-only checkpoint probes have no progress state; forward them
   // normally and retain only actual durable commerce progress for assertions.
   test.setTimeout(300_000);
-  await catalog(live,'helmet');
-  // Native helmet starts at 3,200 plus seven 1,000-gold basic scrolls: a 10,000
-  // cap cannot start that retained batch. Use 20,000 to exercise real purchases.
-  // Keep the ordinary 1M bank balance: enough for the 20K cap, but below the
-  // complete +12 scroll chain. Preflight must respect the cap before purchases,
-  // without requiring tens of millions or fabricating a native receipt.
+  const item='softstepgloves';
+  await catalog(live,item);
+  const nativeCosts=await live.clients[merchant].run(`({base:G.items.softstepgloves.g,scroll:G.items.scroll1.g,
+    nextScroll:G.items.scroll2.g,initialGrade:item_grade({name:'softstepgloves',level:0}),nextGrade:item_grade({name:'softstepgloves',level:5})})`);
+  expect(nativeCosts).toMatchObject({base:420000,scroll:40000,nextScroll:1600000,initialGrade:1,nextGrade:2});
+  const cap=nativeCosts.base+nativeCosts.scroll;
+  await seed(live,{10:{name:'scroll1',q:4}});
+  expect((await live.clients[merchant].snapshot()).items[10]?.q).toBe(4);
+  // Four preexisting scrolls leave exactly one paid native scroll and base.
+  // A failed upgrade cannot afford another base; five successes need scroll2.
+  // This retains genuine cap exhaustion without an unrelated seven-step chain.
   const funding=await live.admin(`output=(async()=>{const p=get_player('${merchant}');
     const before=await db.collection('user').findOne({_id:p.owner});
     await db.collection('user').updateOne({_id:p.owner},{$set:{'info.gold':1000000}});
@@ -40,11 +71,11 @@ test('unavailable upgrade estimate enforces its gold cap across native purchases
     }
     await route.fulfill({response});
   });
-  const order=await live.post('/merchant/order',{buys:[{id:'helmet',quantity:1,level:12,acknowledgeUnavailable:true,goldCap:20000}],crafts:[]});
+  const order=await live.post('/merchant/order',{buys:[{id:item,quantity:1,level:12,acknowledgeUnavailable:true,goldCap:cap}],crafts:[]});
   await expect.poll(()=>held,{timeout:120_000}).toBe(true);
   const before=await live.state();
   const job=[before.merchantCurrent,...before.merchantQueue].find((entry:any)=>entry?.id===order.jobId);
-  expect(job.order.buys[0]).toMatchObject({goldCap:20000,budget:20000,estimateUnavailable:true});
+  expect(job.order.buys[0]).toMatchObject({goldCap:cap,budget:cap,estimateUnavailable:true});
   expect(job.order.buys[0].attempts).toBeUndefined();
   expect(job.resumeState.spent).toBeGreaterThan(0);
   await live.restartCoordinator();release();
@@ -52,9 +83,11 @@ test('unavailable upgrade estimate enforces its gold cap across native purchases
     const state=await live.state();
     return [state.merchantCurrent,...state.merchantQueue].some((entry:any)=>entry?.id===order.jobId&&/budget exhausted|gold cap/i.test(entry.lastError||entry.error||entry.blockedReason||''))||state.merchantActivity.some((entry:any)=>/budget exhausted|gold cap/i.test(JSON.stringify(entry)));
   },{timeout:120_000}).toBe(true);
-  expect(Math.max(...checkpoints.map(state=>Number(state.spent)||0))).toBeLessThanOrEqual(20000);
-  expect(checkpoints.some(state=>state.spent>0&&/^scroll/.test(state.pendingPurchase?.name||''))).toBe(true);
-  await info.attach('capped-native-upgrade-restart',{body:JSON.stringify({order,before,after:await live.state(),checkpoints,events:await live.clients[merchant].events()}),contentType:'application/json'});
+  expect(Math.max(...checkpoints.map(state=>Number(state.spent)||0))).toBeLessThanOrEqual(cap);
+  expect(checkpoints.some(state=>state.pendingPurchase?.name==='scroll1'&&state.pendingPurchase.quantity===1&&state.pendingPurchase.cost===nativeCosts.scroll)).toBe(true);
+  expect(checkpoints.some(state=>state.pendingPurchase?.name===item&&state.pendingPurchase.quantity===1&&state.pendingPurchase.cost===nativeCosts.base)).toBe(true);
+  expect(checkpoints.some(state=>Number(state.spent)===cap)).toBe(true);
+  await info.attach('capped-native-upgrade-restart',{body:JSON.stringify({nativeCosts,cap,declaredScrollStock:4,order,before,after:await live.state(),checkpoints,events:await live.clients[merchant].events()}),contentType:'application/json'});
   } finally {
     // A failed assertion must not leave a real checkpoint response held while
     // the fixture disposes its browser/request context. Suppress route errors
@@ -62,6 +95,8 @@ test('unavailable upgrade estimate enforces its gold cap across native purchases
     release();
     if(!live.clients[merchant].page.isClosed())
       await live.clients[merchant].page.unrouteAll({behavior:'ignoreErrors'});
+    await info.attach('native-cap-budget-ledger',{body:JSON.stringify({nativeCosts,cap,declaredScrollStock:4,
+      checkpoints,final:await live.state(),events:await live.clients[merchant].events()}),contentType:'application/json'});
   }
 });
 

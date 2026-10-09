@@ -59,6 +59,9 @@ export interface SharedCommand {
   deferRendezvous?: boolean;
 }
 export interface SharedConvoy extends PartyConvoy {
+  eventPursuitBossId?: string;
+  eventRetargetedAt?: number;
+  eventRetargetTravelStartedAt?: number;
   huntArrival?: {cycleId: string; missionIndex: number; missionRevision: number; epoch: number};
   observationPhase?: string; defenseReason?: string; loot?: unknown;
   failureDetails?: unknown;

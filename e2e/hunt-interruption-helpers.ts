@@ -83,20 +83,34 @@ export async function spawnGoo(live:LiveGame,name=W,observableCombatSeconds=0,ah
     message:'Introduce one passing encounter on an actual native walking leg'}).toBe(true);
   return seeded;
 }
-export async function killedByParty(live:LiveGame,id:string,timeout=45000) {
+export async function killedByParty(live:LiveGame,id:string,timeout=45000,observations?:unknown[]) {
   let matched:{hit:unknown;death:unknown}|undefined;
+  let sampledAt=0;
   await expect.poll(async()=>{
     // Keep polling observational and small. Copying both full player-event
     // ledgers through CDP repeatedly can delay the very admission traffic being
     // tested on a loaded runner. The complete ledgers remain final artifacts.
+    const sample=!!observations&&Date.now()-sampledAt>=1000;
+    if(sample)sampledAt=Date.now();
     const receipts=await Promise.all(fighters.map(async observer=>({observer,
-      ...await live.clients[observer].frame.evaluate(({id,fighters})=>{
+      ...await live.clients[observer].frame.evaluate(({id,fighters,sample})=>{
         const events=(window as any).__e2eEvents||[];
+        const game=window as any, runner=(document.getElementById('maincode') as HTMLIFrameElement)?.contentWindow as any;
+        const target=game.entities?.[id], c=game.character, shared=runner?.sharedRoutine;
+        const candidate=sample&&shared?.getWalkingPassiveTarget?.(true);
         return {
           hit:events.find((e:any)=>e.event==='hit'&&String(e.data?.id)===id&&fighters.includes(String(e.data?.hid))),
           death:events.find((e:any)=>e.event==='death'&&String(e.data?.id)===id),
+          ...(sample?{diagnostic:{at:Date.now(),id,position:{map:c.map,x:c.real_x,y:c.real_y,going_x:c.going_x,going_y:c.going_y,moving:c.moving,range:c.range},
+            target:target&&{id:target.id,x:target.real_x??target.x,y:target.real_y??target.y,hp:target.hp,visible:target.visible,dead:target.dead,inRange:runner?.is_in_range?.(target)},
+            candidate:candidate&&{id:candidate.id,mtype:candidate.mtype},combatOwner:runner?.__partyCombatOwner,
+            attackState:runner?.partyCombatState&&{stage:runner.partyCombatState.stage,skippedAttack:runner.partyCombatState.skippedAttack,targetRejection:runner.partyCombatState.targetRejection,selectedTarget:runner.partyCombatState.selectedTarget},
+            acknowledgement:runner?.partyQueueClient?.passingAcknowledgement?.(),
+            encounters:Object.values(game.__partyPassingEncounters||{}).filter((e:any)=>String(e.id)===id),
+            recentHandoffs:(runner?.__partyHandoffTrace||[]).slice(-6)}}:{}),
         };
-      },{id,fighters})})));
+      },{id,fighters,sample})})));
+    if(sample&&observations){observations.push({id,clients:receipts.map(({observer,diagnostic})=>({observer,...diagnostic}))});if(observations.length>180)observations.shift();}
     const hitReceipt=receipts.find(receipt=>receipt.hit), deathReceipt=receipts.find(receipt=>receipt.death);
     const hit=hitReceipt&&{observer:hitReceipt.observer,...hitReceipt.hit};
     const death=deathReceipt&&{observer:deathReceipt.observer,...deathReceipt.death};

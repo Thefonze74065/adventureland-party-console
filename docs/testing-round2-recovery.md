@@ -57,3 +57,31 @@ The corrected observer then proved all three genuine quarter waves, but its warr
 The first native Mr. Green add run spawned all fifteen native adds, but its observer used `get_monster(entityId)`, which resolves a monster type rather than the instance entity ID. Consequently all quarter-spawn records lacked boss HP and the threshold predicate could never pass. The observer now reads the native instance monster table by ID, preserving the native master binding and actual boss HP ratio.
 
 The client receipt buffer retains only the latest 2,000 events. The threshold poll now accumulates actual positive warrior hit receipts for observed native adds in a local durable ledger, so first-quarter proof survives until the remaining quarters occur. Native five-add-per-quarter spawning, damage, death and loot remain unchanged. A final observer artifact records sampled native boss state, native spawn records, real hit receipts, character coordinates and coordinator state on both success and failure.
+
+### Native CI event exit after CODE turnover
+
+Failure inventory before the fix: a retained event exit command can have an ID below the character's persisted last-command ID after its child walk completes; a replacement CODE runtime then ignores that parent forever. The native Green failure ended with the warrior physically at Main town, idle event recovery, and the coordinator still waiting for its explicit exit acknowledgement. Restoration must not acknowledge arrival implicitly, supersede manual navigation, replace another workflow, or repeatedly restart an active exit. Refresh only a retained command for the same pending event cycle, after a fresh idle report proves it was already consumed, with the saved navigation revision still current and no active convoy owning that character. Existing native staging/restart/death/return scenarios retain their actual arrival and acknowledgement requirements.
+
+### Native moving Halloween boss during death reentry
+
+Failure inventory before the fix: the native Pumpkin priest kept fighting and kiting the living boss roughly 2,400 units north while the revived warrior followed the one-time reentry destination. The final native route was still making progress (`noProgressMs: 3`) but chased a stale point and produced no post-respawn hit within 180 seconds. A moving encounter needs fresh actual boss observations, without treating adds, global schedule coordinates, stale reporters, different instances, new navigation, or a communication hold as permission to redirect. Retarget only the same owned live event walking convoy, no more often than twenty seconds and only after its boss moves at least 250 units. Reprepare that convoy with a new route generation while preserving its retry counters and the client's original 180-second walking deadline.
+
+Native CI return observation phases: Slender's genuine kill was followed by both
+clients' saved-point arrival at approximately 178.7 seconds, but the explicit
+completion receipt retired recovery just after the former combined 180-second
+poll. Keep the actual-arrival bound at 180 seconds and observe acknowledgement
+separately for thirty seconds while continuing to require both real positions.
+The absent-spawn run completed evacuation and dispatched checkpoint travel after
+44.1 seconds, then experienced two native movement-barrier HTTP timeout holds.
+Observe the explicit Main exit/dispatch phase for 120 seconds and the actual
+checkpoint walk for its existing 120 seconds. Neither change extends the native
+spawn-plus-120-second abandonment deadline or any production walking budget;
+the test's overall 420-second budget covers these separate bounded phases.
+
+Slender phase-split correction: the first arrival-only poll could see Halloween
+0,0 during evacuation through that map, before Main exit and checkpoint dispatch.
+The resulting thirty-second acknowledgement window began while the real return
+convoy was still walking through Mtunnel (both native actors progressed with
+1–34 ms of no-progress time). Arrival must belong to the dispatched checkpoint
+phase, or an already fully retired recovery, before the acknowledgement window
+starts. Preserve both phase bounds and the actual native coordinate checks.

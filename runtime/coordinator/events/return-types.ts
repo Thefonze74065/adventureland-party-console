@@ -45,6 +45,7 @@ export interface EventReturnState {
   deferred: Record<string, { cycleId: string }>;
 }
 export interface ReturnStatus {
+  lastCommandId?: number;
   x?: number;
   y?: number;
   map?: string;
@@ -71,6 +72,7 @@ export interface ReturnConvoy {
   walkingParents?: Record<string, { revision: number; parentId?: number; command?: { cycleId?: string } }>;
 }
 export interface CommandView {
+  id?: number;
   convoyId?: string;
   type: string;
   cycleId?: string;
