@@ -3259,8 +3259,17 @@
   function rareActive() {
     if (typeof unfinishedFight === "function" && unfinishedFight() &&
         !(rareControlState && rareControlState.kind === "encounter" && groupedCombat.target &&
-          groupedCombat.target.id === rareControlState.target.id)) return false;
+          groupedCombat.target.id === rareControlState.target.id) && !rareConvergeFight()) return false;
     return rareControlCurrent();
+  }
+  // A Phoenix that already has a target is fought by whoever has gathered while the
+  // others still converge. Grouped combat has not selected it yet, so match the fights.
+  function rareConvergeFight() {
+    var wanted = rareControlState && ["converge", "engage"].indexOf(rareControlState.kind) >= 0 && rareControlState.target;
+    return !!wanted && groupedCombat.fights.every(function (fight) {
+      return String(fight.id) === String(wanted.id) && fight.map === wanted.map &&
+        String(fight.in != null ? fight.in : fight.map) === String(wanted.in != null ? wanted.in : wanted.map);
+    });
   }
   function ownedRareTarget() {
     if(typeof groupedFresh!=="function" || !groupedFresh() || navigationIntent.cancelled || character.rip || joinedEvent || eventTraveling || escapeOwns())return null;

@@ -96,6 +96,29 @@ entries marked **live**; others rely on the coordinator design and review.
 15. **Outsider already fighting.** If the Phoenix has a target (another player,
     or a party member it aggroed), members in range engage immediately; the
     others keep converging.
+15a. **Converging members stop once a fight starts (seen live).** Written before
+    the fix. When the Phoenix already has a target, a gathered member engages, and
+    its attack adds a grouped fight. `rareActive()` (upstream) turns rare control
+    off during any unfinished fight unless it is an `encounter` on the fight's
+    target. The `converge` and `engage` kinds were not exempt, so the members still
+    converging lost their route and stood still until the fight ended. Ways the fix
+    could fail:
+    - Converging members still stop, or flip between walking and holding each tick.
+    - A converging member attacks before it arrives, or attacks something else on
+      the way. Only the Phoenix is exempt, and the existing hold-fire rule applies.
+    - An arrived member keeps walking to the Phoenix's center instead of handing
+      over to the role loop for range and formation.
+    - The exemption leaks: a `converge`/`engage` control whose target is not the
+      fight's target, or a `search` control, keeps walking during an unrelated
+      grouped fight (a searcher attacked by a bee must still defend itself, entry 8).
+    - The walkers arrive but never attack because the converge stage already ended.
+    **live**: with the Phoenix aggroed on one fighter before anyone gathers, every
+    other fighter keeps closing in while it fights, then lands its own hits.
+    Result: before the fix the warrior stood still for 231 s at (836, 1196) on
+    Mainland while the priest killed the Phoenix alone. After it, the warrior
+    reached range 38.5 s after the aggro and hit 0.4 s later. `rareActive()` now
+    also keeps a `converge`/`engage` control while every unfinished fight is on
+    that control's own target.
 16. **Another party kills it while we shadow.** This is an unengaged death: no
     loot, and the respawn wait starts from the death time.
 17. **Encounter released by grouped-combat checks.** While converging, the
