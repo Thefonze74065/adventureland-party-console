@@ -10,7 +10,7 @@ interface SourceInfo { filename: string; canonicalPath: string; localPath: strin
 interface Preview { fields: string[]; characters: string[]; digest: string; skippedCharacters?: Record<string, string[]> }
 const label = (field: string) => ({ marked: "Bank collection marks", merchantMarked: "Merchant collection marks",
   compounds: "Compound groups", autoCompounds: "Automatic compound rules", upgrades: "Upgrade marks",
-  upgradeOfferingRules: "Upgrade offering rules", autoUpgradeMarks: "Automatic upgrade rules", autoItemMarks: "Automatic collection rules" }[field] || field.replace(/([A-Z])/g, " $1").replace(/^./, c => c.toUpperCase()));
+  upgradeOfferingRules: "Upgrade offering rules", upgradeChanceGuards: "Upgrade chance guards", autoUpgradeMarks: "Automatic upgrade rules", autoItemMarks: "Automatic collection rules" }[field] || field.replace(/([A-Z])/g, " $1").replace(/^./, c => c.toUpperCase()));
 
 export function DashboardStateImport() {
   const [info, setInfo] = useState<SourceInfo | null>(null);

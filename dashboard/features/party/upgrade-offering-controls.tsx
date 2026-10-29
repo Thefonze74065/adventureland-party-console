@@ -10,6 +10,7 @@ import type { ItemMeta } from './item-meta';
 import type { MerchantCatalogItem } from './merchant-catalog-item';
 import { PrimStackDialog } from './prim-stack-dialog';
 import { upgradeOfferings, offeringOverlap, type UpgradeOffering, type UpgradeOfferingRule } from '../../../runtime/upgrade-offerings';
+import type { UpgradeChanceGuard } from '../../../runtime/upgrade-chance-guard';
 
 export type OfferingSource = {slot:number | string; equipped?:boolean};
 type Selection = {item:Item; meta?:ItemMeta | null; source?:OfferingSource; offering?:UpgradeOffering; rule?:UpgradeOfferingRule};
@@ -18,20 +19,24 @@ interface Controls {
   executor?:string | null;
   stock:Partial<Record<UpgradeOffering,number>>;
   rules:UpgradeOfferingRule[];
+  guards:UpgradeChanceGuard[];
   catalog:MerchantCatalogItem[];
+  /** Sends a merchant command for this character; rejects with the coordinator's message. */
+  command:(body:Record<string,unknown>) => Promise<unknown>;
   select:(selection:Selection) => void;
   /** Merchant inventory items only; the coordinator rejects any other source. */
   stackGrace:(selection:Selection) => void;
   remove:(rule:UpgradeOfferingRule) => Promise<void>;
   clear:() => Promise<void>;
 }
+const noGuards: UpgradeChanceGuard[] = [];
 const Context = createContext<Controls | null>(null);
 export const useUpgradeOfferings = () => useContext(Context);
 const secondary = 'border-slate-600 bg-slate-900 text-slate-100 hover:bg-slate-800 hover:text-white';
 const control = 'rounded border border-slate-600 bg-slate-900 p-2 text-slate-100 disabled:text-slate-500';
 
-export function UpgradeOfferingProvider({children, character, executor, stock, rules, catalog, post}: {
-  children:ReactNode; character:string; stock:Controls['stock']; rules:UpgradeOfferingRule[];
+export function UpgradeOfferingProvider({children, character, executor, stock, rules, guards = noGuards, catalog, post}: {
+  children:ReactNode; character:string; stock:Controls['stock']; rules:UpgradeOfferingRule[]; guards?:UpgradeChanceGuard[];
   executor?:string | null;
   catalog:MerchantCatalogItem[]; post:(path:"/command", body:Record<string,unknown>) => Promise<unknown>;
 }) {
@@ -49,8 +54,8 @@ export function UpgradeOfferingProvider({children, character, executor, stock, r
       for (const rule of rules) await save({type:'upgrade-offering-rule', rule:{id:rule.id}, remove:true});
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not clear upgrade rules'); }
   }, [rules, save]);
-  const value = useMemo<Controls>(() => ({character, executor, stock, rules, catalog, select, stackGrace, remove, clear}),
-    [character, executor, stock, rules, catalog, select, stackGrace, remove, clear]);
+  const value = useMemo<Controls>(() => ({character, executor, stock, rules, guards, catalog, command:save, select, stackGrace, remove, clear}),
+    [character, executor, stock, rules, guards, catalog, save, select, stackGrace, remove, clear]);
   return <Context.Provider value={value}>
     {children}
     {error && <p role="alert" className="text-sm text-rose-300">{error}</p>}
