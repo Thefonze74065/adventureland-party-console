@@ -15,6 +15,7 @@ import { collectionPickups, type PickupState } from '../merchant/collection-pick
 import { collectsPartyItems } from '../merchant/pickup-jobs.ts';
 
 interface ProgressState extends CraftReservationState, PickupState, OfferingRulesState, MerchantEventState {
+  upgradeChanceGuards?: import('../../upgrade-chance-guard.ts').UpgradeChanceGuard[];
   autoCompounds?: BankImprovementState['autoCompounds'];
   merchantRules?: BankImprovementState['merchantRules'];
   merchantAutomations?: Record<string, boolean | undefined>;
@@ -189,5 +190,5 @@ function protectionReply(state: ProgressState, commerceAdoptionJob?: string) {
     .filter(item => itemRuleConflicts(compoundState,item).length);
   return {craftProtection: craftProtection(state), compoundRules, compoundBlocked,
     ...(commerceAdoptionJob ? {commerceAdoptionProtection:craftProtection(state, undefined, commerceAdoptionJob)} : {}),
-    upgradeOfferingRules: state.upgradeOfferingRules || [], upgradeOfferingStock: offeringStock(state)};
+    upgradeOfferingRules: state.upgradeOfferingRules || [], upgradeChanceGuards: state.upgradeChanceGuards || [], upgradeOfferingStock: offeringStock(state)};
 }

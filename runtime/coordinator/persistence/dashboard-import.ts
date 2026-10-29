@@ -1,5 +1,6 @@
 import { validEventLimits } from "../../../dashboard/lib/event-policy.ts";
 import { validOfferingRules } from '../../upgrade-offerings.ts';
+import { validChanceGuards } from '../../upgrade-chance-guard.ts';
 import {validPassivePatch, migratePassiveSettings, committedPassiveRules, type PassiveSettings} from "../navigation/passive-settings.ts";
 import { migrateRoutinePriorities } from '../merchant/routines.ts';
 import {validHuntSettings} from "../hunt/settings.ts";
@@ -46,6 +47,7 @@ export const validators: Record<string, (value: unknown) => boolean> = {
   upgrades: mapOf(listOf(upgrade)),
   autoUpgradeMarks: mapOf(mapOf(upgradeRule)),
   upgradeOfferingRules: validOfferingRules,
+  upgradeChanceGuards: validChanceGuards,
   compounds: mapOf(listOf(compound)),
   autoCompounds: mapOf(listOf(autoCompound)),
   statScrolls: mapOf(listOf((value) => object(value) && item(value.item))),

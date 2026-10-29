@@ -2,11 +2,12 @@ const {test}=require('node:test'),assert=require('node:assert/strict'),fs=requir
 const {namedFunction}=require('./helpers/named-function.cjs');
 const {availableCraftStock}=require('../../runtime/craft-reservations.ts');
 const {resolveUpgradeOffering}=require('../../runtime/upgrade-offerings.ts');
+const {chanceGuard,chanceHold}=require('../../runtime/upgrade-chance-guard.ts');
 const source=fs.readFileSync('characters/shared.js','utf8');
 function runtime({rules=[],stock=0,bank=0,manual=false,required=true,survive=false}={}){
  const calls=[],waits=[],visits=[];
  const character={name:'M',ctype:'merchant',map:'main',level:1,items:[{name:'sword',level:7},{name:'scroll0',q:10},stock?{name:'offeringp',q:stock}:null],bank:null};
- const r=vm.createContext({character,G:{items:{sword:{upgrade:{}},offeringp:{name:'Primling'}}},partyAvailableCraftStock:availableCraftStock,partyResolveUpgradeOffering:resolveUpgradeOffering,
+ const r=vm.createContext({character,G:{items:{sword:{upgrade:{}},offeringp:{name:'Primling'}}},partyAvailableCraftStock:availableCraftStock,partyResolveUpgradeOffering:resolveUpgradeOffering,partyChanceGuard:chanceGuard,partyChanceHold:chanceHold,
   maximumItemLevel:()=>13,fingerprint:i=>i&&({...i}),sameItem:(a,b)=>a&&Object.keys(b).every(k=>a[k]===b[k]),
   item_grade:()=>0,find_npc:n=>n,smart_move:async map=>{character.map=map;},merchantOperationStage:async()=>{},
   freeInventorySlots:()=>10,accessibleBankSortFloors:()=>['bank'],bankPacksOnCurrentFloor:()=>['items0'],
@@ -22,7 +23,7 @@ function runtime({rules=[],stock=0,bank=0,manual=false,required=true,survive=fal
    if(survive)return {success:false};character.items[slot].level++;return {success:true};
   },
  });
- const names=['findItem','findInventoryItemByName','findUpgradeMarkSlot','anchoredUpgradeSlot','upgradeOfferingCheckpoint','availableOfferingEntries','carriedOffering','carriedOfferingQuantity','upgradeOfferingDemand','requestUpgradeOfferingSupply','retrieveUpgradeOffering','prepareUpgradeOffering','merchantImprove'];
+ const names=['findItem','findInventoryItemByName','findUpgradeMarkSlot','anchoredUpgradeSlot','upgradeOfferingCheckpoint','availableOfferingEntries','carriedOffering','carriedOfferingQuantity','upgradeOfferingDemand','requestUpgradeOfferingSupply','retrieveUpgradeOffering','prepareUpgradeOffering','upgradeChanceHeld','merchantImprove'];
  vm.runInContext(names.map(n=>namedFunction(source,n)).join('\n'),r);
  const mark={slot:0,item:{name:'sword',level:7},tiers:manual?1:2,...(manual?{offering:'offeringp',requestId:'manual'}:{auto:true})};
  return {r,character,calls,waits,visits,command:{jobId:'job',target:'M',upgrades:[mark]},rules};

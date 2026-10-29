@@ -49,7 +49,7 @@ export const selectionFields = [
 export const settingsFields = [
   "mailbox",
   "dailyDungeons",
-  "merchantRules", "production", "upgradeOfferingRules", "upgradePreviewResults",
+  "merchantRules", "production", "upgradeOfferingRules", "upgradeChanceGuards", "upgradePreviewResults",
   "bankboiPrefix", "anniversaryAutoChat",
   "farmingProfiles",
   "combatRecovery",

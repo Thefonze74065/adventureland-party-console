@@ -38,6 +38,8 @@ function loopRuntime(operation) {
     // Manual upgrades now consult offering rules too. Declare an empty-rule
     // checkpoint so these cases still exercise actual item/receipt selection.
     partyResolveUpgradeOffering: require('../../runtime/upgrade-offerings.ts').resolveUpgradeOffering,
+    partyChanceGuard: require('../../runtime/upgrade-chance-guard.ts').chanceGuard,
+    partyChanceHold: require('../../runtime/upgrade-chance-guard.ts').chanceHold,
     request: async (route, {body}) => {
       assert.equal(route, '/merchant/checkpoint'); assert.equal(body.protectionOnly, true);
       return {craftProtection: {requirements: []}, upgradeOfferingRules: [], upgradeOfferingStock: {}};

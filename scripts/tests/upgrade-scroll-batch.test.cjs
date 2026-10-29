@@ -11,6 +11,8 @@ function runtime(levels = [0, 0, 0, 0, 0], scrolls = {}) {
     // No offering rule applies in these scroll-budget scenarios. Keep the real
     // resolver and checkpoint path rather than bypassing offering preparation.
     partyResolveUpgradeOffering: require('../../runtime/upgrade-offerings.ts').resolveUpgradeOffering,
+    partyChanceGuard: require('../../runtime/upgrade-chance-guard.ts').chanceGuard,
+    partyChanceHold: require('../../runtime/upgrade-chance-guard.ts').chanceHold,
     request: async (route, {body}) => {
       assert.equal(route, '/merchant/checkpoint'); assert.equal(body.protectionOnly, true);
       return {craftProtection: {requirements: []}, upgradeOfferingRules: [], upgradeOfferingStock: {}};

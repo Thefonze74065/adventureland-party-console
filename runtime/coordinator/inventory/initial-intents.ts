@@ -7,6 +7,7 @@ import type { createMerchantItemCommands } from "./merchant-item-commands.ts";
 /** Durable intent uses the same records that the item command handlers update. */
 export interface ItemIntents {
   upgradeOfferingRules: import('../../upgrade-offerings.ts').UpgradeOfferingRule[];
+  upgradeChanceGuards: import('../../upgrade-chance-guard.ts').UpgradeChanceGuard[];
   upgrades: Parameters<typeof createUpgradeCommands>[0]["upgrades"];
   statScrolls: Parameters<typeof createStatScrollCommands>[0]["statScrolls"];
   purchases: Parameters<typeof createMerchantItemCommands>[0]["purchases"];
@@ -23,6 +24,7 @@ export function initialItemIntents(saved: SavedItemIntents): ItemIntents {
   return {
     upgrades: Object.fromEntries(Object.entries(saved.upgrades || {}).map(([owner,marks]) => [owner,marks?.map(mark => mark.auto || mark.requestId ? mark : {...mark,requestId:mark.passId || randomUUID()})])),
     upgradeOfferingRules: saved.upgradeOfferingRules || [],
+    upgradeChanceGuards: saved.upgradeChanceGuards || [],
     statScrolls: saved.statScrolls || {},
     purchases: saved.purchases || {},
     compounds: saved.compounds || {},

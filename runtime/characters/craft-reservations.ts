@@ -3,3 +3,6 @@ Object.assign(globalThis, {partyAvailableCraftStock: availableCraftStock});
 
 import { resolveUpgradeOffering } from '../upgrade-offerings.ts';
 Object.assign(globalThis, {partyResolveUpgradeOffering: resolveUpgradeOffering});
+
+import { chanceGuard, chanceHold } from '../upgrade-chance-guard.ts';
+Object.assign(globalThis, {partyChanceGuard: chanceGuard, partyChanceHold: chanceHold});

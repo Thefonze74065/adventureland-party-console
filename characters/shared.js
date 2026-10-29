@@ -6598,6 +6598,24 @@
         await retrieveUpgradeOffering(command,rule.offering,mark,item,activity);
     }
   }
+  // A chance guard holds the attempt while the server's own preview chance is below the minimum.
+  // The preview includes grace the client cannot see, and an unreadable preview holds as well.
+  async function upgradeChanceHeld(command, mark, slot, scrollSlot, offeringAttempt, activity) {
+    var checkpoint = await upgradeOfferingCheckpoint(command), item = character.items[slot], level = Number(item.level) || 0;
+    var rules = checkpoint.upgradeChanceGuards || [], guard = globalThis.partyChanceGuard(rules, item.name, level);
+    if (!guard) return false;
+    var chance = 0, reason = "";
+    try {
+      var offeringSlot = offeringAttempt && offeringAttempt.offering ? carriedOffering(checkpoint, offeringAttempt.offering) : -1;
+      chance = Number((await upgrade(slot, scrollSlot, offeringSlot < 0 ? null : offeringSlot, true)).chance);
+    } catch (error) { reason = String(error.reason || error.message || error); }
+    var hold = reason ? { guard: guard } : globalThis.partyChanceHold(rules, item.name, level, chance);
+    if (!hold) return false;
+    (command._chanceHolds ||= []).push(mark);
+    activity.push({level:"info", message:"Holding " + item.name + " +" + level + " to +" + (level + 1) + ": " +
+      (reason ? "chance unavailable (" + reason + ")" : (chance * 100).toFixed(2) + "% is below the " + (guard.minChance * 100).toFixed(2) + "% minimum")});
+    return true;
+  }
   async function prepareUpgradeOffering(command, mark, slot, activity) {
     var checkpoint = await upgradeOfferingCheckpoint(command), item = character.items[slot];
     var level = Number(item.level)||0;
@@ -6670,6 +6688,7 @@
         // Scroll procurement and travel can outlive a rule edit.
         offeringAttempt = await prepareUpgradeOffering(command, mark, slot, activity);
         if (offeringAttempt && offeringAttempt.waiting) break;
+        if (await upgradeChanceHeld(command, mark, slot, scrollSlot, offeringAttempt, activity)) break;
         try {
           var before = character.items[slot].level || 0;
           var outcome = await upgradeConfirmed(slot, scrollSlot, undefined, undefined, {family:mark.auto ? "upgrade" : "manual-upgrade",key:mark.auto ? mark.item.name+"@+"+(mark.item.level||0) : undefined,mark:Object.assign({},mark,{slot:slot,equipped:false})}, offeringAttempt);
