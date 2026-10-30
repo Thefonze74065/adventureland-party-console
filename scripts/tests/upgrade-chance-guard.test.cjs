@@ -2,7 +2,7 @@ const {test}=require('node:test'),assert=require('node:assert/strict'),fs=requir
 const {namedFunction}=require('./helpers/named-function.cjs');
 const {availableCraftStock}=require('../../runtime/craft-reservations.ts');
 const {resolveUpgradeOffering}=require('../../runtime/upgrade-offerings.ts');
-const {chanceGuard,chanceHold,validChanceGuards}=require('../../runtime/upgrade-chance-guard.ts');
+const {chanceGuard,chanceHold,scrollGradeFor,validChanceGuards}=require('../../runtime/upgrade-chance-guard.ts');
 const {recordChanceHold,upgradeOfferingReady,chanceHoldMs}=require('../../runtime/coordinator/inventory/offering-waits.ts');
 const {createChanceGuardCommands}=require('../../runtime/coordinator/inventory/upgrade-chance-guards.ts');
 const source=fs.readFileSync('characters/shared.js','utf8');
@@ -47,11 +47,11 @@ test('coordinator command adds, edits, removes and refuses overlaps',()=>{
  assert.equal(saves,3);
 });
 
-function runtime({guards=[],chance=0.5,previewFails=false,level=7,tiers=2}={}){
- const calls=[],previews=[],activity=[],holds=[];
- const character={name:'M',ctype:'merchant',map:'main',level:1,items:[{name:'sword',level},{name:'scroll0',q:10}],bank:null};
+function runtime({guards=[],chance=0.5,previewFails=false,level=7,tiers=2,scroll1=0}={}){
+ const calls=[],previews=[],activity=[],holds=[],scrollsUsed=[];
+ const character={name:'M',ctype:'merchant',map:'main',level:1,items:[{name:'sword',level},{name:'scroll0',q:10},...(scroll1?[{name:'scroll1',q:scroll1}]:[])],bank:null};
  const r=vm.createContext({character,G:{items:{sword:{upgrade:{}}}},partyAvailableCraftStock:availableCraftStock,partyResolveUpgradeOffering:resolveUpgradeOffering,
-  partyChanceGuard:chanceGuard,partyChanceHold:chanceHold,
+  partyChanceGuard:chanceGuard,partyChanceHold:chanceHold,partyScrollGrade:scrollGradeFor,
   maximumItemLevel:()=>13,fingerprint:i=>i&&({...i}),sameItem:(a,b)=>a&&Object.keys(b).every(k=>a[k]===b[k]),
   item_grade:()=>0,find_npc:n=>n,smart_move:async()=>{},merchantOperationStage:async()=>{},
   request:async(path,{body})=>body.action==='hold-chance'?(holds.push(body),{ok:true}):({craftProtection:{requirements:[]},upgradeOfferingRules:[],upgradeChanceGuards:guards,upgradeOfferingStock:{}}),
@@ -60,12 +60,12 @@ function runtime({guards=[],chance=0.5,previewFails=false,level=7,tiers=2}={}){
    if(previewFails)throw Object.assign(new Error('x'),{reason:'distance'});
    return {calculate:true,chance:typeof chance==='function'?chance(character.items[slot].level):chance};
   },
-  upgradeConfirmed:async(slot)=>{calls.push(character.items[slot].level);character.items[slot].level++;return {success:true};},
+  upgradeConfirmed:async(slot,scroll)=>{scrollsUsed.push(character.items[scroll].name);calls.push(character.items[slot].level);character.items[slot].level++;return {success:true};},
  });
- const names=['findItem','findInventoryItemByName','findUpgradeMarkSlot','anchoredUpgradeSlot','upgradeOfferingCheckpoint','availableOfferingEntries','carriedOffering','carriedOfferingQuantity','upgradeOfferingDemand','requestUpgradeOfferingSupply','retrieveUpgradeOffering','prepareUpgradeOffering','upgradeChanceHeld','merchantImprove'];
+ const names=['findItem','findInventoryItemByName','findUpgradeMarkSlot','anchoredUpgradeSlot','upgradeOfferingCheckpoint','availableOfferingEntries','carriedOffering','carriedOfferingQuantity','upgradeOfferingDemand','requestUpgradeOfferingSupply','retrieveUpgradeOffering','prepareUpgradeOffering','upgradeChanceHeld','loadScrollRules','upgradeScrollGrade','manualImprovementScrollNeeds','merchantImprove'];
  vm.runInContext(names.map(n=>namedFunction(source,n)).join('\n'),r);
  const mark={slot:0,item:{name:'sword',level},tiers,auto:true};
- return {r,character,calls,previews,activity,holds,command:{jobId:'job',target:'M',upgrades:[mark]}};
+ return {r,character,calls,previews,activity,holds,scrollsUsed,command:{jobId:'job',target:'M',upgrades:[mark]}};
 }
 test('merchant holds an attempt whose server chance is below the guard',async()=>{
  const f=runtime({guards:[guard()],chance:0.2});await f.r.merchantImprove(f.command,f.activity);
@@ -125,4 +125,49 @@ test('a manual mark stays queued while held, and a hold without a guard is ignor
 });
 test('a fresh mark passes the readiness check',()=>{
  assert.equal(upgradeOfferingReady({},{slot:0,item:{name:'sword',level:7}}),true);
+});
+
+// Scroll floors (#78): spend a higher-grade scroll than the item needs.
+const scrollRule=(extra={})=>({id:'s',name:'sword',floor:7,ceiling:9,scrollGrade:1,...extra});
+test('a scroll floor raises the grade only where it applies and never lowers it',()=>{
+ const rules=[scrollRule()];
+ assert.equal(scrollGradeFor(rules,'sword',7,0),1);assert.equal(scrollGradeFor(rules,'sword',8,0),1);
+ assert.equal(scrollGradeFor(rules,'sword',8,2),2,'an item that already needs a higher grade keeps it');
+ assert.equal(scrollGradeFor(rules,'sword',6,0),0);assert.equal(scrollGradeFor(rules,'sword',9,0),0);assert.equal(scrollGradeFor(rules,'hat',7,0),0);
+ assert.equal(scrollGradeFor([guard()],'sword',7,0),0,'a chance-only rule leaves the scroll alone');
+});
+test('rules need a chance, a scroll grade, or both, each valid',()=>{
+ assert.ok(validChanceGuards([scrollRule()]));assert.ok(validChanceGuards([scrollRule({minChance:0.4})]));
+ const noPolicy={id:'x',name:'sword',floor:7,ceiling:9};
+ assert.equal(validChanceGuards([noPolicy]),false);
+ for(const bad of [0,5,1.5,'1',null])assert.equal(validChanceGuards([scrollRule({scrollGrade:bad})]),false);
+ assert.equal(validChanceGuards([scrollRule({minChance:2})]),false);
+ assert.equal(chanceHold([scrollRule()],'sword',7,0),null,'a scroll-only rule never holds an attempt');
+});
+test('coordinator command stores scroll floors, alone or with a chance',()=>{
+ const state={merchantCatalog:{allItems:[{id:'sword',upgradeable:true,meta:{maxLevel:13}}]},upgradeChanceGuards:[]};
+ const command=createChanceGuardCommands(state,()=>{}),body=(rule,extra={})=>({type:'upgrade-chance-guard',rule,...extra});
+ assert.equal(command(body({name:'sword',floor:7,ceiling:9,scrollGrade:1})),null);
+ const saved=state.upgradeChanceGuards[0];assert.equal(saved.scrollGrade,1);assert.equal('minChance' in saved,false);
+ assert.equal(command(body({...saved,minChance:0.4})),null);assert.deepEqual([state.upgradeChanceGuards[0].scrollGrade,state.upgradeChanceGuards[0].minChance],[1,0.4]);
+ assert.equal(command(body({id:saved.id,name:'sword',floor:7,ceiling:9,minChance:0.4})),null);
+ assert.equal('scrollGrade' in state.upgradeChanceGuards[0],false,'an edit can drop the scroll floor');
+ for(const invalid of [{},{scrollGrade:0},{scrollGrade:5},{scrollGrade:'high'}])
+  assert.equal(command(body({name:'sword',floor:10,ceiling:12,...invalid})).status,400);
+});
+test('merchant spends the floor scroll and attempts normally',async()=>{
+ const f=runtime({guards:[scrollRule()],scroll1:5});await f.r.merchantImprove(f.command,f.activity);
+ assert.deepEqual(f.calls,[7,8]);assert.deepEqual(f.scrollsUsed,['scroll1','scroll1']);assert.deepEqual(f.previews,[]);
+});
+test('without a floor the merchant spends the item\'s own scroll',async()=>{
+ const f=runtime({scroll1:5});await f.r.merchantImprove(f.command,f.activity);
+ assert.deepEqual(f.scrollsUsed,['scroll0','scroll0']);
+});
+test('a floor and a guard work together: the preview is for the floor scroll',async()=>{
+ const f=runtime({guards:[scrollRule({minChance:0.3})],scroll1:5,chance:0.2});await f.r.merchantImprove(f.command,f.activity);
+ assert.deepEqual(f.calls,[]);assert.equal(f.command._offeringWaits.length,1);
+});
+test('the planner counts the floor scroll when stocking',()=>{
+ const f=runtime({guards:[scrollRule()],scroll1:5});f.command._scrollRules=[scrollRule()];
+ assert.deepEqual({...f.r.manualImprovementScrollNeeds(f.command)},{scroll1:2});
 });

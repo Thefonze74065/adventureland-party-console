@@ -33,3 +33,16 @@ test('offerings are counted and improve the estimate',async()=>{
  const [base]=await estimateUpgradeBatch([{choice,quantity:1,target:8}]);
  assert.ok(result.attempts<=base.attempts);
 });
+
+test('a higher-grade scroll boosts the base before grace and widens the cap',()=>{
+ near(attemptChance(0.25,7,0,1,{},null,true),0.31);
+ near(attemptChance(0.25,7,0,1,{serverGrace:18},null,true),0.352);
+ near(attemptChance(0.14,8,0,-1,{},null,true),0.178);
+});
+test('estimates spend the floor scroll and need fewer attempts',async()=>{
+ const plain=await estimateUpgrade(choice,1,8);
+ const [floored]=await estimateUpgradeBatch([{choice,quantity:1,target:8,grace:{scrollGrades:Array(9).fill(1)}}]);
+ assert.equal(floored.status,'available');
+ assert.equal(floored.scrolls[0],0);assert.ok(floored.scrolls[1]>0);
+ assert.ok(floored.attempts<=plain.attempts);
+});

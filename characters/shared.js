@@ -6603,7 +6603,7 @@
   async function upgradeChanceHeld(command, mark, slot, scrollSlot, offeringAttempt, activity) {
     var checkpoint = await upgradeOfferingCheckpoint(command), item = character.items[slot], level = Number(item.level) || 0;
     var rules = checkpoint.upgradeChanceGuards || [], guard = globalThis.partyChanceGuard(rules, item.name, level);
-    if (!guard) return false;
+    if (!guard || guard.minChance === undefined) return false;
     var chance = 0, reason = "";
     try {
       var offeringSlot = offeringAttempt && offeringAttempt.offering ? carriedOffering(checkpoint, offeringAttempt.offering) : -1;
@@ -6648,8 +6648,16 @@
     return offeringSlot<0 ? undefined : {offering:rule.offering,...(mark.offering ? {requestId:mark.requestId} : {})};
   }
 
+  // Scroll floors from the chance-guard rules: spend a higher-grade scroll than the item needs.
+  async function loadScrollRules(command) {
+    if (!command._scrollRules) command._scrollRules = (await upgradeOfferingCheckpoint(command)).upgradeChanceGuards || [];
+  }
+  function upgradeScrollGrade(command, item) {
+    return globalThis.partyScrollGrade(command._scrollRules || [], item.name, Number(item.level) || 0, item_grade(item));
+  }
   async function merchantImprove(command, activity) {
     await merchantOperationStage(command, "processing");
+    await loadScrollRules(command);
     var returns = [], used = {};
     command._upgradeReturns = [];
     for (var purchaseIndex = 0; purchaseIndex < (command.purchases || []).length; purchaseIndex += 1) {
@@ -6675,7 +6683,7 @@
         if (!sameItem(character.items[slot], liveBeforeOffering)) slot = findItem(liveBeforeOffering);
         if (slot < 0) throw Error("Upgrade item changed while preparing offering");
         used[slot] = true;
-        var scrollName = "scroll" + item_grade(character.items[slot]);
+        var scrollName = "scroll" + upgradeScrollGrade(command, character.items[slot]);
         var scrollSlot = findInventoryItemByName(scrollName);
         if (scrollSlot < 0) {
           // Re-plan only unfinished work using the current item's live level.
@@ -6921,11 +6929,11 @@
       var target = Math.min(maximumItemLevel(G.items[liveItem.name]),
         (Number(mark.item.level) || 0) + Math.max(1, Number(mark.tiers) || 1));
       var tiers = Math.max(0, target - start);
-      var startingScroll = "scroll" + item_grade(liveItem);
+      var startingScroll = "scroll" + upgradeScrollGrade(command, liveItem);
       // Batch only steps within the starting grade across queued items.
       // Later grades are staged one at a time, not charged to this batch.
       for (var tier = 0; tier < tiers; tier += 1) {
-        var scroll = "scroll" + item_grade({ name: liveItem.name, level: start + tier });
+        var scroll = "scroll" + upgradeScrollGrade(command, { name: liveItem.name, level: start + tier });
         if (scroll === startingScroll) needs[scroll] = (needs[scroll] || 0) + 1;
         else staged[scroll] = 1;
       }
@@ -6973,6 +6981,7 @@
   }
 
   async function prepareManualImprovementScrolls(command, activity) {
+    await loadScrollRules(command);
     var needs = manualImprovementScrollNeeds(command), names = Object.keys(needs);
     if (!names.length) return needs;
     var mustCheckBank = names.some(function (name) {

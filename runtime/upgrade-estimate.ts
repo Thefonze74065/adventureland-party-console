@@ -62,6 +62,8 @@ export interface GraceOptions {
   serverGrace?: number;
   /** Offering grade minus item grade, indexed by the level being attempted; null/absent uses none. */
   offerings?: (number | null)[];
+  /** Lowest scroll grade to spend, indexed by the level being attempted; null/absent uses the item's own grade. */
+  scrollGrades?: (number | null)[];
 }
 export interface EstimateLine {
   choice: UpgradeChoice;
@@ -212,18 +214,29 @@ function rollChance(base: number, level: number, grace: number, igrace: number) 
   return mathMin(base + bonus, mathMin(base + 0.24, base * 2));
 }
 /** The server's full attempt chance (no higher-tier scroll). `diff` is offering grade minus item grade. */
-export function attemptChance(base: number, level: number, ugrace: number, igrace: number, extra: GraceOptions, diff: number | null) {
+export function attemptChance(base: number, level: number, ugrace: number, igrace: number, extra: GraceOptions, diff: number | null, boosted = false) {
   const itemGrace = extra.itemGrace ?? 0, serverGrace = mathMin(6, (extra.serverGrace ?? 0) / 3);
   let total = mathMax(0, mathMin(level + 1, itemGrace + mathMin(3, ugrace / 4.5) + igrace) + serverGrace + (extra.ograce ?? 0) / 3.2);
   total = (base * total) / level + total / 1000;
-  let chance = base, high = false;
+  // A higher-grade scroll scales the base before any grace bonus and widens the cap.
+  let chance = boosted ? base * 1.2 + 0.01 : base, high = boosted;
   if (diff === null) chance += mathMax(0, total / 4.8 - 0.4 / (level - 0.999) ** 2);
-  else if (diff > 1) { chance = chance * 1.7 + total * 4; high = true; }
-  else if (diff === 1) { chance = chance * 1.5 + total * 1.2; high = true; }
-  else if (diff === 0) chance = chance * 1.4 + total;
-  else if (diff === -1) chance = chance * 1.15 + total / 3.2;
-  else chance = chance * 1.08 + total / 4;
+  else { chance = offeringChance(chance, total, diff); high ||= diff > 0; }
   return high ? mathMin(chance, mathMin(base + 0.36, base * 3)) : mathMin(chance, mathMin(base + 0.24, base * 2));
+}
+/** The server's multiplier for an offering, by its grade relative to the item's. */
+function offeringChance(chance: number, total: number, diff: number) {
+  if (diff > 1) return chance * 1.7 + total * 4;
+  if (diff === 1) return chance * 1.5 + total * 1.2;
+  if (diff === 0) return chance * 1.4 + total;
+  return diff === -1 ? chance * 1.15 + total / 3.2 : chance * 1.08 + total / 4;
+}
+/** The server boosts a scroll of a higher grade than the item's while attempting up to +10. */
+function boostedScroll(policy: ReturnType<typeof simulationPolicy>, level: number) {
+  return level <= 10 && chosenScrollGrade(policy, level) > scrollGrade(level - 1, policy.grades);
+}
+function chosenScrollGrade(policy: ReturnType<typeof simulationPolicy>, level: number) {
+  return mathMax(scrollGrade(level - 1, policy.grades), policy.extra?.scrollGrades?.[level] ?? 0);
 }
 function offeringGain(diff: number) {
   return diff > 1 ? 3 : diff === 1 ? 1 : diff === 0 ? 0.4 : diff === -1 ? 0.2 : 0.1;
@@ -250,8 +263,9 @@ function rollLevel(policy: ReturnType<typeof simulationPolicy>, grace: number[],
     if (success) grace[level] = 0; else failedGrace(grace, level);
     return success;
   }
-  const diff = extra.offerings?.[level] ?? null;
-  const chance = attemptChance(policy.base[level] || 0, level, graceCount, policy.igrace, { ...extra, itemGrace: account.itemGrace, ograce: account.ograce }, diff);
+  const diff = extra.offerings?.[level] ?? null, boosted = boostedScroll(policy, level);
+  const chance = attemptChance(policy.base[level] || 0, level, graceCount, policy.igrace, { ...extra, itemGrace: account.itemGrace, ograce: account.ograce }, diff, boosted);
+  if (boosted) account.itemGrace += 0.4;
   if (diff !== null) { account.offerings++; account.itemGrace += offeringGain(diff); }
   const success = random() <= chance;
   settleAccount(grace, account, level, diff, success);
@@ -286,7 +300,7 @@ function upgradeOne(
     }
     resumed = false;
     budget.remaining--;
-    scrolls[scrollGrade(level - 1, policy.grades)]!++;
+    scrolls[chosenScrollGrade(policy, level)]!++;
     if (!rollLevel(policy, grace, random, account, level)) return false;
   }
   return true;

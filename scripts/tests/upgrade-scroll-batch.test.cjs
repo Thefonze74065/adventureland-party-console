@@ -13,6 +13,7 @@ function runtime(levels = [0, 0, 0, 0, 0], scrolls = {}) {
     partyResolveUpgradeOffering: require('../../runtime/upgrade-offerings.ts').resolveUpgradeOffering,
     partyChanceGuard: require('../../runtime/upgrade-chance-guard.ts').chanceGuard,
     partyChanceHold: require('../../runtime/upgrade-chance-guard.ts').chanceHold,
+    partyScrollGrade: require('../../runtime/upgrade-chance-guard.ts').scrollGradeFor,
     request: async (route, {body}) => {
       assert.equal(route, '/merchant/checkpoint'); assert.equal(body.protectionOnly, true);
       return {craftProtection: {requirements: []}, upgradeOfferingRules: [], upgradeOfferingStock: {}};
