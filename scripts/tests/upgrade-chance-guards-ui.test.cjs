@@ -77,3 +77,30 @@ test('shows the coordinator error and keeps the dialog open when saving fails',a
   assert.match(alertText(v),/already a guard/);assert.equal(v.root.findAllByType('DialogContent').length,1);
  }finally{await act(async()=>v.unmount());}
 });
+
+test('adds a scroll-only rule, and shows chance and scroll together',async()=>{
+ const calls=[],v=await render({guards:[{...guard,scrollGrade:2}],post:async(...a)=>calls.push(a)});
+ try{
+  assert.match(text(v.root),/at least 30%, grade 2\+ scrolls/);
+  await act(async()=>button(v,'Add guard').props.onClick());
+  await change(v,'Guarded item','sword');await change(v,'Starting level','2');await change(v,'Ending level','4');
+  assert.match(alertText(v),/minimum chance, choose a scroll grade/);assert.equal(button(v,'Confirm').props.disabled,true);
+  assert.deepEqual(field(v,'Scroll grade').findAllByType('option').map(o=>o.props.value),['',1,2,3,4]);
+  await change(v,'Scroll grade','1');assert.equal(button(v,'Confirm').props.disabled,false);
+  await act(async()=>button(v,'Confirm').props.onClick());
+  assert.deepEqual(calls,[['/command',{character:'M',type:'upgrade-chance-guard',rule:{name:'sword',floor:2,ceiling:4,scrollGrade:1}}]]);
+ }finally{await act(async()=>v.unmount());}
+});
+test('editing can drop the chance or the scroll and keeps the other',async()=>{
+ const calls=[],v=await render({guards:[{...guard,scrollGrade:2}],post:async(...a)=>calls.push(a)});
+ try{
+  await act(async()=>button(v,'Edit').props.onClick());
+  assert.equal(field(v,'Scroll grade').props.value,'2');
+  await change(v,'Minimum chance percent','');await act(async()=>button(v,'Confirm').props.onClick());
+  assert.deepEqual(calls[0][1].rule,{id:'g1',name:'sword',floor:7,ceiling:9,scrollGrade:2});
+ }finally{await act(async()=>v.unmount());}
+});
+test('a rule with a scroll grade only is listed without a chance',async()=>{
+ const v=await render({guards:[{id:'s',name:'sword',floor:1,ceiling:3,scrollGrade:1}]});
+ try{assert.match(text(v.root),/grade 1\+ scrolls/);assert.doesNotMatch(text(v.root),/at least/);}finally{await act(async()=>v.unmount());}
+});
