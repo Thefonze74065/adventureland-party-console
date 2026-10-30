@@ -1,4 +1,9 @@
-import { recordOfferingWait } from './offering-waits.ts';
+import { recordChanceHold, recordOfferingWait } from './offering-waits.ts';
+
+/** Merchant reports that defer an upgrade mark: a missing offering, or a chance below its guard. */
+const waitRecorders: Record<string, ((state: Parameters<typeof recordOfferingWait>[0] & Parameters<typeof recordChanceHold>[0], body: Record<string, unknown>) => void) | undefined> = {
+  'wait-offering': recordOfferingWait, 'hold-chance': recordChanceHold,
+};
 import { rememberUpgradeContinuation,settleUpgradeContinuation } from './upgrade-continuation.ts';
 import { resolveUpgradeOffering, isUpgradeOffering, type UpgradeOfferingRule } from '../../upgrade-offerings.ts';
 import { itemRuleConflicts, type ConflictState } from "./shared-rules.ts";
@@ -19,6 +24,7 @@ interface State extends ConflictState {
   merchantQueue?: import('../merchant/work.ts').MerchantWork[];
   upgrades?: Record<string, {requestId?: string}[] | undefined>;
   upgradeOfferingRules?: UpgradeOfferingRule[];
+  upgradeChanceGuards?: import('../../upgrade-chance-guard.ts').UpgradeChanceGuard[];
   merchantCharacter: string | null;
   production: ProductionState;
   autoUpgradeMarks: Record<string, Record<string, number | string | UpgradeRule | undefined> | undefined>;
@@ -143,7 +149,8 @@ export function installProductionRoutes(router: HttpRouter, state: State, persis
         persist();
         return res.json({ok:true,attempt:state.production.attempts[String(body.id)]});
       }
-      if (body.action === 'wait-offering') { recordOfferingWait(state, body); persist(); return res.json({ok:true}); }
+      const record = waitRecorders[String(body.action)];
+      if (record) { record(state, body); persist(); return res.json({ok:true}); }
       if (body.action === 'abort-manual') { abortManualProduction(state, requestText(body.id)); persist(); return res.json({ok:true}); }
       if (body.action === 'checkpoint') checkpointProduction(state, body);
       else if (body.action === 'complete') finishProduction(state,String(body.id),body.success === true,log);

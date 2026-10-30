@@ -3,6 +3,7 @@ const {namedFunction}=require('./helpers/named-function.cjs');
 const {availableCraftStock}=require('../../runtime/craft-reservations.ts');
 const {resolveUpgradeOffering}=require('../../runtime/upgrade-offerings.ts');
 const {chanceGuard,chanceHold,validChanceGuards}=require('../../runtime/upgrade-chance-guard.ts');
+const {recordChanceHold,upgradeOfferingReady,chanceHoldMs}=require('../../runtime/coordinator/inventory/offering-waits.ts');
 const {createChanceGuardCommands}=require('../../runtime/coordinator/inventory/upgrade-chance-guards.ts');
 const source=fs.readFileSync('characters/shared.js','utf8');
 const guard=(extra={})=>({id:'g',name:'sword',floor:7,ceiling:9,minChance:0.3,...extra});
@@ -47,13 +48,13 @@ test('coordinator command adds, edits, removes and refuses overlaps',()=>{
 });
 
 function runtime({guards=[],chance=0.5,previewFails=false,level=7,tiers=2}={}){
- const calls=[],previews=[],activity=[];
+ const calls=[],previews=[],activity=[],holds=[];
  const character={name:'M',ctype:'merchant',map:'main',level:1,items:[{name:'sword',level},{name:'scroll0',q:10}],bank:null};
  const r=vm.createContext({character,G:{items:{sword:{upgrade:{}}}},partyAvailableCraftStock:availableCraftStock,partyResolveUpgradeOffering:resolveUpgradeOffering,
   partyChanceGuard:chanceGuard,partyChanceHold:chanceHold,
   maximumItemLevel:()=>13,fingerprint:i=>i&&({...i}),sameItem:(a,b)=>a&&Object.keys(b).every(k=>a[k]===b[k]),
   item_grade:()=>0,find_npc:n=>n,smart_move:async()=>{},merchantOperationStage:async()=>{},
-  request:async()=>({craftProtection:{requirements:[]},upgradeOfferingRules:[],upgradeChanceGuards:guards,upgradeOfferingStock:{}}),
+  request:async(path,{body})=>body.action==='hold-chance'?(holds.push(body),{ok:true}):({craftProtection:{requirements:[]},upgradeOfferingRules:[],upgradeChanceGuards:guards,upgradeOfferingStock:{}}),
   upgrade:async(slot,scroll,offering,calculate)=>{
    previews.push({level:character.items[slot].level,calculate});
    if(previewFails)throw Object.assign(new Error('x'),{reason:'distance'});
@@ -64,23 +65,24 @@ function runtime({guards=[],chance=0.5,previewFails=false,level=7,tiers=2}={}){
  const names=['findItem','findInventoryItemByName','findUpgradeMarkSlot','anchoredUpgradeSlot','upgradeOfferingCheckpoint','availableOfferingEntries','carriedOffering','carriedOfferingQuantity','upgradeOfferingDemand','requestUpgradeOfferingSupply','retrieveUpgradeOffering','prepareUpgradeOffering','upgradeChanceHeld','merchantImprove'];
  vm.runInContext(names.map(n=>namedFunction(source,n)).join('\n'),r);
  const mark={slot:0,item:{name:'sword',level},tiers,auto:true};
- return {r,character,calls,previews,activity,command:{jobId:'job',target:'M',upgrades:[mark]}};
+ return {r,character,calls,previews,activity,holds,command:{jobId:'job',target:'M',upgrades:[mark]}};
 }
 test('merchant holds an attempt whose server chance is below the guard',async()=>{
  const f=runtime({guards:[guard()],chance:0.2});await f.r.merchantImprove(f.command,f.activity);
  assert.deepEqual(f.calls,[]);assert.equal(f.character.items[0].level,7);
- assert.equal(f.command._chanceHolds.length,1);assert.deepEqual(f.previews,[{level:7,calculate:true}]);
+ assert.equal(f.command._offeringWaits.length,1);
+ assert.equal(f.holds.length,1);assert.equal(f.holds[0].level,7);assert.equal(f.holds[0].chance,0.2);assert.equal(f.holds[0].owner,'M');assert.deepEqual(f.previews,[{level:7,calculate:true}]);
  assert.match(f.activity.find(a=>/Holding/.test(a.message)).message,/20\.00% is below the 30\.00% minimum/);
 });
 test('merchant attempts when the chance equals or exceeds the guard',async()=>{
  for(const chance of [0.3,0.9]){
   const f=runtime({guards:[guard()],chance});await f.r.merchantImprove(f.command,f.activity);
-  assert.deepEqual(f.calls,[7,8]);assert.equal(f.character.items[0].level,9);assert.equal(f.command._chanceHolds,undefined);
+  assert.deepEqual(f.calls,[7,8]);assert.equal(f.character.items[0].level,9);assert.equal(f.command._offeringWaits,undefined);
  }
 });
 test('the hold is decided per level: +7 goes ahead, +8 is held',async()=>{
  const f=runtime({guards:[guard()],chance:level=>level===7?0.6:0.1});await f.r.merchantImprove(f.command,f.activity);
- assert.deepEqual(f.calls,[7]);assert.equal(f.character.items[0].level,8);assert.equal(f.command._chanceHolds.length,1);
+ assert.deepEqual(f.calls,[7]);assert.equal(f.character.items[0].level,8);assert.equal(f.command._offeringWaits.length,1);
 });
 test('levels without a guard are never previewed or held',async()=>{
  const f=runtime({guards:[guard({floor:8,ceiling:9})],chance:0.01});await f.r.merchantImprove(f.command,f.activity);
@@ -88,10 +90,39 @@ test('levels without a guard are never previewed or held',async()=>{
 });
 test('an unreadable preview holds the attempt rather than gambling the item',async()=>{
  const f=runtime({guards:[guard()],previewFails:true});await f.r.merchantImprove(f.command,f.activity);
- assert.deepEqual(f.calls,[]);assert.equal(f.command._chanceHolds.length,1);
+ assert.deepEqual(f.calls,[]);assert.equal(f.command._offeringWaits.length,1);
  assert.match(f.activity.find(a=>/Holding/.test(a.message)).message,/chance unavailable \(distance\)/);
 });
 test('no guards leaves behavior unchanged with no previews',async()=>{
  const f=runtime();await f.r.merchantImprove(f.command,f.activity);
  assert.deepEqual(f.calls,[7,8]);assert.deepEqual(f.previews,[]);
+});
+
+test('the merchant records each hold so the mark is not retried every cycle',async()=>{
+ const f=runtime({guards:[guard()],chance:0.2});await f.r.merchantImprove(f.command,f.activity);
+ assert.equal(f.holds.length,1);assert.equal(f.holds[0].action,'hold-chance');assert.deepEqual(f.holds[0].mark.item,{name:'sword',level:7});
+});
+test('a held mark is not ready until the cool-down passes or the guards change',()=>{
+ const state={merchantCharacter:'M',upgrades:{M:[]},upgradeChanceGuards:[guard()],upgradeOfferingRules:[]};
+ const mark={slot:0,item:{name:'sword',level:7},tiers:2,auto:true};
+ recordChanceHold(state,{owner:'M',mark,level:7,chance:0.2,liveSlot:0},1000);
+ const saved=state.upgrades.M[0];assert.equal(saved.heldChance.minChance,0.3);assert.equal(saved.heldChance.chance,0.2);
+ assert.equal(upgradeOfferingReady(state,saved,1000+chanceHoldMs-1),false);
+ assert.equal(upgradeOfferingReady(state,saved,1000+chanceHoldMs),true);
+ state.upgradeChanceGuards=[guard({minChance:0.1})];
+ assert.equal(upgradeOfferingReady(state,saved,2000),true,'editing the guards releases the hold');
+ recordChanceHold(state,{owner:'M',mark,level:7,chance:0.05,liveSlot:0},3000);
+ assert.equal(state.upgrades.M.length,1,'the same mark is updated, not duplicated');
+});
+test('a manual mark stays queued while held, and a hold without a guard is ignored',()=>{
+ const state={merchantCharacter:'M',upgrades:{M:[{slot:0,item:{name:'sword',level:7},tiers:1,requestId:'r1'}]},upgradeChanceGuards:[guard()]};
+ recordChanceHold(state,{owner:'M',mark:state.upgrades.M[0],level:7,chance:0.1,liveSlot:2},0);
+ assert.equal(state.upgrades.M.length,1);assert.equal(state.upgrades.M[0].slot,2);assert.ok(state.upgrades.M[0].heldChance);
+ const other={merchantCharacter:'M',upgrades:{M:[]},upgradeChanceGuards:[]};
+ recordChanceHold(other,{owner:'M',mark:{slot:0,item:{name:'sword',level:7},tiers:1,auto:true},level:7,chance:0.1},0);
+ assert.deepEqual(other.upgrades.M,[]);
+ assert.throws(()=>recordChanceHold(state,{owner:'M',mark:{item:{}},level:7}),/Invalid chance hold/);
+});
+test('a fresh mark passes the readiness check',()=>{
+ assert.equal(upgradeOfferingReady({},{slot:0,item:{name:'sword',level:7}}),true);
 });

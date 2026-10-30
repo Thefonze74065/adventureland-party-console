@@ -6611,7 +6611,11 @@
     } catch (error) { reason = String(error.reason || error.message || error); }
     var hold = reason ? { guard: guard } : globalThis.partyChanceHold(rules, item.name, level, chance);
     if (!hold) return false;
-    (command._chanceHolds ||= []).push(mark);
+    (command._offeringWaits ||= []).push(mark);
+    try {
+      await request("/merchant/production", {method:"POST",body:{character:character.name,action:"hold-chance",
+        owner:command.target || character.name,mark:mark,liveSlot:findItem(item),level:level,chance:reason ? null : chance,reason:reason || undefined}});
+    } catch (error) { activity.push({level:"error", message:"Could not record the chance hold", details:String(error.reason || error.message || error)}); }
     activity.push({level:"info", message:"Holding " + item.name + " +" + level + " to +" + (level + 1) + ": " +
       (reason ? "chance unavailable (" + reason + ")" : (chance * 100).toFixed(2) + "% is below the " + (guard.minChance * 100).toFixed(2) + "% minimum")});
     return true;
