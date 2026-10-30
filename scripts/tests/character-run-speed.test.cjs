@@ -19,3 +19,13 @@ test('merchant speed includes equipment and exact set bonus; stand cannot hide a
  context.character.stand=false;context.character.speed=75;assert.ok(Math.abs(context.unrestrictedRunSpeed()-before-1)<1e-9);
  context.character.dex=256;const capped=context.unrestrictedRunSpeed();context.character.dex=288;assert.equal(context.unrestrictedRunSpeed(),capped);
 });
+test('an item the game helper rejects does not break the run-speed estimate',()=>{
+ const source=fs.readFileSync('characters/shared.js','utf8');
+ const context={character:{ctype:'merchant',level:46,dex:99,str:6,speed:10,slots:{belt:{name:'nightmarketsash',level:0},shoes:{name:'boots'}},items:[],s:{}},
+   parent:{character:{}},G:{classes:{merchant:{speed:55}},items:{nightmarketsash:{vit:1},boots:{}},sets:{},conditions:{}},
+   calculate_item_properties:item=>{if(item.name==='nightmarketsash')throw new Error('type not supported');return {speed:10};},
+   item_properties:item=>{if(item.name==='nightmarketsash')throw new Error('type not supported');return {speed:10};}};
+ vm.createContext(context);vm.runInContext(source.slice(source.indexOf('  function unrestrictedRunSpeed('),source.indexOf('  function skillCatalog(')),context);
+ const speed=context.unrestrictedRunSpeed();assert.ok(Number.isFinite(speed)&&speed>65);
+ context.G.classes=null;assert.equal(context.safeRunSpeed(),null);
+});
