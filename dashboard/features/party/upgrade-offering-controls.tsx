@@ -9,6 +9,7 @@ import type { Item } from './item';
 import type { ItemMeta } from './item-meta';
 import type { MerchantCatalogItem } from './merchant-catalog-item';
 import { PrimStackDialog } from './prim-stack-dialog';
+import { FailStackDialog } from './fail-stack-dialog';
 import { upgradeOfferings, offeringOverlap, type UpgradeOffering, type UpgradeOfferingRule } from '../../../runtime/upgrade-offerings';
 import type { UpgradeChanceGuard } from '../../../runtime/upgrade-chance-guard';
 
@@ -26,6 +27,8 @@ interface Controls {
   select:(selection:Selection) => void;
   /** Merchant inventory items only; the coordinator rejects any other source. */
   stackGrace:(selection:Selection) => void;
+  /** Merchant inventory items only; burns spare copies to build grace for this one. */
+  failStack:(selection:Selection) => void;
   remove:(rule:UpgradeOfferingRule) => Promise<void>;
   clear:() => Promise<void>;
 }
@@ -42,6 +45,7 @@ export function UpgradeOfferingProvider({children, character, executor, stock, r
 }) {
   const [selection, select] = useState<Selection | null>(null);
   const [stacking, stackGrace] = useState<Selection | null>(null);
+  const [failing, failStack] = useState<Selection | null>(null);
   const [error, setError] = useState('');
   const save = useCallback((body:Record<string,unknown>) => post('/command', {character, ...body}), [post, character]);
   const remove = useCallback(async (rule:UpgradeOfferingRule) => {
@@ -54,8 +58,8 @@ export function UpgradeOfferingProvider({children, character, executor, stock, r
       for (const rule of rules) await save({type:'upgrade-offering-rule', rule:{id:rule.id}, remove:true});
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not clear upgrade rules'); }
   }, [rules, save]);
-  const value = useMemo<Controls>(() => ({character, executor, stock, rules, guards, catalog, command:save, select, stackGrace, remove, clear}),
-    [character, executor, stock, rules, guards, catalog, save, select, stackGrace, remove, clear]);
+  const value = useMemo<Controls>(() => ({character, executor, stock, rules, guards, catalog, command:save, select, stackGrace, failStack, remove, clear}),
+    [character, executor, stock, rules, guards, catalog, save, select, stackGrace, failStack, remove, clear]);
   return <Context.Provider value={value}>
     {children}
     {error && <p role="alert" className="text-sm text-rose-300">{error}</p>}
@@ -64,6 +68,8 @@ export function UpgradeOfferingProvider({children, character, executor, stock, r
     {stacking?.source && <PrimStackDialog item={stacking.item} meta={stacking.meta} character={character} slot={Number(stacking.source.slot)}
       name={catalog.find(entry => entry.id === stacking.item.name)?.name || stacking.item.name}
       label={id => catalog.find(entry => entry.id === id)?.name || id} primlings={stock.offeringp || 0} close={() => stackGrace(null)} />}
+    {failing?.source && <FailStackDialog item={failing.item} character={character} slot={Number(failing.source.slot)} catalog={catalog}
+      name={catalog.find(entry => entry.id === failing.item.name)?.name || failing.item.name} primlings={stock.offeringp || 0} close={() => failStack(null)} />}
   </Context.Provider>;
 }
 

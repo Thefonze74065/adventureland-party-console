@@ -86,6 +86,8 @@ export function UpgradeActions({
               ))}
               <ContextMenuItem disabled={!offerings?.stock.offeringp || !offeringSource || offeringSource.equipped || offerings.character !== offerings.executor}
                 onClick={() => offerings?.stackGrace({item,meta,source:offeringSource})}>Prim stack…</ContextMenuItem>
+              <ContextMenuItem disabled={!offerings || !offeringSource || offeringSource.equipped || offerings.character !== offerings.executor}
+                onClick={() => offerings?.failStack({item,meta,source:offeringSource})}>Fail stack…</ContextMenuItem>
             </div>
             </div>
             {previewOpen && offeringSource && <UpgradePreviewPanel key={JSON.stringify([item,offeringSource,offerings?.executor])} item={item} source={offeringSource} />}
