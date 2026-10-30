@@ -6731,7 +6731,7 @@
   }
   async function merchantImprove(command, activity) {
     await merchantOperationStage(command, "processing");
-    await loadScrollRules(command);
+    if ((command.upgrades || []).length) await loadScrollRules(command);
     var returns = [], used = {};
     command._upgradeReturns = [];
     for (var purchaseIndex = 0; purchaseIndex < (command.purchases || []).length; purchaseIndex += 1) {
@@ -7055,7 +7055,7 @@
   }
 
   async function prepareManualImprovementScrolls(command, activity) {
-    await loadScrollRules(command);
+    if ((command.upgrades || []).length) await loadScrollRules(command);
     var needs = manualImprovementScrollNeeds(command), names = Object.keys(needs);
     if (!names.length) return needs;
     var mustCheckBank = names.some(function (name) {
