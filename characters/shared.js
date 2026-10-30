@@ -2759,6 +2759,80 @@
         error: String(error.reason || error.message || error), activity: activity}});
     } finally { upgrading = false; }
   }
+  // Fail stacking (#152): burn spare copies at the stacked level to build ugrace and ograce for a kept copy.
+  // The stacked item must still be in its own slot: identical spares must never be mistaken for it.
+  function failStackTarget(job) {
+    return Number.isInteger(job.slot) && sameItemState(character.items[job.slot], job.item) ? job.slot : -1;
+  }
+  async function failStackChance(slot, job, command) {
+    if (slot < 0) throw new Error("Fail-stack item changed; stopped without burning more copies");
+    var scrollName = "scroll" + item_grade(character.items[slot]);
+    if (findInventoryItemByName(scrollName) < 0) await primStackSupply(scrollName, 1, true, command);
+    var offeringSlot = job.previewOffering ? findInventoryItemByName("offeringp") : -1;
+    var preview = await upgrade(slot, findInventoryItemByName(scrollName), offeringSlot < 0 ? null : offeringSlot, true);
+    if (!preview || preview.calculate !== true || !Number.isFinite(Number(preview.chance)))
+      throw new Error("The server did not report the upgrade chance");
+    return Number(preview.chance);
+  }
+  async function failStackOperation(slot, scrollSlot, offeringSlot) {
+    var before = fingerprint(character.items[slot]), failure = null, settled = false;
+    Promise.resolve(upgrade(slot, scrollSlot, offeringSlot < 0 ? undefined : offeringSlot))
+      .then(function () { settled = true; }, function (error) { failure = error; settled = true; });
+    for (var deadline = Date.now() + 30000; Date.now() < deadline;) {
+      var live = character.items[slot], busy = !!(character.q && character.q.upgrade) || !!(live && live.name === "placeholder");
+      if (!busy && !live) return "destroyed";
+      if (!busy && (Number(live.level) || 0) > (Number(before.level) || 0)) return "upgraded";
+      if (!busy && failure) throw failure;
+      if (!busy && settled) return "survived";
+      await new Promise(function (resolve) { setTimeout(resolve, 100); });
+    }
+    throw new Error("Fail-stack operation was not confirmed in slot " + slot);
+  }
+  // Returns the slot of the next spare copy once its scroll (and Primling) are in the inventory, or a reason to stop.
+  async function failStackNext(job, command) {
+    var target = failStackTarget(job);
+    if (target < 0) throw new Error("Fail-stack item changed; stopped without burning more copies");
+    var spares = globalThis.partyFailStackSlots(character.items, job, target);
+    if (!spares.length) return { stop: "no spare copies left" };
+    var scrollName = "scroll" + item_grade(character.items[spares[0]]);
+    if (inventoryQuantity(scrollName) < 1 || job.offering && !inventoryQuantity("offeringp")) {
+      if (inventoryQuantity(scrollName) < 1) await primStackSupply(scrollName, 1, true, command);
+      if (job.offering && !inventoryQuantity("offeringp")) await primStackSupply("offeringp", 1, false, command);
+      await previewTravel("newupgrade");
+      target = failStackTarget(job);
+      spares = target < 0 ? [] : globalThis.partyFailStackSlots(character.items, job, target);
+      if (!spares.length) return { stop: "supplies moved the spare copies" };
+    }
+    if (job.offering && !inventoryQuantity("offeringp")) return { stop: "out of Primlings" };
+    return { spare: spares[0], scroll: findInventoryItemByName("scroll" + item_grade(character.items[spares[0]])) };
+  }
+  async function merchantFailStack(command) {
+    var job = command.failStack || {}, activity = [], counts = { destroyed: 0, upgraded: 0, survived: 0 }, attempts = 0, why = "all attempts used";
+    var label = (G.items[job.item && job.item.name] || {}).name || job.item && job.item.name;
+    try {
+      if (character.rip || character.q && character.q.upgrade) throw new Error("Upgrade operation still settling; try again");
+      if (failStackTarget(job) < 0) throw new Error("Fail-stack item changed; reopen the menu");
+      upgrading = true;
+      await previewTravel("newupgrade");
+      while (attempts < job.attempts) {
+        if (job.stopChance !== undefined && globalThis.partyReachedStopChance(job, await failStackChance(failStackTarget(job), job, command))) {
+          why = "the chance reached " + (job.stopChance * 100).toFixed(2) + "%"; break;
+        }
+        var next = await failStackNext(job, command);
+        if (next.stop) { why = next.stop; break; }
+        var offeringSlot = job.offering ? findInventoryItemByName("offeringp") : -1;
+        counts[await failStackOperation(next.spare, next.scroll, offeringSlot)] += 1;
+        attempts += 1;
+      }
+      activity.push({ level: attempts ? "success" : "info", message: "Fail stacked for " + label + ": " + attempts + " attempt" + (attempts === 1 ? "" : "s") +
+        " (" + counts.destroyed + " destroyed, " + counts.upgraded + " upgraded, " + counts.survived + " survived); stopped because " + why });
+      await request("/merchant/complete", { method: "POST", body: { jobId: command.jobId, commandId: command.id, success: true, activity: activity } });
+    } catch (error) {
+      activity.push({ level: "error", message: "Fail stack failed for " + label, details: String(error.reason || error.message || error) });
+      await request("/merchant/complete", { method: "POST", body: { jobId: command.jobId, commandId: command.id, success: false,
+        error: String(error.reason || error.message || error), activity: activity } });
+    } finally { upgrading = false; }
+  }
   function consoleMaintenanceReport() {
     var pause = root.__partyConsoleMaintenance;
     var combat = consoleDrainCombatActive();
@@ -11141,6 +11215,8 @@
       command, "upgrade preview", function () { return merchantUpgradePreview(command); });
     if (command.type === "merchant-prim-stack" && character.ctype === "merchant") return runMerchantJob(
       command, "prim stack", function () { return merchantPrimStack(command); });
+    if (command.type === "merchant-fail-stack" && character.ctype === "merchant") return runMerchantJob(
+      command, "fail stack", function () { return merchantFailStack(command); });
     if (command.type === "merchant-commerce" && character.ctype === "merchant") return runMerchantJob(
       command, "merchant shopping and crafting", function () {
         return afterCombat(function () { return merchantCommerce(command); }, "merchant shopping and crafting");

@@ -34,6 +34,7 @@ const descriptions: Readonly<Record<string, string>> = {
   "auto upgrade": "Merchant dispatched for automatic upgrades",
   "upgrade preview": "Merchant dispatched to refresh upgrade chances",
   "prim stack": "Merchant dispatched to prim stack an item's grace",
+  "fail stack": "Merchant dispatched to fail-stack spare copies for an item",
   "manual upgrades": "Merchant dispatched for manual upgrades",
   "bank unlock": "Merchant dispatched to unlock bank storage",
   "manual bank exchange": "Merchant dispatched for its own bank exchange",

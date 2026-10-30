@@ -6,6 +6,7 @@ import type { HttpHandler, HttpRouter } from "./http/contracts.ts";
 import { consoleMaintenance } from './lifecycle/console-maintenance.ts';
 import { createUpgradePreviews } from './merchant/upgrade-preview.ts';
 import { createPrimStacks } from './merchant/prim-stack.ts';
+import { createFailStacks } from './merchant/fail-stack.ts';
 import { merchantVisibility } from './merchant/visibility.ts';
 import { loadCoordinatorDependencies } from "./infrastructure/dependencies.ts";
 import {marketIgnoredItemsRoute} from "./http/market-ignored-items.ts";
@@ -546,6 +547,7 @@ export function startCoordinatorApplication(
     });
     const upgradePreviews = createUpgradePreviews(party, {persist:persistSettings, dispatch:dispatchMerchant, stamp:stampMerchantJob});
     const primStacks = createPrimStacks(party, {persist:persistSettings, dispatch:dispatchMerchant, stamp:stampMerchantJob});
+    const failStacks = createFailStacks(party, {persist:persistSettings, dispatch:dispatchMerchant, stamp:stampMerchantJob});
     const heartbeatResponse = coordinatorPolicies.createCoordinatorHeartbeatResponse(party, {
       now: () => Date.now(),
       persist: persistSettings,
@@ -2403,6 +2405,7 @@ export function startCoordinatorApplication(
                 dungeons.install(router);
                 upgradePreviews.install(router);
                 primStacks.install(router);
+                failStacks.install(router);
                 router.get('/party-api/console-maintenance', (_req, res) => res.json(consoleUpdate.status(party.statuses,
                   [...party.headlessSlots, ...party.steamMembers], !!party.steamSwitch && party.steamSwitch.phase !== 'complete')));
                 const codeActivation = () => {

@@ -6,3 +6,6 @@ Object.assign(globalThis, {partyResolveUpgradeOffering: resolveUpgradeOffering})
 
 import { chanceGuard, chanceHold, scrollGradeFor } from '../upgrade-chance-guard.ts';
 Object.assign(globalThis, {partyChanceGuard: chanceGuard, partyChanceHold: chanceHold, partyScrollGrade: scrollGradeFor});
+
+import { sacrificeSlots, reachedStopChance } from '../fail-stack.ts';
+Object.assign(globalThis, {partyFailStackSlots: sacrificeSlots, partyReachedStopChance: reachedStopChance});
