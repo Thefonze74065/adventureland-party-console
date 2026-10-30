@@ -1,7 +1,7 @@
 import { recordChanceHold, recordOfferingWait } from './offering-waits.ts';
 
 /** Merchant reports that defer an upgrade mark: a missing offering, or a chance below its guard. */
-const waitRecorders: Record<string, ((state: Parameters<typeof recordOfferingWait>[0] & Parameters<typeof recordChanceHold>[0], body: Record<string, unknown>) => void) | undefined> = {
+const waitRecorders: Record<string, ((state: Parameters<typeof recordChanceHold>[0], body: Record<string, unknown>) => void) | undefined> = {
   'wait-offering': recordOfferingWait, 'hold-chance': recordChanceHold,
 };
 import { rememberUpgradeContinuation,settleUpgradeContinuation } from './upgrade-continuation.ts';
