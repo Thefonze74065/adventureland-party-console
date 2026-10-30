@@ -2136,8 +2136,15 @@
     Object.keys(character.slots || {}).forEach(function(slot) {
       var item = character.slots[slot], def = item && G.items[item.name];
       if (!def || /^trade/.test(slot)) return;
-      var props = typeof calculate_item_properties === "function"
-        ? calculate_item_properties(item, {class:character.ctype,map:character.map}) : item_properties(item);
+      var props;
+      // The game's helper throws "type not supported" for some newly added items
+      // (e.g. nightmarketsash); use the plain definition rather than failing the status.
+      try {
+        props = typeof calculate_item_properties === "function"
+          ? calculate_item_properties(item, {class:character.ctype,map:character.map}) : item_properties(item);
+      } catch (_helperError) {
+        try { props = item_properties(item); } catch (_propertiesError) { props = def; }
+      }
       if (props.class && props.class.indexOf(character.ctype)<0) return;
       speed += Number(props.speed) || 0;
       if (props.set) sets[def.set] = (sets[def.set] || 0)+1;
@@ -2159,6 +2166,11 @@
     var level=Number(character.level)||0;
     return Math.max(5,speed+Math.min(Number(character.dex)||0,256)/32+Math.min(Number(character.str)||0,256)/64+
       Math.min(level,40)/10+Math.max(0,Math.min(level-40,20))/15+Math.max(0,Math.min(86,level)-60)/16);
+  }
+
+  // Telemetry-only: a failing speed estimate must not block the status heartbeat.
+  function safeRunSpeed() {
+    try { return unrestrictedRunSpeed(); } catch (_error) { return null; }
   }
 
   function skillCatalog() {
@@ -3102,7 +3114,7 @@
       frequency: Number(character.frequency) || 0,
       range: Number(character.range) || 0,
       speed: character.speed,
-      unrestrictedSpeed: character.ctype === "merchant" ? unrestrictedRunSpeed() : null,
+      unrestrictedSpeed: character.ctype === "merchant" ? safeRunSpeed() : null,
       armor: Number(character.armor) || 0,
       resistance: Number(character.resistance) || 0,
       str: Number(character.str) || 0,
