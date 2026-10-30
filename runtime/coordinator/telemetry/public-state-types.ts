@@ -120,6 +120,7 @@ export interface PublicState extends Partial<Record<(typeof publicStateFields)[n
   ponty: unknown;
   autoUpgradeMarks: unknown;
   upgradeOfferingRules?: import("../../upgrade-offerings.ts").UpgradeOfferingRule[];
+  upgradeChanceGuards?: import("../../upgrade-chance-guard.ts").UpgradeChanceGuard[];
   travelPlaces?: unknown[] | null;
   monsterChoices?: unknown[] | null;
   bestiaryCatalog?: unknown[] | null;

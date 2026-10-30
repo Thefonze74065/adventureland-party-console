@@ -1,4 +1,5 @@
 import { createOfferingCommands } from '../inventory/upgrade-offerings.ts';
+import { createChanceGuardCommands } from '../inventory/upgrade-chance-guards.ts';
 import { createFocusSelection, type FocusState } from '../navigation/focus.ts';
 import { createCharacterCommandRoute } from "./character-command.ts";
 import { createUpgradeCommands } from "../inventory/upgrade-commands.ts";
@@ -14,7 +15,7 @@ import type { CommandOutcome } from "../navigation/manual-commands.ts";
 import { replaceAutomaticAction, type AutomaticAction } from '../inventory/automatic-action.ts';
 import { automaticCommerceRuleKey } from '../inventory/item-identity.ts';
 
-type CommandState = FocusState & Parameters<typeof createOfferingCommands>[0] & Parameters<typeof createCharacterCommandRoute>[0] &
+type CommandState = FocusState & Parameters<typeof createOfferingCommands>[0] & Parameters<typeof createChanceGuardCommands>[0] & Parameters<typeof createCharacterCommandRoute>[0] &
   Parameters<typeof createClearItemMarks>[0] &
   Parameters<typeof createCosmeticCommands>[0] &
   Parameters<typeof createUpgradeCommands>[0] &
@@ -111,6 +112,7 @@ export function createCoordinatorCharacterCommands(
     farmingLocation: ports.farmingLocation,
     handlers: [
       createOfferingCommands(state, ports.persist),
+      createChanceGuardCommands(state, ports.persist),
       createClearItemMarks(state, { persist: ports.persist, persistBank: ports.persistBank, changed: () => ports.marksCleared?.() }),
       createCosmeticCommands(state, { persist: ports.persist, log: ports.log, nextCommand: () => state.nextCommandId++ }),
       ports.navigation,

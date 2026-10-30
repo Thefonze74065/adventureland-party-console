@@ -44,6 +44,7 @@ import { Withdrawal } from "./withdrawal";
 export type PartyState = {
   characterSnapshots?: Record<string, Char & { updatedAt: number }>;
   upgradeOfferingRules?: import("../../../runtime/upgrade-offerings").UpgradeOfferingRule[];
+  upgradeChanceGuards?: import("../../../runtime/upgrade-chance-guard").UpgradeChanceGuard[];
   upgradeOfferingStock?: Partial<Record<import("../../../runtime/upgrade-offerings").UpgradeOffering, number>>;
   characterAppearances?: Record<string, Pick<Char, "skin" | "characterSprite" | "characterDollHtml"> & {updatedAt:number;
     }>;

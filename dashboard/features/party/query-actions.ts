@@ -48,6 +48,7 @@ export const actionDomains = {
   '/merchant/stand-location': core,
   '/merchant/gather': core,
   '/prim-stack': core,
+  '/fail-stack': core,
   '/merchant/job/cancel': commerce,
   '/merchant/job/retry': commerce,
   '/merchant/routine-priorities': core,

@@ -2,21 +2,49 @@ import { requestObject, requestText } from '../http/contracts.ts';
 import {sameMarkedItem} from './item-identity.ts';
 import {protectedMerchantStorageStock} from './merchant-storage-stock.ts';
 import { offeringStock } from './offering-stock.ts';
+import { chanceGuard, type UpgradeChanceGuard } from '../../upgrade-chance-guard.ts';
 import { isUpgradeOffering, offeringRule, resolveUpgradeOffering, type UpgradeOfferingRule, validOfferingRule } from '../../upgrade-offerings.ts';
 
 export function offeringSignature(value: unknown): string {
   const state = requestObject(value);
   return JSON.stringify([state.upgradeOfferingRules || [], offeringStock(state), Object.values(requestObject(state.bankbois)).map(raw => {const worker=requestObject(raw);return [worker.name,worker.state,worker.error,worker.items];}), state.activeSlots, requestObject(state.bankSnapshot).packs, Object.values(requestObject(state.statuses)).map(raw=>requestObject(raw).items)]);
 }
-export function upgradeOfferingReady(state: unknown, raw: unknown): boolean {
+/** A chance-held mark is retried after this long, or sooner when the guards change. */
+export const chanceHoldMs = 10 * 60 * 1000;
+function chanceGuardSignature(value: unknown): string {
+  return JSON.stringify(requestObject(value).upgradeChanceGuards || []);
+}
+function chanceHeld(state: unknown, mark: Record<string, unknown>, now: number): boolean {
+  const held = requestObject(mark.heldChance);
+  return !!held.signature && held.signature === chanceGuardSignature(state) && Number(held.until) > now;
+}
+export function upgradeOfferingReady(state: unknown, raw: unknown, now = Date.now()): boolean {
   const mark = requestObject(raw), waiting = requestObject(mark.waitingOffering);
-  if (mark.storage) return false;
+  if (mark.storage || chanceHeld(state, mark, now)) return false;
   return !waiting.signature || waiting.signature !== offeringSignature(state);
 }
 interface State {
   merchantCharacter?: string | null;
   upgrades?: Record<string, unknown[] | undefined>;
   upgradeOfferingRules?: UpgradeOfferingRule[];
+  upgradeChanceGuards?: UpgradeChanceGuard[];
+}
+/** The merchant held this mark below a chance guard: keep it queued but do not retry it every cycle. */
+export function recordChanceHold(state: State, body: Record<string, unknown>, now = Date.now()): void {
+  const owner = String(body.owner), mark = requestObject(body.mark), item = requestObject(mark.item);
+  if (typeof item.name !== 'string' || !Number.isInteger(body.level)) throw Error('Invalid chance hold');
+  const guard = chanceGuard(state.upgradeChanceGuards || [], item.name, Number(body.level));
+  if (!guard) return;
+  const list = (state.upgrades ||= {})[owner] ||= [];
+  const existing = list.find(raw => sameRequest(mark, requestObject(raw)));
+  const entry = waitingMark(existing, mark);
+  relocateWait(state, owner, entry, body.liveSlot);
+  entry.heldChance = heldChance(state, guard, body, now);
+  if (!existing) list.push(entry);
+}
+function heldChance(state: State, guard: UpgradeChanceGuard, body: Record<string, unknown>, now: number) {
+  return {level: Number(body.level), chance: Number(body.chance) || 0, minChance: guard.minChance,
+    reason: body.reason || null, signature: chanceGuardSignature(state), until: now + chanceHoldMs};
 }
 export function recordOfferingWait(state: State, body: Record<string, unknown>): void {
   const owner = String(body.owner), mark = requestObject(body.mark), item = requestObject(mark.item);

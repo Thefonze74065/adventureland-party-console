@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add upgrade chance guards, scroll floors and fail stacking (#152, #78, #65). A guard holds a real upgrade attempt unless the server's own preview chance, which already includes ugrace, server ugrace and ograce, reaches a minimum; held marks stay queued and are retried after ten minutes or when the guards change. A scroll floor spends a higher-grade scroll than the item needs, which the server rewards below +10, and the merchant stocks it. A fail-stack job burns exact, unlocked, plain spare copies at a chosen level, optionally with a Primling, until an attempt limit or a stop chance measured on the kept item. The estimator models item grace, ograce, server grace, offerings and higher-grade scrolls when given grace options. The dashboard adds a Chance guards section and a Fail stack dialog beside Prim stack.
+
 - Find giveaway hosts through the game's merchant directory when they are not in sight, walk to their stand and join, instead of failing at the market; report hosts on another realm, without an open stand, or inside the bank, and skip discovered giveaways inside the bank (#129). Expire queued giveaway jobs at the giveaway's real remaining time rather than two minutes after a marketplace observation, log a warning when one expires unattempted, and release its claim so a still-running giveaway is queued again.
 
 - Remove the arbitrary successor spawn-distance requirement from the queued Goo E2E test, retaining actual combat and fresh party confirmation checks. Allow 240 seconds for event-handoff checkpoint returns so communication safety holds can recover on slower CI runners.

@@ -184,7 +184,7 @@ export const ConnectedInventory = memo(function ConnectedInventory({
     );
   }
   return (
-    <UpgradeOfferingProvider character={char.name} executor={state.merchantCharacter} stock={state.upgradeOfferingStock || emptyRecord()} rules={state.upgradeOfferingRules || emptyArray()} catalog={state.merchantCatalog?.allItems || emptyArray()} post={post}>
+    <UpgradeOfferingProvider character={char.name} executor={state.merchantCharacter} stock={state.upgradeOfferingStock || emptyRecord()} rules={state.upgradeOfferingRules || emptyArray()} guards={state.upgradeChanceGuards || emptyArray()} catalog={state.merchantCatalog?.allItems || emptyArray()} post={post}>
     <InventoryPanel
       restock={restock}
       character={char}

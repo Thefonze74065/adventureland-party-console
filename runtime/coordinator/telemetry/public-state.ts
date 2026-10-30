@@ -305,5 +305,5 @@ export function createPublicStateRoute(state: Readonly<PublicState>, ports: Publ
 }
 
 function offeringPayload(state: Readonly<PublicState>) {
-  return {upgradeOfferingRules:state.upgradeOfferingRules || [], upgradeOfferingStock:offeringStock(state)};
+  return {upgradeOfferingRules:state.upgradeOfferingRules || [], upgradeChanceGuards:state.upgradeChanceGuards || [], upgradeOfferingStock:offeringStock(state)};
 }

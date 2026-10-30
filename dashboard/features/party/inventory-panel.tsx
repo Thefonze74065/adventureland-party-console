@@ -78,6 +78,7 @@ import { statScrollQuantity } from "./stat-scroll-quantity";
 import { STAT_SCROLLS } from "./stat-scrolls";
 import { SuggestedPriceDetails } from "./suggested-price-details";
 import { UpgradeOfferingRules } from './upgrade-offering-controls';
+import { UpgradeChanceGuardRules } from './upgrade-chance-guards';
 import { UpgradeActions } from "./upgrade-actions";
 import { UpgradeMark } from "./upgrade-mark";
 import { upgradeRuleQuantity } from "./upgrade-rule-quantity";
@@ -1738,6 +1739,7 @@ export const InventoryPanel = memo(function InventoryPanel({
               ),
             )}
             <UpgradeOfferingRules />
+            <UpgradeChanceGuardRules />
             {automaticSection(
               'compound',
               'Auto compounds',

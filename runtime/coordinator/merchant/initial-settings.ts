@@ -46,6 +46,7 @@ export function defaultMerchantRoutinePriorities(): Record<string, number> {
     "manual marketplace purchases": 76,
     "upgrade preview": 70,
     "prim stack": 70,
+    "fail stack": 70,
     "manual upgrades": 70,
     "auto upgrade": 70,
     "manual compounds": 70,
