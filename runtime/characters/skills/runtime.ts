@@ -82,11 +82,9 @@ export function installSkillRuntime(root: CombatRoot) {
     return !!world().skills[d.skill]?.hostile && d.targets.some(t=>!shared.returnAttacker?.(t as Target));
   }
   // Area effects and movement skills cannot honor strict boss-only, hold-position combat
-  // (Franky). Cleave is the explicit area exception, and Scare stays allowed: warrior.ts
-  // casts it directly (it's untargeted) as how an off-tank mitigates the boss's damage
-  // without contesting aggro. Single-target skills defend only against this member's
-  // mummies while the boss remains the default target.
-  const bossExcluded = new Set<string>(['agitate','charge','dash','blink','stomp','fanofknives']);
+  // (Franky). Cleave is the explicit area exception; Scare is blocked. Single-target skills defend only
+  // against this member's mummies while the boss remains the default target.
+  const bossExcluded = new Set<string>(['agitate','charge','dash','blink','scare','stomp','fanofknives']);
   function bossSkillBlocked(id: SkillId, targets: Combatant[]): boolean {
     if (!shared.bossCombatActive?.()) return false;
     return bossExcluded.has(id) || !!world().skills[id]?.hostile &&
