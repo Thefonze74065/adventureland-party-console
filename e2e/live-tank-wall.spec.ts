@@ -27,14 +27,14 @@ for (const tank of [W, P]) {
         const m=new_monster('level1',{type:'prat',count:1,position:[-11,115],radius:0},{temp:1});m.speed=0;m.moving=false;m.attack=0;
         m.hp=m.max_hp=10000000;target_player(m,get_player(${JSON.stringify(tank)}));return {id:String(m.id),at:Date.now()};})()`);
       await info.attach('declared-prat', { body: JSON.stringify(seed), contentType: 'application/json' });
-      // 1, 2: within a minute the tank is holding next to the prat.
+      // 1, 2: within a minute the tank is holding the prat: in its own attack range and not kiting.
       await expect.poll(async () => {
         const sample = await live.clients[tank].run(`(() => { const p = globalThis.partyCombatPosition, e = parent.entities[${JSON.stringify(seed.id)}];
           return { at: Date.now(), mode: p && p.mode, reason: p && p.reason, x: character.real_x, y: character.real_y,
-            distance: e ? Math.hypot(character.real_x - e.x, character.real_y - e.y) : null }; })()`);
+            inRange: !!(e && is_in_range(e)), distance: e ? Math.hypot(character.real_x - e.x, character.real_y - e.y) : null }; })()`);
         samples.push(sample);
-        return sample.mode === 'tank-holding' && sample.distance != null && sample.distance <= 100;
-      }, { timeout: 60_000, intervals: [1000], message: 'The tank must route around the wall and hold next to its target' }).toBe(true);
+        return sample.inRange && !['kiting', 'escaping'].includes(sample.mode);
+      }, { timeout: 60_000, intervals: [1000], message: 'The tank must route around the wall and hold its target in range' }).toBe(true);
       for (const name of [W, P]) expect(await live.clients[name].run('character.rip')).toBeFalsy();
     } finally {
       await info.attach('tank-wall-samples', { body: JSON.stringify(samples), contentType: 'application/json' });

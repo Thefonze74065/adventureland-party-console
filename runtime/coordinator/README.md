@@ -774,17 +774,33 @@ a full restart also publishes the current character assets.
 ## Designated tank
 
 A per-party `POST /party-api/formation` field, `tank: string | null`, names one
-character (any class) to hold melee range and own aggro-pulling for normal grouped
-combat, addressing issue #39. `approachCombatTarget()` routes the designated tank
-through `tankMovementTick()` — a class-agnostic adaptation of Franky's off-tank
-"stack tight" clamp (`Math.min(desiredCombatRange(), 30)`) — instead of each class's
-own weapon-range `engageMovementTick()`; every other character's positioning is
-unchanged. `mayTaunt()` and the skill engine's `absorb`/`agitate` aggro-ownership
+character (any class) to hold its target and own aggro-pulling for normal grouped
+combat, addressing issue #39. The tank takes the ordinary approach of every fighter
+(the priest formation would hold a melee tank outside its target's range), so it stops
+at its own attack range. `tankHoldsTarget()`
+keeps it from kiting the monster it is fighting while its HP stays above half; the hold
+returns above 80%. Agitate pulls only monsters that come anyway (`aggro > 0.99` and
+`rage >= 1`, see `runtime/characters/skills/aggro-pull.ts`) or runs when a monster is
+on another party member. `mayTaunt()` and the skill engine's `absorb`/`agitate` aggro-ownership
 checks (`CombatContext.tank`) are gated on the designated tank when one exists,
 falling back to the existing leader-only rule when none is set — this also lets a
 non-leader priest tank via `absorb`, per the issue's own example. No hold-back is
 added for non-tank characters; they keep today's approach/attack timing and are only
 barred from *stealing* aggro via taunt/absorb.
+
+An optional `offTank` field on the same route names the party member that takes the
+tank's attackers while the tank is in danger. `runtime/characters/skills/tank-handoff.ts`
+hands aggro to it when the tank is endangered (`damage.ts`), below half HP or gone, and back
+once the tank is at 80% with nothing on it. During the takeover the skill context's `tank`
+is the off tank, so taunt, absorb and agitate follow it and the released tank kites.
+
+`pullMode: true` on the same route turns on pulling, off by default. The leader then
+nominates nothing; every member waits at the nearest point outside the aggro check of
+every idle monster (`AGGRO_REACH` in `runtime/combat/pulling.ts`, from the server's 32-unit
+aggressive grid), and the longest-range member walks to a point outside the others' reach
+and hits one idle monster, preferring the one farthest from the rest. The pulled monster
+becomes an ordinary party fight once it targets the puller; the others wait at the spot
+until it is close. The next pull waits until the fight is over and nothing targets the party.
 
 The designated tank also gets a kill-time luck swap built on **gear sets**
 (`runtime/coordinator/characters/gear-sets.ts`, `POST /party-api/gear-sets` with

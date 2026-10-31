@@ -232,6 +232,11 @@ export const ConnectedCharacterCard = memo(function ConnectedCharacterCard({
   const onAddBlacklist = useCallback(async (monsterId: string) => {
     await post('/hunt-blacklist', {action:'add',monsterId,character:name});
   }, [post,name]);
+  const roleCharacters = useMemo(() => inventoryModel.chars.map(entry => entry.name), [inventoryModel.chars]);
+  const roles = useMemo(() => ({
+    tank: state.designatedTank || null, offTank: state.offTank || null, pullMode: !!state.pullMode,
+    characters: roleCharacters, formation: (body: object) => void formation(body),
+  }), [state.designatedTank, state.offTank, state.pullMode, roleCharacters, formation]);
   const onSelectFarmingPolicy = useCallback(
     (mode: FarmingPolicy) => void setFarmingPolicy(mode, name),
     [setFarmingPolicy, name],
@@ -435,6 +440,7 @@ export const ConnectedCharacterCard = memo(function ConnectedCharacterCard({
             hunt={farming.hunt}
             characterHunt={char.monsterHunt}
             onSelect={onSelectFarmingPolicy}
+            roles={roles}
           />
         ) : null}
         {char.ctype !== 'merchant' ? (

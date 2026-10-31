@@ -117,6 +117,10 @@ export type PartyState = {
   withdrawals?: Record<string, Withdrawal[]>;
   leader?: string | null;
   designatedTank?: string | null;
+  /** The party member that takes the designated tank's attackers while it is in danger. */
+  offTank?: string | null;
+  /** The longest-range member pulls one monster at a time to a waiting spot. */
+  pullMode?: boolean;
   /** Saved gear sets per character (luck/tank; gold reserved). */
   gearSets?: Record<string, Partial<Record<"luck" | "tank" | "gold" | "fan", { slots: Record<string, { name: string; level?: number; p?: string; stat_type?: string }>; savedAt: number; elixir?: string | null }>>>;
   followers?: Record<string, boolean>;

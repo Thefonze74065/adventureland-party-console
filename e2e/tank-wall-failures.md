@@ -14,3 +14,10 @@ the designated tank". Live journey: `e2e/live-tank-wall.spec.ts`.
    checks the normal approach uses.
 4. **Open ground changed.** With a clear straight line, the tank still steps in and
    holds as before (`live-tank-formation-hold.spec.ts`).
+
+## 2026-10-25 replacement
+
+`tankMovementTick` is gone: the tank takes the ordinary approach of every fighter and holds by not kiting its own target (`tankHoldsTarget` in
+`characters/shared.js`). Item 2 now reads "never holds its target in its own attack
+range"; item 4 reads "holds in range as before". The journey checks `is_in_range` and a
+mode other than kiting or escaping, not `tank-holding` within 100 units.

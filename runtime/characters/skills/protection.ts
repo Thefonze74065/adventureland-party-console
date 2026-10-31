@@ -10,8 +10,9 @@ export function absorbDecision(w: SkillWorld): SkillDecision | null {
   // priest standing in the boss's adds dies to them within seconds of absorbing.
   if (w.context.bossRoutine && w.context.bossRoutine !== 'tank') return null;
   if (w.actor.mp - cost(w, 'absorb') < cost(w, 'heal')) return null;
+  // An off-tank takeover absorbs even when the transfer is unsafe for this priest.
   const ally = w.context.allies.filter(a => a.name !== w.actor.name &&
-    w.context.monsters.some(m => m.target === a.name) && safeTransfer(w, a))
+    w.context.monsters.some(m => m.target === a.name) && (w.context.takeover || safeTransfer(w, a)))
     .sort((a, b) => health(a) - health(b) || a.name.localeCompare(b.name))
     .find(a => w.range(a, 'absorb'));
   return ally ? decision('absorb', [ally], 'survival', 'leader aggro rescue') : null;

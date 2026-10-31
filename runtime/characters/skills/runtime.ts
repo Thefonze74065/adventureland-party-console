@@ -4,6 +4,7 @@ import { createSkillEngine } from './engine.ts';
 import { decision, type Actor, type Combatant, type CombatContext, type SkillDefinition, type SkillDecision, type SkillId, type SkillWorld } from './types.ts';
 import { damage, endangered, incomingDps } from './damage.ts';
 import { createProjectileTracker } from './projectiles.ts';
+import { effectiveTank, offTankActive } from './tank-handoff.ts';
 
 interface Host {
   damage_multiplier?(this: void, defense: number): number;
@@ -27,6 +28,8 @@ export function installSkillRuntime(root: CombatRoot) {
   const host = parent as unknown as Host;
   const shared = root.sharedRoutine;
   const projectiles = createProjectileTracker(world);
+  // The off-tank handoff keeps its answer between worlds so its thresholds can hold.
+  let handoff = false, handoffTank: { at: number; name: string | null } | null = null;
   function world(): SkillWorld {
     // Normalize the local skill world, never mutate the native player object.
     // Offensive skill definitions retain their own damage_type precedence.
@@ -41,7 +44,10 @@ export function installSkillRuntime(root: CombatRoot) {
         leader: '', tank: null, allies: [], monsters: [], mode: 'blocked', event: null, observedAt: 0,
       };
       if (host.is_disabled?.(actor)) built.mode = 'blocked';
-      return built;
+      // Copy result's descriptors so reading the view's context cannot re-enter build().
+      const view = Object.defineProperties({}, { ...Object.getOwnPropertyDescriptors(result), context: { value: built } }) as SkillWorld;
+      handoff = offTankActive(view, handoff);
+      return effectiveTank(built, handoff, actor.name);
     };
     const skills: Partial<Record<SkillId, SkillDefinition>> = G.skills;
     const result: SkillWorld = {
@@ -57,6 +63,7 @@ export function installSkillRuntime(root: CombatRoot) {
       incoming: t => projectiles.incoming(t.id, Date.now()),
       range: (t, id) => skillRange(actor, t, skills[id], id),
       allowed: (t, id) => authorized(result, t, id),
+      monster: mtype => (G.monsters as Record<string, { aggro?: number; rage?: number } | undefined>)[mtype],
     };
     return result;
   }
@@ -126,6 +133,11 @@ export function installSkillRuntime(root: CombatRoot) {
     diagnostic: d => { if (root.partyCombatState) root.partyCombatState.skill = d; },
   });
   shared.skillSupport = () => engine.support();
+  // Movement asks several times a tick; one world per 250 ms answers them all.
+  shared.aggroTank = () => {
+    if (!handoffTank || Date.now() - handoffTank.at >= 250) handoffTank = { at: Date.now(), name: world().context.tank };
+    return handoffTank.name;
+  };
   shared.skillOffense = t => engine.offense(t);
   shared.absorbLeaderAggro = () => engine.absorb();
   shared.fanOfKnivesFarming = () => engine.fanFarming();

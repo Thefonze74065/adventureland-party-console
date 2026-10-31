@@ -24,12 +24,16 @@ export type Spending = 'survival' | 'maintenance' | 'damage';
 export interface CombatContext {
   leader: string;
   tank: string | null;
+  /** The party member that takes the main tank's attackers while it is in danger. */
+  offTank?: string | null;
   allies: Combatant[];
   monsters: Combatant[];
   mode: 'grouped' | 'scatter' | 'event' | 'blocked';
   event: string | null;
   /** This character's routine for the active boss encounter (Franky), or null outside one. */
   bossRoutine?: string | null;
+  /** True while this character is the off tank taking the main tank's attackers. */
+  takeover?: boolean;
   observedAt: number;
 }
 export interface SkillDecision {
@@ -55,6 +59,8 @@ export interface SkillWorld {
   allowed(target: Combatant, skill: SkillId): boolean;
   incoming(target: Combatant): number;
   damageMultiplier(defense: number): number;
+  /** The G.monsters aggro fields for a monster type. */
+  monster?(mtype: string): { aggro?: number; rage?: number } | undefined;
 }
 export const health = (actor: Pick<Actor, 'hp' | 'max_hp'>) => actor.hp / Math.max(1, actor.max_hp);
 export const decision = (skill: SkillId, targets: Combatant[] = [], category: Spending = 'damage', reason: string = skill): SkillDecision =>

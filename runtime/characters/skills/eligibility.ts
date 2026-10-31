@@ -1,5 +1,6 @@
 import type { Combatant, SkillWorld, SkillId, SkillDefinition, SkillDecision } from './types.ts';
 import { damage, incomingDps } from './damage.ts';
+import { areaPullAllowed, areaPulls } from './aggro-pull.ts';
 
 export function cost(w: SkillWorld, id: SkillId): number {
   const mp = id === 'heal' ? w.actor.mp_cost : w.skills[id]?.mp;
@@ -93,11 +94,18 @@ function safePull(w: SkillWorld, d: SkillDecision): boolean {
 }
 export function blocked(w: SkillWorld, d: SkillDecision, pending = 0): string | null {
   if (w.context.mode === 'blocked' || w.actor.rip) return 'combat activity blocked';
-  if (!ownsAggro(w, d)) return 'leader owns aggro transfers';
+  const aggro = aggroBlock(w, d);
+  if (aggro) return aggro;
   if (!unlocked(w, d.skill)) return 'level, equipment, or requirements';
   const s = w.skills[d.skill]!;
   if (w.cooldown(d.skill) || w.cooldown(s.share || d.skill)) return 'cooldown';
   return manaBlock(w, d, pending) || targetBlock(w, d);
+}
+function aggroBlock(w: SkillWorld, d: SkillDecision): string | null {
+  if (!ownsAggro(w, d)) return 'leader owns aggro transfers';
+  if (areaPulls.has(d.skill) && !areaPullAllowed(w, w.context.monsters.filter(m => w.range(m, d.skill))))
+    return 'area pull of monsters that would stay idle';
+  return null;
 }
 function ownsAggro(w: SkillWorld, d: SkillDecision): boolean {
   return !['absorb', 'taunt', 'agitate'].includes(d.skill) || (w.context.tank || w.context.leader) === w.actor.name;

@@ -356,7 +356,8 @@ export const test = base.extend<{ live: LiveGame; occupyCoordinatorPort:boolean;
         expect(stats.speed).toBeGreaterThan(0);
         const followStaff=loadout==='combat-follow-range'&&(stats.type==='priest'||stats.type==='mage');
         const weaponLevel=followStaff?(stats.type==='priest'?12:15):loadouts[loadout].weaponLevel;
-        expect(stats.slots.mainhand.level, `${loadout} ${stats.name} native weapon`).toBe(weaponLevel);
+        // live-party seeds each class its own weapon level (e2e/game/loadouts.ts livePartyGear).
+        if(loadout!=='live-party')expect(stats.slots.mainhand.level, `${loadout} ${stats.name} native weapon`).toBe(weaponLevel);
         if(followStaff)expect(stats.slots.mainhand.name, `${loadout} ${stats.name} native staff`).toBe('staff');
         for (const [slot, equipped] of Object.entries(loadouts[loadout].armor))
           expect(stats.slots[slot], `${loadout} ${stats.name} native ${slot}`).toMatchObject(equipped);

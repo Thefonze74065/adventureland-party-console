@@ -36,3 +36,14 @@ test('formation preserves inherited event restrictions and independent merchant 
  assert.deepEqual(t.state.eventSelectionsByCharacter.M,['anniversary']);
  t.send('formation',{character:'L',events:true});assert.deepEqual(t.state.eventSelectionsByCharacter.L,['anniversary','franky']);
 });
+test('formation sets and clears the off tank beside the tank, rejecting unknown names',()=>{
+ const t=fixture();const r=t.send('formation',{tank:'L',offTank:'F'});
+ assert.equal(t.state.designatedTank,'L');assert.equal(t.state.offTank,'F');assert.equal(r.body.offTank,'F');
+ assert.equal(t.send('formation',{offTank:'Nobody'}).code,400);assert.equal(t.state.offTank,'F');
+ t.send('formation',{offTank:null});assert.equal(t.state.offTank,null);assert.equal(t.state.designatedTank,'L');
+});
+test('formation turns pull mode on and off and rejects a non-boolean',()=>{
+ const t=fixture();assert.equal(t.send('formation',{pullMode:true}).body.pullMode,true);assert.equal(t.state.pullMode,true);
+ assert.equal(t.send('formation',{pullMode:'yes'}).code,400);assert.equal(t.state.pullMode,true);
+ t.send('formation',{pullMode:false});assert.equal(t.state.pullMode,false);
+});

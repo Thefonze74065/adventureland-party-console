@@ -8,7 +8,7 @@ const M = 'E2EBankBoi';
 test.use({ loadout: 'combat-range', extraFighter: 'mage' });
 
 for (const tank of [W, P]) {
-  test(`${tank === W ? 'a warrior' : 'a priest'} tank holds melee range inside a priest formation`, async ({ live }, info) => {
+  test(`${tank === W ? 'a warrior' : 'a priest'} tank holds its target inside a priest formation`, async ({ live }, info) => {
     test.setTimeout(300_000);
     const samples: any[] = [];
     try {
@@ -42,10 +42,9 @@ for (const tank of [W, P]) {
       // Natural goos share the farm, so measure each fighter against its own selected target.
       const engaged = samples.filter(s => s.tank.target != null);
       expect(engaged.length, 'The party must be fighting').toBeGreaterThan(20);
-      // 1, 2: the tank holds in melee for most of the fight.
-      const holding = engaged.filter(s => s.tank.mode === 'tank-holding');
+      // 1, 2: the tank holds for most of the fight: its target in its own range, not kiting.
+      const holding = engaged.filter(s => s.tank.ownInRange && !['kiting', 'escaping'].includes(s.tank.mode));
       expect(holding.length, 'The tank must hold for most of the fight').toBeGreaterThan(engaged.length / 2);
-      expect(Math.max(...holding.map(s => s.tank.ownDistance)), 'Holding means melee range').toBeLessThanOrEqual(100);
       // 3: the mage reaches range of its target.
       expect(engaged.filter(s => s.mage.ownInRange).length, 'The mage must spend most of the fight in range').toBeGreaterThan(engaged.length / 2);
     } finally {

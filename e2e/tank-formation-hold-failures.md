@@ -14,3 +14,12 @@ role runner calls `formationMove`, `kiteIfNeeded` and `defensiveFormationMove` b
    range, the tank keeps holding instead of moving with the formation. Not exercised live;
    the retained `priest-formation` cases cover it.
 5. **Other fighters changed.** A non-tank warrior stops moving with the formation.
+
+## 2026-10-25 replacement
+
+The tank no longer walks to 35 units of its target. It leaves the formation for the
+ordinary approach to its own attack range, so it stops outside a pack of idle monsters, and holds by not kiting its
+own target until its HP drops below half (it holds again above 80%). Item 1 now reads
+"the tank kites its own target"; item 2 is dropped (a priest tank holds at its healing
+range); item 4 is covered by the `tankHoldsTarget` cases in `priest-formation.test.cjs`.
+The journey counts samples with the target in range and no kiting.

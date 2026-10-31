@@ -723,15 +723,27 @@ test('native healable terminal outside existing formation readiness is rejected'
  assert.equal(r.c.terrainRecoveryFollowerTerminal({x:0,y:0},{x:200,y:0}),false,'Center readiness cannot be waived by native healing alone');
 });
 
-test('designated tank: the priest formation leaves its movement to tankMovementTick',()=>{
- const r=setup();r.c.tank=null;
- assert.equal(r.c.formationMove(r.monster),true);assert.ok(r.moves.length>0,'a non-tank warrior orbits in formation');
+test('designated tank: a holding tank leaves the priest formation for its own approach',()=>{
+ for(const tank of [null,'P']){
+  const r=setup();r.c.tank=tank;
+  assert.equal(r.c.formationMove(r.monster),true,'tank '+tank);assert.ok(r.moves.length>0,'the warrior orbits in formation with tank '+tank);
+ }
  const q=setup();q.c.tank='W';
  assert.equal(q.c.formationMove(q.monster),false);assert.equal(q.moves.length,0);
- q.c.tank='P';assert.equal(q.c.formationMove(q.monster),true,'another tank leaves this warrior in formation');
+ q.c.can_move=()=>false;assert.equal(q.c.formationMove(q.monster),true,'terrain between tank and target leaves it to the formation');
+ q.c.can_move=()=>true;q.moves.length=0;assert.equal(q.c.formationMove(q.monster),false);
+ q.warrior.hp=40;assert.equal(q.c.formationMove(q.monster),true,'a released tank moves with the formation');
 });
 
-test('designated tank: does not kite its own target but still kites another attacker',async()=>{
+test('designated tank: approaches with ordinary combat range, never a melee walk into the pack',()=>{
+ // The priest tank stands 186 units from a goo inside its 196 range: holding there is the hold.
+ const p=setup(true);p.c.tank='P';p.c.bossCombatActive=()=>false;
+ p.c.approachCombatTarget(p.monster);
+ assert.ok(!/^tank-/.test(p.c.partyCombatPosition?.mode||''),'no tank-only movement mode');
+ assert.ok(p.moves.every(m=>Math.hypot(m.x-p.monster.x,m.y-p.monster.y)>=150),'the priest tank keeps its native range');
+});
+
+test('designated tank: holds its own target instead of kiting it, and still kites another attacker',async()=>{
  const r=setup();r.c.tank='W';r.c.bossCombatActive=()=>false;r.c.returnCombatActive=()=>false;
  assert.equal(await r.c.kiteIfNeeded(r.monster),false);assert.equal(r.moves.length,0);
  r.monster.target=null;r.entities.B={id:'B',type:'monster',mtype:'goo',map:'main',x:150,y:20,range:20,target:'W',visible:true};
@@ -740,29 +752,63 @@ test('designated tank: does not kite its own target but still kites another atta
  assert.equal(await n.c.kiteIfNeeded(n.monster),true,'a non-tank still kites its own attacker');
 });
 
-test('designated tank: approaches to melee range and skips the no-target defensive evade',()=>{
+test('designated tank: releases the hold below half HP and takes it back above 80%',async()=>{
+ const r=setup();r.c.tank='W';r.c.bossCombatActive=()=>false;r.c.returnCombatActive=()=>false;
+ assert.equal(r.c.tankHoldsTarget(),true);
+ r.warrior.hp=40;assert.equal(r.c.tankHoldsTarget(),false,'low HP releases the hold');
+ assert.equal(await r.c.kiteIfNeeded(r.monster),true,'a released tank kites like any fighter');
+ r.warrior.hp=70;assert.equal(r.c.tankHoldsTarget(),false,'between the thresholds the release stays');
+ r.warrior.hp=85;assert.equal(r.c.tankHoldsTarget(),true,'above 80% the tank holds again');
+ r.warrior.hp=60;assert.equal(r.c.tankHoldsTarget(),true,'between the thresholds the hold stays');
+ r.c.tank='P';assert.equal(r.c.tankHoldsTarget(),false,'only the designated tank holds');
+});
+
+test('designated tank: a holding tank skips the no-target defensive evade',()=>{
  const r=setup();r.c.tank='W';r.warrior.x=100;r.c.bossCombatActive=()=>false;
- r.c.approachCombatTarget(r.monster);assert.equal(r.c.partyCombatPosition.mode,'tank-approaching');
- assert.ok(r.moves.at(-1).x>100);
  r.c.formationMove=()=>{throw Error('full formation solver without target');};
  let evades=0;r.c.kiteIfNeeded=async()=>{evades++;};
  const start=source.indexOf('    defensiveFormationMove: function () {');
  const end=source.indexOf('    pollFarmingCombatHandoff:',start);
  vm.runInContext('var defense = {'+source.slice(start,end)+'};',r.c);
- assert.equal(r.c.defense.defensiveFormationMove(),false);assert.equal(evades,0);
  r.warrior.x=170;assert.equal(r.c.defense.defensiveFormationMove(),false,'tank stays put when the attacker is close');
+ assert.equal(evades,0);
  r.c.tank=null;assert.equal(r.c.defense.defensiveFormationMove(),true);assert.equal(evades,1);
 });
 
-test('designated tank: stops holding below half HP or outside the priest heal range',()=>{
- const r=setup();r.c.tank='W';
- assert.equal(r.c.designatedTankHolds(),true);
- r.warrior.hp=40;assert.equal(r.c.designatedTankHolds(),false,'low HP');
- assert.equal(r.c.formationMove(r.monster),true,'formation moves a low-HP tank');
- const q=setup();q.c.tank='W';Object.assign(q.warrior,{x:260});Object.assign(q.monster,{x:288});
- assert.equal(q.c.designatedTankHolds(),false,'priest out of heal range');
- const n=setup();n.c.tank='W';n.c.currentPartyList=()=>['W'];n.c.partyPositions=[n.warrior];
- assert.equal(n.c.designatedTankHolds(),true,'no priest in the party');
+test('off tank: holds while the handoff names it and releases the main tank',async()=>{
+ const r=setup();r.c.tank='P';r.c.offTank='W';r.c.bossCombatActive=()=>false;r.c.returnCombatActive=()=>false;
+ r.c.sharedRoutine={aggroTank:()=>'W'};
+ assert.equal(r.c.tankHoldsTarget(),true,'the off tank holds during a takeover');
+ assert.equal(await r.c.kiteIfNeeded(r.monster),false,'and does not kite its target');
+ r.c.sharedRoutine={aggroTank:()=>'P'};
+ assert.equal(r.c.tankHoldsTarget(),false,'after the handoff back the off tank is a damage dealer');
+ const m=setup(true);m.c.tank='P';m.c.offTank='W';m.c.sharedRoutine={aggroTank:()=>'W'};
+ assert.equal(m.c.tankHoldsTarget(),false,'a released main tank kites and recovers');
+});
+
+test('pull mode: the party waits at its spot while the pulled monster walks in',()=>{
+ const r=setup();r.c.pullMode=true;r.c.partyPulling=require('../../runtime/combat/pulling.ts');r.c.joinedEvent=null;r.c.eventTraveling=false;
+ r.c.movement={move:async()=>{},tick:()=>{}};r.c.resetCombatMovement=()=>{};Object.assign(r.warrior,{real_x:158,real_y:0});
+ r.c.pullState.spot={x:158,y:0};Object.assign(r.monster,{x:600,y:0,target:'P'});
+ assert.equal(r.c.formationMove(r.monster),true,'the far pulled goo leaves the warrior at the spot');
+ assert.equal(r.c.partyCombatPosition.mode,'pull-waiting');
+ r.monster.x=200;assert.equal(r.c.pullHoldsForArrival(r.monster),false,'once it is close the fight starts');
+ r.c.pullMode=false;r.monster.x=600;assert.equal(r.c.pullHoldsForArrival(r.monster),false,'pull mode off');
+});
+
+// 2026-10-25 00:18 UTC: a live priest tank fought while its warrior and mage stood still.
+// The damage dealers' gate is Ryan's grouped one: they attack the tank's target once the
+// party engages it, whichever class the tank is.
+for(const tank of ['W','P','M'])test(`designated tank: damage dealers may attack a ${tank} tank's target`,()=>{
+ const self=tank==='W'?'P':'W';
+ const r=setup(self==='P');r.c.tank=tank;r.monster.target=tank;
+ r.c.currentPartyList=()=>['W','P','M'];
+ r.c.partyPositions=[...r.c.partyPositions,{name:'M',ctype:'mage',map:'main',x:20,y:0,seenAt:10000,server:'USII'}];
+ for(const state of ['planned','engaged']){
+  r.c.groupedCombat={protocol:4,key:'["runtime"]',leader:'W',members:['W','P','M'],seenAt:10000,selection:'A',
+   committed:true,priest:'P',target:{...r.monster,server:'USII',state},fights:state==='engaged'?[r.monster]:[]};
+  assert.equal(r.c.groupedAttackAllowed(r.monster),true,state+' target held by the '+tank+' tank');
+ }
 });
 
 test('ordinary committed warrior movement intercepts transverse native motion instead of chasing its current center',()=>{

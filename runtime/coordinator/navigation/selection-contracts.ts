@@ -13,6 +13,8 @@ export interface SavedPartySelection {
   location?: ReturnLocation | null;
   leader?: string | null;
   designatedTank?: string | null;
+  offTank?: string | null;
+  pullMode?: boolean;
   gearSets?: import("../characters/gear-sets.ts").GearSets;
   followers?: Record<string, boolean> | null;
   eventsByCharacter?: Record<string, boolean> | null;

@@ -203,3 +203,27 @@ test('composition selects a usable priest deterministically, otherwise permits l
  members[3].status.hp=100;assert.equal(healingAnchor(members,10000,'P2').name,'P2');
  assert.equal(healingAnchor(members,20000),undefined);
 });
+// The designated tank's aggro rules. G.monsters values from game version 18183.
+const aggroDefs={mummy:{aggro:1.5,rage:1.5},targetron:{aggro:0.1,rage:0},sparkbot:{aggro:0.1,rage:0}};
+function tankWorld(){
+ const r=fixture('warrior');r.w.skills.agitate={name:'agitate',class:['warrior'],type:'skill',mp:0};
+ r.w.context.tank='Hero';r.w.context.leader='Lead';r.w.context.mode='grouped';r.w.monster=mtype=>aggroDefs[mtype];
+ return r;
+}
+test('Agitate is allowed on a mummy pack, which comes anyway',()=>{
+ const r=tankWorld();for(const id of ['a','b','c'])r.add(id,{mtype:'mummy',target:null});
+ assert.equal(blocked(r.w,decision('agitate',[],'survival')),null);
+});
+test('Agitate is never cast on an idle targetron or sparkbot pack',()=>{
+ const r=tankWorld();r.add('a',{mtype:'targetron',target:null});r.add('b',{mtype:'sparkbot',target:null});r.add('c',{mtype:'mummy',target:null});
+ assert.equal(blocked(r.w,decision('agitate',[],'survival')),'area pull of monsters that would stay idle');
+});
+test('Agitate is allowed when a monster is on a party member other than the tank',()=>{
+ const r=tankWorld();r.ally('Mage',{ctype:'mage'});r.add('a',{mtype:'targetron',target:'Mage'});r.add('b',{mtype:'targetron',target:null});
+ assert.equal(blocked(r.w,decision('agitate',[],'survival')),null);
+});
+test('A monster on the mage is a single-taunt peel for the tank',()=>{
+ const r=tankWorld();r.ally('Mage',{ctype:'mage'});const t=r.add('a',{mtype:'targetron',target:'Mage'});
+ assert.equal(blocked(r.w,decision('taunt',[t],'survival')),null);
+ r.w.context.tank='Other';assert.equal(blocked(r.w,decision('taunt',[t],'survival')),'leader owns aggro transfers');
+});

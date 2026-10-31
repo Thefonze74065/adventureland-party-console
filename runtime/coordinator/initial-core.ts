@@ -16,11 +16,14 @@ export function initialRecoveryState(saved: SavedRecoveryState) {
     groupedCombatResetAt: saved.groupedCombatResetAt || 0,
   };
 }
+function initialTankRoles(saved: SavedPartySelection) {
+  return { designatedTank: saved.designatedTank || null, offTank: saved.offTank || null, pullMode: saved.pullMode === true };
+}
 export function initialPartySelection(saved: SavedPartySelection) {
   return {
     location: saved.location || null,
     leader: saved.leader || null,
-    designatedTank: saved.designatedTank || null,
+    ...initialTankRoles(saved),
     gearSets: saved.gearSets || {},
     followers: saved.followers || {},
     eventsByCharacter: saved.eventsByCharacter || {},

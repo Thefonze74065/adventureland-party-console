@@ -3,12 +3,10 @@ import { warrior as R, location } from './game/hunt-lifecycle';
 
 test.use({ primaryClass: 'ranger' });
 
-// Issue #39 adds a per-party tank designation, independent of class. A ranger's own
-// weapon range is long, so a designated ranger tank closing to near-melee distance
-// against a live target (rather than holding at its own attack range like ordinary
-// combat) is the real proof that tankMovementTick's class-agnostic melee-stack clamp
-// is wired end to end, not just that a warrior happens to already fight in melee.
-test('designated tank persists through restart, renders in the dashboard, and holds melee range for a ranged class', async ({ page, live }, info) => {
+// Issue #39 adds a per-party tank designation, independent of class. Since 2026-10-25 the
+// tank keeps its own attack range and holds by not kiting its target, so a ranger tank
+// stays at long range instead of walking into the pack (tankHoldsTarget in shared.js).
+test('designated tank persists through restart, renders in the dashboard, and holds its own range for a ranged class', async ({ page, live }, info) => {
   test.setTimeout(240_000);
   try {
     expect(await live.clients[R].run('character.ctype')).toBe('ranger');
@@ -16,13 +14,19 @@ test('designated tank persists through restart, renders in the dashboard, and ho
     await expect.poll(async () => (await live.state()).designatedTank).toBe(R);
 
     await page.goto(live.url);
-    const tankLabel = page.locator('label').filter({ hasText: 'Tank' });
+    // The Tank picker sits in the dialog each card's Farming settings gear button opens.
+    const card = page.locator('article').filter({ has: page.getByRole('heading', { name: R, exact: true }) });
+    const settings = card.getByRole('button', { name: 'Farming settings', exact: true });
+    const tankLabel = page.getByRole('dialog', { name: /^Farming settings/ }).getByRole('group', { name: 'Party roles' })
+      .locator('label').filter({ hasText: /^Tank/ });
+    await settings.click();
     await expect(tankLabel).toContainText(R);
     await info.attach('tank-dashboard-before-restart', { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
 
     await live.restartCoordinator();
     await expect.poll(async () => (await live.state()).designatedTank).toBe(R);
     await page.reload();
+    await settings.click();
     await expect(tankLabel).toContainText(R);
 
     await live.post('/farming-mode', { character: R, mode: 'default' });
@@ -30,28 +34,17 @@ test('designated tank persists through restart, renders in the dashboard, and ho
     const destination = await location(live);
     await live.post('/travel', destination);
 
-    // "tank-approaching" fires the instant a move command is issued, well before arrival;
-    // wait specifically for "tank-holding" so the distance check below reflects having
-    // actually closed to melee range, not an in-flight walk toward a still-distant target.
-    // Read the mode and the distance in one evaluation: a moving target can send the tank
-    // back to tank-approaching between two separate reads, measuring an in-flight chase.
-    let engaged: { isTank: boolean; range: number; mode: string | null; distance: number | null } | undefined;
+    // Read the mode and the distance in one evaluation: a moving goo changes both.
+    let engaged: { isTank: boolean; range: number; mode: string | null; inRange: boolean; distance: number | null } | undefined;
     await expect.poll(async () => {
       engaged = await live.clients[R].run(
         `(() => { const p = globalThis.partyCombatPosition, e = p?.target && get_entity(p.target);
-          return {isTank: !!sharedRoutine.isTank?.(), range: character.range, mode: p?.mode || null,
+          return {isTank: !!sharedRoutine.isTank?.(), range: character.range, mode: p?.mode || null, inRange: !!(e && is_in_range(e)),
             distance: e ? Math.hypot(character.x - e.x, character.y - e.y) : null}; })()`,
       );
-      return engaged!.isTank && engaged!.mode;
-    }, { timeout: 120_000, intervals: [500, 1000], message: 'The designated ranger tank must reach tank-holding once in melee range' }).toBe('tank-holding');
-    await info.attach('tank-melee-override', { body: JSON.stringify(engaged), contentType: 'application/json' });
-    expect(engaged!.distance).not.toBeNull();
-    // tankMovementTick holds at a near-melee clamp (desiredCombatRange() capped to 30), but
-    // combatDistance() is hitbox-adjusted while this raw center-to-center hypot is not, so the
-    // bound here is deliberately generous — the point is "near melee," not an exact number.
-    // A ranger's own range (869 in this live run) makes the contrast unmistakable either way.
-    expect(engaged!.distance).toBeLessThanOrEqual(100);
-    expect(engaged!.distance).toBeLessThan(engaged!.range / 2);
+      return engaged!.isTank && engaged!.inRange && !['kiting', 'escaping'].includes(engaged!.mode || '');
+    }, { timeout: 120_000, intervals: [500, 1000], message: 'The designated ranger tank must hold its target in range without kiting' }).toBe(true);
+    await info.attach('tank-range-hold', { body: JSON.stringify(engaged), contentType: 'application/json' });
   } finally {
     await page.close();
   }

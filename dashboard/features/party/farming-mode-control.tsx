@@ -24,6 +24,7 @@ import {HuntSettingsControl} from "./hunt-settings-control";
 import { HuntSpawnSettings } from './hunt-spawn-settings';
 import { huntBlacklistLabel } from './hunt-blacklist-label';
 import { HuntBlacklistPicker } from './hunt-blacklist-picker';
+import { PartyRolesSettings, type PartyRoles } from "./party-roles-settings";
 
 export const FarmingModeControl = memo(function FarmingModeControl({
   policy, followingLeader, effectivePolicy = policy, settingsOwner,
@@ -39,7 +40,10 @@ export const FarmingModeControl = memo(function FarmingModeControl({
   onRareChange,
   radius, onRadiusSave, radiusContext, farmArea,
   settingsOpen, onSettingsOpenChange: setSettingsOpen,
+  roles,
 }: {
+  /** Party-wide tank roles, shown at the top of the settings dialog. */
+  roles?: PartyRoles;
   settingsOpen: boolean;
   onSettingsOpenChange: (open: boolean) => void;
   farmArea?: PartyState["farmAreaState"];
@@ -150,6 +154,7 @@ export const FarmingModeControl = memo(function FarmingModeControl({
               Configure Hunt relocation and automatic blacklisting. Blacklisted quests are skipped until you clear the entry. Normal farming selections are unaffected.
             </DialogDescription>
           </DialogHeader>
+          {roles && <PartyRolesSettings roles={roles} />}
           <fieldset disabled={inherited} aria-describedby={inherited ? followDescription : undefined}>
           <HuntSettingsControl value={huntSettings} onSave={inherited ? undefined : onHuntSettingsSave}/>
           </fieldset>

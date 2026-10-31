@@ -1,3 +1,4 @@
+import * as pulling from '../../combat/pulling.ts';
 import {passiveStopRequired} from '../../combat/passive-travel.ts';
 import {installCombatTrace} from "../../combat/trace.ts";
 import {createEntityRefresh} from "../../combat/entity-refresh.ts";
@@ -50,6 +51,7 @@ export function installRoleRunner(
     },
     report: diagnostic => { root.partyCombatState.entityRefresh = diagnostic; },
   });
+  root.partyPulling = pulling;
   const queueClient=typeof sharedRoutine!=='undefined' && (sharedRoutine as any).queueReport ? installQueueClient(root,sharedRoutine) : null;
   const queueMarkers=typeof sharedRoutine!=='undefined' && (sharedRoutine as any).queueMarkers ? installQueueMarkers(root,sharedRoutine) : null;
   const trace=typeof sharedRoutine!=='undefined' && (sharedRoutine as any).combatTraceSnapshot?installCombatTrace(root,sharedRoutine):null;
