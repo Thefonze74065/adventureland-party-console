@@ -54,6 +54,6 @@ catch (error) {
 }
 await dependencies(path.join(root, '.caracal'));
 run(process.execPath, ['tools/hosting/install-caddy.mts']);
-console.log('Starting the active Party Console candidate. Initial setup builds one complete candidate; later source builds require the title refresh action.');
+console.log('Starting Party Console with the newest completed candidate. Builds completed while running stay staged until loaded or the next startup.');
 console.log('Open a Dashboard address printed below to connect your account. Leave this terminal open; Ctrl+C stops the console.');
 await import('./start.mts');

@@ -28,7 +28,9 @@ function rememberAutomaticContinuation(state:State,body:Record<string,unknown>,a
     return entry.passId === mark.passId || entry.slot === mark.slot && entry.auto === true &&
       sameMarkedItem(requestObject(entry.item), item);
   });
-  const saved = {...mark, auto:true};
+  // The request's slot is the actual input to this roll. A command can still
+  // carry the previous checkpoint's liveSlot after native inventory relocation.
+  const saved = {...mark, auto:true, liveSlot:mark.slot, liveItem:live};
   if (existing < 0) list.push(saved);
   else list[existing] = saved;
 }

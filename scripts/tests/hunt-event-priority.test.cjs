@@ -5,7 +5,7 @@ const permissionCode = source.slice(source.indexOf('  async function eventTravel
 const pollCode = source.slice(source.indexOf('  async function joinCombatEvent('), source.indexOf('  function reunionRealm('));
 function fixture() {
   const actions = [];
-  const r = vm.createContext({ character: { name: 'Mage', ctype: 'mage', map: 'main' },
+  const r = vm.createContext({ lastDeathInfo:null,eventPrizeSpaceAvailable:()=>true,character: { name: 'Mage', ctype: 'mage', map: 'main' },
     eventSelected: () => true, eventSelectionRevision: 0, travellingEventName: null,
     huntTurnInPriority: false, convoyTraveling: null, runtimeCurrent: () => true, navigationIntent:{revision:0},
     request: async () => ({ allowed: true }), escapeOwns: () => false,
@@ -89,7 +89,7 @@ test('event travel rechecks priority after joining and resumes normally once rel
 test('coordinator outage denies event movement without interfering with merchant work', async () => {
   const { r } = fixture(); r.request = async () => { throw new Error('offline'); };
   assert.equal(await r.eventTravelAllowed(), false);
-  r.character.ctype = 'merchant'; assert.equal(await r.eventTravelAllowed(), true);
+  r.character.ctype = 'merchant'; assert.equal(await r.eventTravelAllowed(), false);
 });
 test('anniversary preemption denial cannot stop the active hunt route', async () => {
   const { r, actions } = fixture();

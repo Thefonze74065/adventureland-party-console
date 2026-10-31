@@ -1,5 +1,14 @@
 # Immutable console activation runtime
 
+Startup freezes the newest completed artifact available at launch, imports that
+host implementation, recovers interrupted deployment work, then deploys the frozen
+selection through the normal controller. Builds completed later remain staged.
+Validate `console startup` journeys in `console-build-host.spec.ts`: inspect actual
+dashboard content and coordinator identities, completed and failed journals,
+preserved account state, no-op startup, deferred builds on the next launch, host
+module selection, corrupt-artifact rejection and readiness rollback. Owned fixture
+processes stop before retained ledgers are attached and their workspaces removed.
+
 Failure inventory before implementation: installed launchers can accidentally load
 checkout bundles instead of the selected artifact; immutable code can accidentally
 write configuration into the artifact; starting a process can be mistaken for API

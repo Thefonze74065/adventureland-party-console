@@ -28,6 +28,13 @@ for(const mode of ['stored','buy','craft'] as const) test(`elixir restock ${mode
     }
     if(mode==='buy') {
       await expect.poll(async()=>(await live.clients[target].snapshot()).items.filter((i:any)=>i?.name===item).reduce((n:number,i:any)=>n+(i.q||1),0),{timeout:180000}).toBe(2);
+      // A point inside scenery can pass a zero-length native collision check
+      // while remaining unreachable. Retried jobs must not conceal that fault
+      // behind eventual delivery from the merchant's already purchased stock.
+      const navigation=(await live.state()).combatLogs?.[merchant]?.filter((entry:any)=>entry.type==='navigation')||[];
+      await info.attach('elixir-native-acquisition-navigation',{body:JSON.stringify(navigation),contentType:'application/json'});
+      expect(navigation.filter((entry:any)=>entry.details?.failureContext?.code==='route-failed'),
+        'Ordinary elixir acquisition must use a reachable Winter Inn return route').toEqual([]);
       const unconsumed=await live.admin(`output=!!get_player('${target}').slots.elixir`);
       expect(unconsumed).toBe(false);
       await live.post('/restock',policy(item,false,true,max));
@@ -53,7 +60,9 @@ for(const mode of ['stored','buy','craft'] as const) test(`elixir restock ${mode
     await expect(equipped).toContainText(/\d+[hms]/);
     await info.attach('active-elixir-slot-and-status',{body:await card.screenshot(),contentType:'image/png'});
     if(mode==='buy') {
-      await live.admin(`output=(()=>{const p=get_player('${target}');if(p.items[20])throw Error('Potion fixture requires empty slot 20');p.items[20]={name:'hpot0',q:1};p.hp=Math.max(1,p.max_hp-300);cache_player_items(p);resend(p,'reopen+cid');return true;})()`);
+      // This checks a potion's native consumption cost, not recovery priority.
+      // Full pools avoid automatic regeneration repeatedly taking its cooldown.
+      await live.admin(`output=(()=>{const p=get_player('${target}');if(p.items[20])throw Error('Potion fixture requires empty slot 20');p.items[20]={name:'hpot0',q:1};p.hp=p.max_hp;p.mp=p.max_mp;cache_player_items(p);resend(p,'reopen+cid');return true;})()`);
       await expect.poll(async()=>(await live.clients[target].snapshot()).items[20]?.name).toBe('hpot0');
       await expect.poll(async()=>{
         const result=await live.clients[target].run(`(async()=>{if(!character.items[20])return {done:true};try{await consume(20);return {done:true};}catch(error){return {reason:error?.reason||error?.response||String(error)};}})()`);

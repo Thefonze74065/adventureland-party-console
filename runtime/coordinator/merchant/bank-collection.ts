@@ -21,10 +21,18 @@ export function markedBankSlots(state: BankCollectionState): number {
   return slots.size;
 }
 
-export function bankCollectionReason(state: BankCollectionState): 'withdrawals' | 'bank collection' | null {
+function automaticNpcRetrieval(state: BankCollectionState): boolean {
+  return state.merchantAutomations?.['auto npc sales'] !== false &&
+    (state.withdrawals?.[String(state.merchantCharacter)] || []).some(value =>
+      requestObject(value).autoNpcRuleKey && hasMarkedWithdrawals([value]));
+}
+
+export function bankCollectionReason(state: BankCollectionState): 'withdrawals' | 'bank collection' | 'auto npc withdrawals' | null {
   const count = markedBankSlots(state);
   if (!count) return null;
   if (state.merchantAutomations?.withdrawals !== false) return 'withdrawals';
+  // Auto NPC owns its bank prerequisite, even when ordinary retrieval is off.
+  if (automaticNpcRetrieval(state)) return 'auto npc withdrawals';
   return state.merchantAutomations?.['party collection'] !== false && count >= (state.itemCollectionThreshold ?? 10)
     ? 'bank collection' : null;
 }

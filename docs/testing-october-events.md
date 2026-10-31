@@ -144,3 +144,14 @@ The Horseman, its Jack-o Walker adds (`G.monsters.horseman.spawns`, at 75% and
 Bestiary shows "No static spawn recorded" for them; an add or wave monster is
 credited to the wrong event; a monster with an ordinary spawn, such as Goo or
 Ghost, gains an event label; every catalog entry grows by a field.
+
+## Cipher gathering transfer setup
+
+Hosted run 40993907627 passed native gathering and brewing but exposed an
+ambiguous transfer setup: ordinary party loot may award spores directly to the
+merchant, so merchant stock alone does not establish fighter delivery. Preserve
+the native transfer receipt assertion. Before rerunning, keep the merchant out
+of the native loot party and hold only its current Cipher entry during gathering;
+release entry at the actual native cutoff. The known recipe consumes gathered
+spores, requiring delivery before a successful brew. Native loot, travel,
+transfers, brewing, timestamps and the original assertions remain authoritative.

@@ -939,7 +939,13 @@ export function createRareHunting(input: unknown, hooks: Hooks) {
     // Converging fighters are apart on purpose; formation cannot select yet.
     if (!encounter || encounter.stage === "converge") return;
     if (lostClaim(encounter)) finish("Rare pursuit cancelled: claimed outside party", false, false);
-    if (encounter && released(encounter)) finish("Rare pursuit cancelled: selection released");
+    if (encounter && released(encounter)) {
+      // A late report from real travel can retire a newly selected rare before
+      // combat starts. Travel still wins, but is not evidence that this target
+      // is unreachable: allow the ordinary retry after the walk completes.
+      const travelling = combat.releasedForTravel(encounter.target, encounter.start);
+      finish(travelling ? "Rare pursuit yielded to travel" : "Rare pursuit cancelled: selection released", false, !travelling);
+    }
   }
   function acquireGrouped() {
     const current = combat.current();

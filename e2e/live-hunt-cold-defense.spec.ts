@@ -19,6 +19,7 @@ test('a lost native Hunt preparation response recovers cold defense, loot and th
   let deliveredDefense: any;
   let lastFullRequest: any;
   let dropped = 0;
+  let armedFullRequest: any;
   const intercept = async (route: Route) => {
     const request = route.request();
     if (deliveredDefense || request.method() !== 'POST' || request.postDataJSON()?.name !== W) return route.fallback();
@@ -49,9 +50,15 @@ test('a lost native Hunt preparation response recovers cold defense, loot and th
       return;
     }
     await route.fulfill({ response });
+    if (!convoyId && Object.prototype.hasOwnProperty.call(nativeRequest, 'convoyNavigation')) armedFullRequest = nativeRequest;
   };
   await context.route('**/party-api/status', intercept);
   try {
+    // A full heartbeat already in flight when route() is installed bypasses
+    // the interceptor. Let that serialized request finish before starting
+    // Hunt, then prove a fresh no-convoy heartbeat crossed the fault boundary.
+    await expect.poll(() => armedFullRequest?.convoyNavigation === null,
+      {timeout:30_000,message:'The cold-defense fault must own the next full heartbeat before Hunt starts'}).toBe(true);
     await beginHunt(live, setup);
     await expect.poll(() => dropped, { timeout: 45_000, message: 'A real Warrior preparation response must be dropped' }).toBeGreaterThan(0);
     await expect.poll(() => !!deliveredDefense, { timeout: 45_000, message: 'The same convoy must issue a genuine cold defending command' }).toBe(true);

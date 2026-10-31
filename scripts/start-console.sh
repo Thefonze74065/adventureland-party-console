@@ -20,11 +20,11 @@ if [[ $EUID -eq 0 ]]; then
 fi
 for command in node npm git tar flock; do
   if ! command -v "$command" >/dev/null 2>&1; then
-    echo "Missing prerequisite: $command. Install Node 22.18+, npm, Git, tar and util-linux (flock)." >&2
+    echo "Missing prerequisite: $command. Install Node 26.12.1+, npm, Git, tar and util-linux (flock)." >&2
     exit 1
   fi
 done
-node -e 'const [major,minor]=process.versions.node.split(".").map(Number); if(major<22||(major===22&&minor<18)){console.error("Node 22.18+ is required.");process.exit(1)} if(!["x64","arm64"].includes(process.arch)){console.error("A 64-bit x64 or arm64 Linux installation is required.");process.exit(1)}'
+node -e 'const [major,minor,patch]=process.versions.node.split(".").map(Number); if(major<26||(major===26&&(minor<12||(minor===12&&patch<1)))){console.error("Node 26.12.1+ is required.");process.exit(1)} if(!["x64","arm64"].includes(process.arch)){console.error("A 64-bit x64 or arm64 Linux installation is required.");process.exit(1)}'
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 mkdir -p .build

@@ -22,3 +22,12 @@ enabled state/realm afterward. A Steam-only incumbent must cause an explicit
 capacity error before attempting the visitor; preserve all Steam sessions.
 Existing native account-home coverage includes the second offline merchant and
 observes confirmed native homes plus restored active participants.
+
+# Home setting is independent of route planning
+
+The native `set_home` handler checks its cooldown and changes the current realm
+preference without requiring a map, coordinate or NPC. Do not walk to Main as a
+prerequisite: a planner outage otherwise fails a valid account-wide home change.
+Retain native mutation receipts and fresh/account database confirmation. The E2E
+rejects planning for the current home operation, requires no such dependency,
+and checks exactly one native mutation receipt per active native participant.

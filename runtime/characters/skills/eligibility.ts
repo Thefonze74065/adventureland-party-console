@@ -61,6 +61,15 @@ export function reserve(w: SkillWorld): number {
     Math.max(availableCost('stomp'), availableCost('hardshell'));
   return w.actor.max_mp * .2;
 }
+/** Urgent area damage may spend reserves, but never MP the actor does not have. */
+export function unrestrictedCleave(w: SkillWorld, d: SkillDecision): boolean {
+  if (d.skill !== 'cleave' || d.targets.length < 2) return false;
+  if (w.context.mode === 'event' && w.context.event === 'franky') return true;
+  const party = new Set(w.context.allies.map(a => a.name));
+  party.add(w.actor.name);
+  return (w.context.mode === 'grouped' || w.context.mode === 'event') && w.context.monsters.filter(t =>
+    !t.dead && t.hp > 0 && !!t.target && party.has(t.target)).length >= 2;
+}
 function targetBlock(w: SkillWorld, d: SkillDecision): string | null {
   const s = w.skills[d.skill]!;
   for (const target of d.targets) {
@@ -97,7 +106,7 @@ function manaBlock(w: SkillWorld, d: SkillDecision, pending: number): string | n
   const remaining = w.actor.mp - pending - cost(w, d.skill);
   if (remaining < 0) return 'insufficient MP';
   // A rogue outspends even back-to-back MP potions while fan-farming; Fan of Knives may dip into the reserve.
-  if (d.category !== 'survival' && remaining < reserve(w) && !(d.skill === 'fanofknives' && fanFarming(w)) && !burstRefunds(w, d))
+  if (d.category !== 'survival' && !unrestrictedCleave(w, d) && remaining < reserve(w) && !(d.skill === 'fanofknives' && fanFarming(w)) && !burstRefunds(w, d))
     return 'survival MP reserved';
   return null;
 }

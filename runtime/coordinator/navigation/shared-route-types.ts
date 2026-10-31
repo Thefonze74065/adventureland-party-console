@@ -95,7 +95,7 @@ export interface SharedConvoy extends PartyConvoy {
   walkingEvent?: string;
   routeServer?: string;
   retryExhausted?: boolean;
-  walkingParents?: Record<string, { revision: number; parentId: number; command?: SharedCommand }>;
+  walkingParents?: Record<string, { revision: number; parentId: number; command?: SharedCommand; requestedAt?: number; observedDeathAt?: number }>;
   returnRouting?: boolean; returnLegs?: { type: string; location: RoutePoint }[];
   legIndex?: number; townCompleted?: boolean; force?: boolean; nonPreemptible?: boolean;
   runtimes?: Record<string, string> | null; origins?: Record<string, RoutePoint>;

@@ -2,7 +2,7 @@
 param([switch]$PrepareOnly)
 $ErrorActionPreference = 'Stop'
 $installRoot = $PSScriptRoot
-$nodeVersion = '24.14.0'
+$nodeVersion = '26.12.1'
 $runtimeRoot = Join-Path $installRoot "runtime\node-v$nodeVersion-win-x64"
 $nodeExe = Join-Path $runtimeRoot 'node.exe'
 if (-not (Test-Path -LiteralPath $nodeExe)) {

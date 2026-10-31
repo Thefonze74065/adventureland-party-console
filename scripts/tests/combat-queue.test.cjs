@@ -57,6 +57,27 @@ test('closer hunt candidate disappearing cancels revocation and allows a later r
  assert.equal(f.tick(true).target.id,'C');
 });
 function engage(f,id='A'){f.members[0].status.groupedCombat.evidence.push({...monster(id),server:'USII',at:1000,action:id,state:'engaged'});f.tick();}
+
+for(const outcome of ['switch','disappeared','pending','engaged'])test('first locked pair completes an existing closer-target revocation: '+outcome,()=>{
+ const f=fixture();
+ for(const m of f.members)m.status.groupedCombat.handoff={capability:1};
+ f.members[0].status.groupedCombat.candidates=[monster('A',200)];
+ for(let i=0;i<8;i++){f.tick();f.ack();}
+ assert.equal(f.g.pairRevision,null);
+ f.members[0].status.groupedCombat.candidates.push(monster('B',50));
+ f.tick();assert.ok(f.g.pairRevision);assert.ok(f.g.pursuit.revoking);assert.equal(f.g.committed,false);
+ const revocation=f.g.pursuit.revoking;
+ f.members[0].status.groupedCombat.pursuitAck=revocation;
+ f.tick();assert.equal(f.g.target.id,'A','one acknowledgement cannot release the original target');
+ for(const m of f.members)m.status.groupedCombat.pursuitAck=revocation;
+ if(outcome==='disappeared')f.members[0].status.groupedCombat.candidates=[monster('A',200)];
+ if(['pending','engaged'].includes(outcome))f.members[1].status.groupedCombat.evidence=[{...monster('A',200),server:'USII',at:f.g.seenAt,action:'attack',state:outcome}];
+ const next=f.tick();
+ assert.equal(next.target.id,outcome==='switch'?'B':'A');
+ assert.equal(next.pursuit?.revoking,undefined,'the acknowledged revocation must retire even after a pair appears');
+ if(['pending','engaged'].includes(outcome))assert.equal(next.target.state,outcome);
+ assert.equal(next.pursuitExclusions.length,0);
+});
 test('untouched selection is planned and candidates rank by leader distance within priority',()=>{
  const f=fixture();f.members[0].status.groupedCombat.candidates=[monster('A',80),monster('B',30),monster('C',200,60),monster('D',400)];
  const g=f.tick();assert.equal(g.fights.length,0);assert.equal(g.target.state,'planned');assert.deepEqual(g.queue.map(t=>t.id),['C','B','A']);

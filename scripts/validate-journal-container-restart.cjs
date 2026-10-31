@@ -5,7 +5,7 @@ const root=path.resolve(__dirname,'..'),name='journal-lock-'+randomUUID();
 const directory=fs.mkdtempSync(path.join(root,'.build','journal-container-'));
 const relative=path.relative(root,directory).replaceAll('\\','/');
 const main='/workspace/'+relative+'/state.jsonl',replacement=main+'.new';
-const args=['--mount',`type=bind,source=${root},target=/workspace`,'--workdir','/workspace','node:24.14.0-bookworm','node','--experimental-strip-types','-e'];
+const args=['--mount',`type=bind,source=${root},target=/workspace`,'--workdir','/workspace','node:26.12.1-bookworm','node','--experimental-strip-types','-e'];
 const prelude=`const fs=require('fs');const {CoordinatorJsonlStore:S}=require('./runtime/coordinator/persistence/jsonl-store.ts');`;
 function docker(parameters){const result=spawnSync('docker',parameters,{encoding:'utf8',timeout:30000});if(result.error)throw result.error;return result;}
 (async()=>{
@@ -25,7 +25,7 @@ function docker(parameters){const result=spawnSync('docker',parameters,{encoding
   const after=JSON.parse(fs.readFileSync(path.join(directory,'state.jsonl.recovered'),'utf8'));
   assert.deepEqual(after.saved,{value:7});assert.equal(before.pid,after.identity.pid);
   assert.notEqual(before.namespace,after.identity.namespace);
-  const evidence={command:'node scripts/validate-journal-container-restart.cjs',image:'node:24.14.0-bookworm',before,after,competingContainer:'blocked',shutdown:'SIGKILL',result:'passed'};
+  const evidence={command:'node scripts/validate-journal-container-restart.cjs',image:'node:26.12.1-bookworm',before,after,competingContainer:'blocked',shutdown:'SIGKILL',result:'passed'};
   fs.writeFileSync(path.join(directory,'evidence.json'),JSON.stringify(evidence,null,2));console.log('Passed; evidence: '+path.join(directory,'evidence.json'));
  }finally{docker(['rm','--force',name,name+'-recovery']);}
 })().catch(error=>{console.error(error);process.exitCode=1;});

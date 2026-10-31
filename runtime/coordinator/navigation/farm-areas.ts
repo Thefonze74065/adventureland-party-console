@@ -270,6 +270,12 @@ export function createFarmAreaNavigation(party: FarmNavigationState, ports: Farm
     if (!active || !areas.length || !names.length) return;
     observe(state, hunt, names, ids, areas, active, now);
   }
+  function focusCompatible(previous: FarmNavigationState['location'], ids: string[]): boolean {
+    return !previous?.monsterIds?.length || !ids.length || ids.includes('all') || previous.monsterIds.some(id => ids.includes(id));
+  }
+  function focusMembersReady(names: string[]): boolean {
+    return !!names.length && !names.some(name => ports.intent(name).cancelled);
+  }
   function focusChanged(): void {
     if (party.farmingPolicy === 'hunt') return;
     const state = party.farmAreaState ||= {};
@@ -277,9 +283,7 @@ export function createFarmAreaNavigation(party: FarmNavigationState, ports: Farm
     const previous = party.location, ids = party.monsterFocus || [], names = ports.members();
     // A custom waypoint has no catalog ownership. Compatible focus additions
     // keep their chosen area; only a replaced farming species retires its pin.
-    if (!previous?.monsterIds?.length || !ids.length || ids.includes('all') ||
-        previous.monsterIds.some(id => ids.includes(id)) || !names.length ||
-        names.some(name => ports.intent(name).cancelled)) return;
+    if (!previous || focusCompatible(previous, ids) || !focusMembersReady(names)) return;
     migrate(state);
     const now = ports.now(), areas = ports.areas(ids);
     const destination = ports.alternatives(state, areas, previous, now)[0];

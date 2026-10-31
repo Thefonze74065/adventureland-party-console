@@ -5,7 +5,11 @@ import {readFileSync} from 'node:fs';
 import path from 'node:path';
 
 test.use({loadout:'combat-range',initialPosition:{map:'main',x:1260,y:-70}});
-test('safe console reload finishes the native fight without acquiring the next target',async({live},info)=>{
+test.describe('native combat drain',()=>{
+// Hunt cancellation returns to the configured native Goo farm. Seed the fight
+// in that farm so the successor remains observable after the mode turnover.
+test.use({initialPosition:{map:'main',x:0,y:787}});
+for(const turnover of [false,true]) test('safe console reload finishes the native fight without acquiring the next target'+(turnover?' after Hunt and unjoined event selection turnover':''),async({live},info)=>{
   test.setTimeout(180000);
   // Failure inventory: docs/testing-safe-console-reload.md.
   await live.post('/merchant/force-stand',{enabled:true});
@@ -73,6 +77,13 @@ test('safe console reload finishes the native fight without acquiring the next t
     await waitForGameplay(500);
     expect(await live.clients[W].run('globalThis.__partyConsoleMaintenance?.id')).toBe('native-safe-reload');
     await expect.poll(async()=>{const state=await live.state();return [W,P,M].every(name=>state.characters[name]?.consoleMaintenance?.id==='native-safe-reload');},{timeout:15000}).toBe(true);
+    if(turnover){
+      await live.admin(`output=(()=>{globalThis.__safeDrainPreviousHalloween={enabled:events.halloween,published:E.halloween};events.halloween=true;E.halloween=true;for(const name of ['${W}','${P}']){const p=get_player(name);p.p.trickortreat=null;p.trickortreat=trick_or_treat_status(p);resend(p,'u+reopen+cid');}broadcast_e();return true;})()`);
+      await live.post('/formation',{character:W,eventSelections:['trickortreat']});
+      await live.post('/farming-mode',{character:W,mode:'hunt'});
+      await expect.poll(async()=>{const s=await live.state();return {event:s.characters[W]?.activeEvent,joined:s.characters[W]?.joinedEvent||null};},{timeout:15000}).toEqual({event:'trickortreat',joined:null});
+      await expect.poll(async()=>(await live.state()).monsterHunt?.message,{timeout:15000}).toContain('console load');
+    }
     await expect.poll(async()=>hit(await live.clients[W].events(),seeded.first).length,{timeout:15000,
       message:'Native attacks must continue after the acquisition hold'}).toBeGreaterThan(before);
     await expect.poll(async()=>{
@@ -86,13 +97,18 @@ test('safe console reload finishes the native fight without acquiring the next t
     await waitForGameplay(1500);
     expect(hit(await live.clients[W].events(),seeded.next),'The pending reload must not acquire the next monster').toHaveLength(0);
     expect(await live.clients[W].run('sharedRoutine.queueMarkers().filter(m=>m.role==="current"&&m.visible).length')).toBe(0);
-    expect(await live.clients[W].run(`sharedRoutine.queueMarkers().some(m=>m.id===${JSON.stringify(seeded.next)}&&m.role==='next'&&m.visible)`)).toBe(true);
+    if(!turnover)expect(await live.clients[W].run(`sharedRoutine.queueMarkers().some(m=>m.id===${JSON.stringify(seeded.next)}&&m.role==='next'&&m.visible)`)).toBe(true);
     await evidence(live,info,'safe-reload-native-combat-drain',{seeded,samples,firstHits:hit(await live.clients[W].events(),seeded.first),nextHits:hit(await live.clients[W].events(),seeded.next)});
     await info.attach('safe-reload-no-red-circle',{body:await live.clients[W].page.screenshot(),contentType:'image/png'});
+    if(turnover){
+      await live.post('/formation',{character:W,eventSelections:[]});
+      await live.post('/farming-mode',{character:W,mode:'default'});
+    }
     live.consoleDrainLease('native-safe-reload',Date.now()-1);
     await expect.poll(async()=>hit(await live.clients[W].events(),seeded.next).length,{timeout:30000,
       message:'An expired host hold must restore normal acquisition'}).toBeGreaterThan(0);
-  }finally{holdFull=false;releases.splice(0).forEach(release=>release());await live.clients[W].page.unrouteAll({behavior:'wait'});await evidence(live,info,'safe-reload-final-state',{seeded,samples});if(observerFrame&&!observerFrame.isDetached())await observerFrame.evaluate(()=>{const host=window as any;host.$(document).off('.safeDrainObservation');});live.consoleDrainLease(null);await live.admin(`output=(()=>{for(const id of ${JSON.stringify([seeded.first,seeded.next])}){const m=instances.main.monsters[id];if(m)remove_monster(m,{method:'disappear',nospawn:true});}return true;})()`);}
+  }finally{holdFull=false;releases.splice(0).forEach(release=>release());await live.clients[W].page.unrouteAll({behavior:'wait'});await evidence(live,info,'safe-reload-final-state',{seeded,samples});if(observerFrame&&!observerFrame.isDetached())await observerFrame.evaluate(()=>{const host=window as any;host.$(document).off('.safeDrainObservation');});live.consoleDrainLease(null);await live.admin(`output=(()=>{const previous=globalThis.__safeDrainPreviousHalloween;if(previous){events.halloween=previous.enabled;E.halloween=previous.published;delete globalThis.__safeDrainPreviousHalloween;broadcast_e();}for(const id of ${JSON.stringify([seeded.first,seeded.next])}){const m=instances.main.monsters[id];if(m)remove_monster(m,{method:'disappear',nospawn:true});}return true;})()`);}
+});
 });
 
 for(const mode of ['safe','now'] as const)test(`console reload resumes native farming and roaming defense in ${mode} mode`,async({live},info)=>{

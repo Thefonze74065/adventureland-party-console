@@ -51,8 +51,8 @@ test('console orders Steam before headless, with merchant last unless primary', 
   {name:'GermanicHP',ctype:'priest',online:true,hosting:'steam'},
   {name:'Qwentina',ctype:'mage',online:true,hosting:'steam'},
  ]};
- const names = () => [...doc.querySelector('#party-console-switcher').children[1].children]
-  .map(row => row.firstElementChild.textContent);
+ const names = () => [...doc.querySelectorAll('#party-console-switcher button[aria-label$="primary Steam control"]')]
+  .map(button => button.textContent);
  try {
   switcher.render(reply);
   assert.deepEqual(names(), ['GDroidPT','GermanicHP','Qwentina','GoldMajesty']);
@@ -79,8 +79,8 @@ test('pixel bar shows hosting independently of primary and persists minimization
  const minimize = doc.querySelector('[aria-label="Minimize Steam character controls"]');
  minimize.getBoundingClientRect = () => ({left:600,top:16});
  minimize.click();
- assert.equal(doc.querySelector('#party-console-switcher').style.left,'597px');
- assert.equal(doc.querySelector('#party-console-switcher').style.top,'13px');
+ assert.equal(doc.querySelector('#party-console-switcher').style.right,'8px');
+ assert.equal(doc.querySelector('#party-console-switcher').style.top,'8px');
  assert.equal(doc.querySelectorAll('#party-console-switcher button').length,1);
  s.dispose();s=createSwitcher(host,async()=>{});s.render(reply);
  assert.equal(doc.querySelectorAll('#party-console-switcher button').length,1);
@@ -109,7 +109,7 @@ test('v2 bridge starts background CODE without navigating or disconnecting prima
  host.__partySteamBridge.dispose();dom.window.close();
 });
 
-test('switcher stays at top center and switches only after explicit confirmation', async () => {
+test('switcher stays at top right and switches only after explicit confirmation', async () => {
   const dom = new JSDOM('');
   const doc = dom.window.document;
   dom.window.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
@@ -119,9 +119,9 @@ test('switcher stays at top center and switches only after explicit confirmation
   try {
     switcher.render(reply);
     const panel = doc.querySelector('#party-console-switcher');
-    assert.equal(panel.style.left, '50%');
+    assert.equal(panel.style.right, '8px');
     assert.equal(panel.style.top, '8px');
-    assert.equal(panel.style.transform, 'translateX(-50%)');
+    assert.equal(panel.style.transform, '');
     assert.equal(panel.style.backgroundColor, 'rgb(17, 17, 17)');
     panel.querySelector('[aria-label="Make Mage Steam Primary"]').click();
     assert.deepEqual(calls, []);

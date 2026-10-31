@@ -5,10 +5,12 @@ test('schedule reports select the newest feed on the leader realm and preserve i
  assert.deepEqual(projectEventSchedules(statuses,'L',()=>200000),[{name:'abtesting',stale:false}]);assert.equal(event.stale,true);
  delete statuses.L.server;assert.deepEqual(projectEventSchedules(statuses,'L',()=>200000),[{name:'other',stale:false}]);
 });
-test('schedule freshness and stale feed thresholds preserve strict boundaries',()=>{
+test('fresh connected change-only feeds retain schedules until disconnect or clock staleness',()=>{
  const report={seenAt:185000,eventFeedAt:80000,eventSchedules:[{name:'event'}]};
  assert.deepEqual(projectEventSchedules({A:report},'missing',()=>200000),[]);
  report.seenAt++;assert.equal(projectEventSchedules({A:report},'missing',()=>200000)[0].stale,false);
- report.eventFeedAt--;assert.equal(projectEventSchedules({A:report},'missing',()=>200000)[0].stale,true);
+ report.eventFeedAt--;assert.equal(projectEventSchedules({A:report},'missing',()=>200000)[0].stale,false);
+ report.eventFeedConnected=false;assert.equal(projectEventSchedules({A:report},'missing',()=>200000)[0].stale,true);
+ report.eventFeedConnected=true;
  report.eventFeedAt=200000;report.eventClockStale=true;assert.equal(projectEventSchedules({A:report},'missing',()=>200000)[0].stale,true);
 });

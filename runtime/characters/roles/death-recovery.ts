@@ -3,6 +3,7 @@ import { errorReason, type CombatState } from "./types.ts";
 export type EventRejoinOutcome = { status: "not-applicable" | "recovered" | "retryable" | "cancelled"; phase?: "event-reentry" | "event-travel"; reason?: string };
 interface RecoveryPorts {
   isDead(): boolean;
+  needsEventReturn?(): boolean;
   blocked?(): boolean;
   respawn(): Promise<unknown>;
   releaseCombat(): void;
@@ -52,6 +53,11 @@ export function createDeathRecovery(ports: RecoveryPorts): () => Promise<void> {
   function observeDeath() {
     if (ports.isDead()) {
       if (!pendingReturn || revived) { attempt = 0; lastError = null; errorAt = null; retryAt = 0; }
+      pendingReturn = true; revived = false;
+    }
+    else if (!pendingReturn && ports.needsEventReturn?.()) {
+      // CODE may resume after native revival; the saved event intent still owns
+      // recovery even when this runner never observed the dead frame.
       pendingReturn = true; revived = false;
     }
   }

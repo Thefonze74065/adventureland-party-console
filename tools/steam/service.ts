@@ -1,9 +1,22 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { SteamPreferenceStore, assertLocalSteam } from './preferences.ts';
 import { findExecutable, gameRunning, launchGame } from './platform.ts';
 import { Inspector, targets, type InspectorTarget } from './inspector.ts';
-import { steamBridgeVersion } from '../../runtime/steam/connection.ts';
+import { ConsoleBuildStore } from '../console-build/store.ts';
+
+/** Desktop injection must use the selected release, like the served CODE loader. */
+export async function steamBridgeSource(root: string): Promise<string> {
+  const store = new ConsoleBuildStore(root);
+  const { active } = await store.references();
+  if (!active) return readFile(path.join(root, 'characters/steam-bridge.js'), 'utf8');
+  const manifest = await store.describe(active);
+  const source = await readFile(path.join(store.directory, 'releases', active, 'app/characters/steam-bridge.js'), 'utf8');
+  if (createHash('sha256').update(source).digest('hex') !== manifest.files['characters/steam-bridge.js'])
+    throw Error('Active Steam bridge failed integrity verification.');
+  return source;
+}
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 export interface DesktopPorts {
@@ -41,7 +54,7 @@ export class LocalSteam {
     const pages = await this.available();
     if (pages.length !== 1) return;
     const server = await this.ports.server(), source = await this.ports.source();
-    if (await this.attach(pages[0], server, source, character)) this.maintain(server, source);
+    if (await this.attach(pages[0], server, source, character)) this.maintain(server);
   }
   private async prepare(character: string) {
     if (await this.ports.bridgeReady()) { await this.refreshLocalBridge(character); return; }
@@ -59,7 +72,7 @@ export class LocalSteam {
       pages = await this.available();
       if (pages.length > 1) throw Error('Multiple Adventure Land windows are open. Keep the intended Steam window open and close the others before retrying.');
       if (pages[0] && await this.attach(pages[0], server, source, character).catch(() => false)) {
-        this.maintain(server, source);
+        this.maintain(server);
         if (await this.ports.bridgeReady()) return;
       }
       await this.ports.sleep(500);
@@ -67,6 +80,7 @@ export class LocalSteam {
     throw Error('Steam client did not connect to Party Console. Sign in to your Adventure Land account in the game, complete setup if requested, then retry. Headless ownership is unchanged.');
   }
   private async attach(target: InspectorTarget, server: string, source: string, character?: string) {
+    const sourceHash = createHash('sha256').update(source).digest('hex');
     const connection = await this.ports.connect(target);
     try {
       // No credentials or account data leave the game page. Selection must expose
@@ -76,21 +90,23 @@ export class LocalSteam {
         if (!Array.isArray(window.X?.characters) || typeof window.api_call !== 'function' ||
             typeof window.storage_get !== 'function' || typeof window.storage_set !== 'function') return false;
         if (${JSON.stringify(character || '')} && !window.X.characters.some(c => c.name === ${JSON.stringify(character || '')})) return false;
-        if (!window.__partySteamBridge || window.__partySteamBridge.version !== ${steamBridgeVersion}) {
+        if (!window.__partySteamBridge || window.__partySteamBridge.server !== ${JSON.stringify(server)} ||
+            window.__partySteamBridge.desktopSourceHash !== ${JSON.stringify(sourceHash)}) {
           window.__partyServer = ${JSON.stringify(server)};
           (0, eval)(${JSON.stringify(source)});
+          if (window.__partySteamBridge) window.__partySteamBridge.desktopSourceHash = ${JSON.stringify(sourceHash)};
         }
         return !!window.__partySteamBridge;
       })()`;
       return await connection.evaluate(expression) === true;
     } finally { connection.close(); }
   }
-  private maintain(server: string, source: string) {
+  private maintain(server: string) {
     if (this.maintenance || this.stopped) return;
     const tick = async () => {
       try {
         const pages = await this.available();
-        if (pages.length === 1) await this.attach(pages[0], server, source);
+        if (pages.length === 1) await this.attach(pages[0], server, await this.ports.source());
       } catch { /* Navigating destroys the old context; attach to its replacement next pass. */ }
       if (!this.stopped) this.maintenance = setTimeout(() => { this.maintenance = undefined; void tick(); }, 2000);
       this.maintenance?.unref();
@@ -104,7 +120,7 @@ export function createLocalSteam(root: string, data: string, apiPort: number, se
   return new LocalSteam(new SteamPreferenceStore(data), {
     platform: process.platform, targets, executable: findExecutable, running: gameRunning, launch: launchGame,
     connect: target => Inspector.connect(target), server,
-    source: () => readFile(path.join(root, 'characters/steam-bridge.js'), 'utf8'), now: Date.now, sleep: delay,
+    source: () => steamBridgeSource(root), now: Date.now, sleep: delay,
     bridgeReady: async () => {
       const response = await fetch(`http://127.0.0.1:${apiPort}/party-api/steam/connection`, { signal: AbortSignal.timeout(3000) });
       if (!response.ok) throw Error('Party coordinator is unavailable.');

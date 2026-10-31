@@ -30,8 +30,7 @@ function walkingEdge(from: Step, to: Step): boolean {
     !to.transport && !to.town && (to.method === undefined || to.method === 'move');
 }
 
-/** The shortest single point near the edge's elbows or midpoint that both legs can walk. */
-function detourPoint(from: Step, to: Step, base: Base, walk: Walk): Step | null {
+function detourCandidates(from: Step, to: Step): {x:number;y:number}[] {
   const candidates: { x: number; y: number }[] = [];
   const offsets = [0, 4, 8, 12, 16, 24, 32];
   for (const [x, y] of [[from.x, to.y], [to.x, from.y]])
@@ -41,6 +40,12 @@ function detourPoint(from: Step, to: Step, base: Base, walk: Walk): Step | null 
   const nx = -(to.y - from.y) / length, ny = (to.x - from.x) / length;
   for (const along of [0.25, 0.5, 0.75]) for (const side of [-64, -48, -32, -24, -16, -8, 8, 16, 24, 32, 48, 64])
     candidates.push({ x: from.x + (to.x - from.x) * along + nx * side, y: from.y + (to.y - from.y) * along + ny * side });
+  return candidates;
+}
+
+/** The shortest single point near the edge's elbows or midpoint that both legs can walk. */
+function detourPoint(from: Step, to: Step, base: Base, walk: Walk): Step | null {
+  const candidates=detourCandidates(from,to);
   let best: Step | null = null, bestLength = Infinity;
   for (const c of candidates) {
     const total = Math.hypot(c.x - from.x, c.y - from.y) + Math.hypot(to.x - c.x, to.y - c.y);

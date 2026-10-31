@@ -9,6 +9,31 @@ import {consoleMaintenance} from '../runtime/coordinator/lifecycle/console-maint
 import type {CandidateManifest} from '../tools/console-build/contracts';
 import {readJson} from '../tools/build-store';
 
+test('safe maintenance replaces a stopped slot owner without accepting a missing acknowledgement',async({},info)=>{
+  // Failure inventory: an old merchant remains sticky after a slot handoff;
+  // merely stale/missing clients are incorrectly retired; a replacement's
+  // combat or missing ack is ignored; an assigned stopped client is skipped.
+  const root=info.outputPath('slot-handoff'),maintenance=consoleMaintenance(root);
+  await mkdir(path.join(root,'updates'),{recursive:true});
+  await writeFile(path.join(root,'updates/pause.json'),JSON.stringify({id:'handoff',mode:'draining',expires:Date.now()+60000}));
+  const held={seenAt:Date.now(),consoleMaintenance:{id:'handoff',mode:'draining',combat:false,ready:true}};
+  const reports:any={Merchant:held};
+  const ledger:any[]=[];
+  ledger.push(maintenance.status(reports,['Merchant']));
+  expect(ledger.at(-1).ready).toBe(true);
+  reports.Merchant={...held,seenAt:Date.now()-20000};reports.BankBoi={seenAt:Date.now()};
+  ledger.push(maintenance.status(reports,['BankBoi']));
+  expect(ledger.at(-1).waiting).toEqual(['Merchant','BankBoi']);
+  ledger.push(maintenance.status(reports,['BankBoi'],false,['Merchant']));
+  expect(ledger.at(-1).waiting).toEqual(['BankBoi']);
+  reports.BankBoi={...held,seenAt:Date.now()};
+  ledger.push(maintenance.status(reports,['BankBoi'],false,['Merchant']));
+  expect(ledger.at(-1).ready).toBe(true);
+  ledger.push(maintenance.status(reports,['Merchant','BankBoi'],false,['Merchant']));
+  expect(ledger.at(-1).waiting).toEqual(['Merchant']);
+  await info.attach('safe-slot-handoff-ledger',{body:JSON.stringify(ledger),contentType:'application/json'});
+});
+
 test('safe reload requires fresh combat-free acknowledgements and preserves interrupted waits',async({},info)=>{
   const root=info.outputPath('safe-host'),store=new ConsoleBuildStore(root),maintenance=consoleMaintenance(root);
   const ledger:any[]=[];

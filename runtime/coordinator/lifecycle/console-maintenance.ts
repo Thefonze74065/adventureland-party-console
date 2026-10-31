@@ -40,14 +40,19 @@ export function consoleMaintenance(directory: string | undefined, now = Date.now
       return lease = parsed;
     } catch { lease = null; return null; }
   }
-  function status(statuses: Record<string, unknown>, expected: readonly (string | null)[] = [], blocked = false) {
-    const active = current();
-    if (!active) return { ready: false, waiting: [], id: null };
+  function observeParticipants(statuses: Record<string, unknown>, expected: readonly (string | null)[], stopped: readonly string[]) {
+    const retired = new Set(stopped.filter(name => !expected.includes(name)));
+    for (const name of retired) participants.delete(name);
     for (const name of expected) if (name) participants.add(name);
     for (const [name, raw] of Object.entries(statuses)) {
       const report = requestObject(raw);
-      if (Number(report.seenAt) > now() - 15000) participants.add(name);
+      if (!retired.has(name) && Number(report.seenAt) > now() - 15000) participants.add(name);
     }
+  }
+  function status(statuses: Record<string, unknown>, expected: readonly (string | null)[] = [], blocked = false, stopped: readonly string[] = []) {
+    const active = current();
+    if (!active) return { ready: false, waiting: [], id: null };
+    observeParticipants(statuses, expected, stopped);
     const waiting = [...participants].filter(name => {
       const report = requestObject(statuses[name]), ack = requestObject(report.consoleMaintenance);
       if(merchantContinues(report,active))return false;
@@ -56,7 +61,7 @@ export function consoleMaintenance(directory: string | undefined, now = Date.now
         waitingForMain(report,active);
     });
     if (blocked) waiting.push('active Steam handoff');
-    return { id: active.id, ready: waiting.length === 0, waiting };
+    return { id: active.id, ready: waiting.length === 0, waiting, participants: [...participants] };
   }
   function blocksMerchant(){const active=current();return !!active&&!(active.loadMode==='main'&&active.phase!=='holding');}
   return { current, status, blocksMerchant };

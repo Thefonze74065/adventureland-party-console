@@ -7,7 +7,7 @@ function runtime(options={}) {
   merchantAnniversaryWorkReserved:()=>false,get_player:()=>options.invisible?null:player,can_move_to:()=>!options.wall,reunionRealm:()=> 'USII',
   setTimeout:callback=>{now+=200;ticks++;if(options.tick)options.tick(r,player,ticks);if(goal&&!options.stuck&&!(r.smart&&r.smart.moving&&!r.smart.found)){const dx=goal.x-r.character.x,dy=goal.y-r.character.y,d=Math.hypot(dx,dy)||1;r.character.x+=dx/d*Math.min(60,d);r.character.y+=dy/d*Math.min(60,d);}callback();},
   move:(x,y)=>{calls.push({kind:'move',x,y});goal={x,y};},
-  smart_move:destination=>{calls.push({kind:'smart',...destination});smart=true;goal=destination;if(options.smartMove)return options.smartMove(r,destination);return new Promise(()=>{});},
+  smart_move:(destination,callback,movementOptions)=>{calls.push({kind:'smart',...destination});smart=true;goal=destination;if(options.smartMove)return options.smartMove(r,destination,movementOptions);return new Promise(()=>{});},
   stop:async kind=>{calls.push({kind:'stop',type:kind});if(kind==='smart'&&smart||kind==='move')goal=null;smart=false;},
   request:async()=>({targetStatus:{...player,seenAt:now,server:'USII'}}),anniversaryWithTimeout:async promise=>promise,
   send_item:async(name,slot,q)=>calls.push({kind:'send',name,slot,q}),
@@ -131,4 +131,18 @@ test('recipient map change still replaces a running intermediate-map shortcut',a
  },smartMove:r=>{r.smart={moving:true,found:true};return new Promise(()=>{});}});
  await t.r.rendezvous('job','F');
  const routes=t.calls.filter(c=>c.kind==='smart');assert.equal(routes.length,2);assert.equal(routes[1].map,'winterland');
+});
+
+test('transporter rendezvous accounts for native walking endpoint tolerance',async()=>{
+ const t=runtime({invisible:true,stuck:true,smartMove:(r,destination,options)=>{
+  r.character.x=destination.x;r.character.y=destination.y-(options?.arrivalTolerance??20);
+  return Promise.resolve();
+ }});
+ t.r.character.map='winterland';t.player.x=0;
+ t.r.G={maps:{winterland:{spawns:[[0,0]],npcs:[{id:'transporter',position:[0,100]}]},main:{spawns:[[0,0]]}},npcs:{transporter:{places:{main:0}}}};
+ t.r.movement={transporterApproach:()=>({map:'winterland',x:0,y:40})};
+ let transported=false;
+ t.r.transport=async()=>{assert.ok(Math.hypot(t.r.character.x,t.r.character.y-100)<75);transported=true;t.r.character.map='main';t.r.character.x=0;t.r.character.y=0;t.r.get_player=()=>t.player;};
+ await t.r.rendezvous('job','F');
+ assert.equal(transported,true);
 });

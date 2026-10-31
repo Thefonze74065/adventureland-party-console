@@ -11,14 +11,32 @@ const args = pool => ['compose', '--project-name', pool.project || 'al-e2e-pr21'
 const started = new Map();
 function docker(command,pool={}) {
   return new Promise((resolve, reject) => {
-    const child = spawn('docker', [...args(pool), ...command], { cwd: root, stdio: 'inherit', windowsHide: true, env:{...process.env,E2E_GAME_REV:pins.game,E2E_COMMON_REV:pins.common,E2E_CONFIG_REV:pins.config,...pool.environment,E2E_GAME_HOST:pool.host||'127.0.0.1'} });
+    const child = spawn('docker', [...args(pool), ...command], { cwd: root, stdio: ['ignore','pipe','pipe'], windowsHide: true, env:{...process.env,E2E_GAME_REV:pins.game,E2E_COMMON_REV:pins.common,E2E_CONFIG_REV:pins.config,...pool.environment,E2E_GAME_HOST:pool.host||'127.0.0.1'} });
+    let output='';
+    const retain=chunk=>{output=(output+chunk.toString()).slice(-32768);};
+    child.stdout.on('data',retain).pipe(process.stdout,{end:false});
+    child.stderr.on('data',retain).pipe(process.stderr,{end:false});
     child.on('error', reject);
-    child.on('close', code => code === 0 ? resolve() : reject(new Error('Docker exited ' + code)));
+    child.on('close', code => code === 0 ? resolve() : reject(Object.assign(new Error('Docker exited ' + code),{
+      registryQuota:/toomanyrequests|429 Too Many Requests/i.test(output),
+    })));
+
   });
 }
 export async function up(pool={}) {
   started.set(pool.project,new Date().toISOString());
-  await docker(['up', '--build', '--detach', '--wait', '--wait-timeout', '300'],pool);
+  // A registry quota rejection happens before any gameplay assertion. Retry
+  // only that external startup failure, preserving pinned images and native
+  // readiness checks. Build, health and bootstrap failures still fail directly.
+  for(let attempt=0;;attempt++){
+    try{await docker(['up', '--build', '--detach', '--wait', '--wait-timeout', '300'],pool);break;}
+    catch(error){
+      if(!error.registryQuota||attempt>=3)throw error;
+      const delay=15000*(attempt+1)+Math.floor(Math.random()*5000);
+      console.warn(`Registry quota rejected ${pool.project||'game'} startup; retry ${attempt+1}/3 in ${delay}ms`);
+      await new Promise(resolve=>setTimeout(resolve,delay));
+    }
+  }
   const game=bootstrapModule.createGame({host:pool.host});
   const manifest=await game.bootstrap();
   if(process.env.E2E_SEED_BOOTSTRAP_CODES==='1')await game.seedPreviousBootstrapCodes(manifest);

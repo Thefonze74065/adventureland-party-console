@@ -5,6 +5,51 @@
 - Add upgrade chance guards, scroll floors and fail stacking (#152, #78, #65). A guard holds a real upgrade attempt unless the server's own preview chance, which already includes ugrace, server ugrace and ograce, reaches a minimum; held marks stay queued and are retried after ten minutes or when the guards change. A scroll floor spends a higher-grade scroll than the item needs, which the server rewards below +10, and the merchant stocks it. A fail-stack job burns exact, unlocked, plain spare copies at a chosen level, optionally with a Primling, until an attempt limit or a stop chance measured on the kept item. The estimator models item grace, ograce, server grace, offerings and higher-grade scrolls when given grace options. The dashboard adds a Chance guards section and a Fail stack dialog beside Prim stack.
 
 - Find giveaway hosts through the game's merchant directory when they are not in sight, walk to their stand and join, instead of failing at the market; report hosts on another realm, without an open stand, or inside the bank, and skip discovered giveaways inside the bank (#129). Expire queued giveaway jobs at the giveaway's real remaining time rather than two minutes after a marketplace observation, log a warning when one expires unattempted, and release its claim so a still-running giveaway is queued again.
+### 1.5 changes since v1.4.0
+
+Only changes verified against the v1.4.0 source are listed in this summary.
+
+#### New features
+
+- Automate Headless Horseman, Graveyard Rising, Trick or Treat, and shared Witch's Cipher gathering and brewing.
+- View seven-day event schedules, realm/local times, and Trick or Treat knock allowances and daily-reset countdowns.
+- Track persistent gold, kills, loot, ping, and drop-rate estimates in the new metrics dashboard.
+- Enable automatic mailbox collection/deletion, new-mail counters, and sent-mail history.
+- Inspect account characters and equipment without logging them in, including characters never loaded into the console.
+- Batch-select inventory, bank, and exchange-reward items for shared actions.
+- Start manual compound jobs from bank or BankBoi stock, with reserved source items.
+- Redesign item, character, monster, skill, and comparison cards with game-style colors and stat breakdowns.
+- Show separate home-server rewards, readable ratio/percentage odds, and event-only monster sources.
+- Automatically restock and consume selected elixirs, with optional purchasing or crafting when stock runs out.
+- Optionally craft replacement fishing poles and pickaxes when no tool remains in inventory or the bank.
+- Set keep quantities for automatic NPC sales so reserved storage stock is protected and only surplus is sold.
+- Pair another browser with a short, single-use access code.
+- Render native character sprites, cosmetics, weapons, and projectiles on headless maps, with native map actions.
+- Preview merchant donation XP and resulting level, or calculate the gold needed for a target level.
+- Reopen completed Cave merchant encounters to return to their shops and buy the offered item.
+- Show gold-find bonus in portrait stats; press I for item JSON and see each CX Jar's contents.
+- Resolve an unconfirmed WTB purchase as bought or not bought so the paused order can continue.
+
+#### Bugfixes
+
+- Compress compatible merchant and bank stacks fully, including partial fills and items received during auto-exchange.
+- Bank exchange rewards correctly when they merge into an existing carried stack.
+- Retrieve automatic NPC-sale stock from BankBoi storage and discover eligible stock during the merchant's bank visit.
+- Resume interrupted BankBoi storage work after movement/checkpoint transport failures without replaying completed transfers.
+- Keep manual upgrade selections tied to the correct unfinished item after inventory slots move.
+- Retrieve missing stat scrolls from the bank and confirm stat changes before delivering the item.
+- Retire completed merchant event returns on Main arrival and allow full-inventory event handoffs to resume queued work.
+- Resume an interrupted Hunt after CODE runtime replacement once the party reports fresh, safely stopped ownership.
+- Preserve the current fight during safe loading when Hunt/event selection changes, avoiding a stuck combat drain.
+- Detour planner edges that cross native collision geometry instead of routing characters through blocked corners.
+- Restore headless Cave floor graphics, clear finished-visit state, and preserve spent repair budgets when retrying.
+- Retry missed gathering channels correctly and restart gathering after inventory-command ownership is released.
+- Exclude exchange-derived items from direct monster drops and preserve distinct reward rolls and home-drop quantities.
+- Reduce redundant status traffic, headless rendering work, and persistence/log growth to keep long-running sessions responsive.
+
+### Earlier detailed history
+
+The historical entries below also include changes already shipped in 1.4.
 
 - Remove the arbitrary successor spawn-distance requirement from the queued Goo E2E test, retaining actual combat and fresh party confirmation checks. Allow 240 seconds for event-handoff checkpoint returns so communication safety holds can recover on slower CI runners.
 

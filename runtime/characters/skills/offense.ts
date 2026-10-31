@@ -1,4 +1,4 @@
-import { blocked, cost, fanFarming, fanLethal } from './eligibility.ts';
+import { blocked, cost, fanFarming, fanLethal, unrestrictedCleave } from './eligibility.ts';
 export { fanFarming, fanVerdict } from './eligibility.ts';
 import { damage, usefulDamage, purifiable } from './damage.ts';
 import { decision, type Combatant, type SkillDecision, type SkillId, type SkillWorld } from './types.ts';
@@ -86,6 +86,14 @@ export function burstChoices(w: SkillWorld, primary?: Combatant): SkillDecision[
 }
 export function damageChoices(w: SkillWorld, target: Combatant): SkillDecision[] {
   if (w.actor.ctype === 'rogue' && fanFarming(w)) return burstChoices(w, target);
+  if (w.actor.ctype === 'warrior') {
+    // Cleave hits every nearby monster; never hide unauthorized collateral by
+    // filtering it out of the proposed cast. Range uses the native strict edge.
+    const targets = w.context.monsters.filter(t => !t.dead && !t.rip && t.hp > 0 && w.range(t, 'cleave'));
+    const cleave = decision('cleave', targets);
+    if (targets.length < 2 || w.context.mode !== 'scatter' && !unrestrictedCleave(w, cleave)) return [];
+    return blocked(w, cleave) ? [] : [cleave];
+  }
   const classes: Partial<Record<ActorClass, SkillId[]>> = {
     ranger: ['huntersmark', 'supershot'], rogue: ['mentalburst', 'quickstab', 'quickpunch'],
     paladin: ['purify', 'shield_slam', 'smash'],

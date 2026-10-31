@@ -296,6 +296,12 @@ export function CharacterStatsDialog({
       `${Number(character.luck || 100).toLocaleString()}%`,
     ),
     plain(
+      'gold',
+      'Gold',
+      S.gold,
+      `${Number(character.goldBonus || 0) >= 0 ? '+' : ''}${Number(character.goldBonus || 0).toLocaleString()}%`,
+    ),
+    plain(
       'crit',
       'Crit',
       S.crit,

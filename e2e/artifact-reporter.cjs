@@ -66,12 +66,15 @@ class ArtifactReporter {
       return { name, path: file && path.relative(root, file), contentType };
     });
     const outcome = { title: test.titlePath().join(' > '), status: result.status,
+      expectedStatus: test.expectedStatus, location: path.relative(root,test.location.file).replaceAll('\\','/'),
       boundary: /simulation-gameplay\.spec\.ts$/.test(test.location.file)
         ? 'Virtual-clock native upstream server, maintained coordinator/planner and real character CODE; shared gameplay assertions, isolated in-memory database and declared initial loadout'
         : /debug-(instance|container)\.spec\.ts$/.test(test.location.file)
         ? 'Disposable Docker lifecycle through the real gateway; isolated native upstream server, god party and production coordinator'
-        : /live-franky\.spec\.ts$/.test(test.location.file)
+        : /live-franky\.spec\.ts$/.test(test.location.file) && /restored acknowledged Franky exit/.test(test.title)
         ? 'Native game clients, maintained runtime and upstream server; initial acknowledged event-return history is a sanitized production-state fixture, followed by real restart, travel and reward claim'
+        : /live-franky\.spec\.ts$/.test(test.location.file)
+        ? 'Native game clients, maintained runtime and upstream server; declared durable stationary enemies, native equipment and mana inputs; real target selection, skill receipts and damage'
         : /live-[a-z-]+\.spec\.ts$/.test(test.location.file)
         ? 'Native authenticated game clients and maintained runtime against disposable upstream game server and MongoDB; administrative scenario setup; '+(process.env.E2E_GAMEPLAY_BACKEND==='native'?'real-time parity backend':'shared ChronAL gameplay clock with real browser/network/deployment boundaries')
         : 'Real console/gateway/coordinator/storage; simulated external account and game observations',
@@ -107,6 +110,7 @@ class ArtifactReporter {
     fs.mkdirSync(path.join(root, '.build/e2e-report'), { recursive: true });
     fs.writeFileSync(path.join(root, '.build/e2e-report/manifest.json'), JSON.stringify({
       schema: 1, started: this.started, finished: new Date().toISOString(), status: result.status,
+      gameplayBackend: process.env.E2E_GAMEPLAY_BACKEND==='native'?'native':'chronal',
       ...this.provenance,
       command: ['npx', 'playwright', ...process.argv.slice(2)],
       selectedTests: this.selectedTests,

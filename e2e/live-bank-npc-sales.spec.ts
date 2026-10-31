@@ -60,10 +60,61 @@ async function helmetSaleReceipts(live:LiveGame,merchant:string) {
     entry.data?.place==='sell'&&entry.data.success===true&&entry.data.item?.name==='helmet');
 }
 
+test('bank sale scheduling collapses cleanout retries and sells only excess reserved stock', async ({live},info) => {
+  test.setTimeout(420_000);
+  const merchant='E2EMerchant', target='E2EWarrior', samples:any[]=[];
+  try {
+    await live.admin(`output=(async()=>{const p=get_player('${merchant}');const items=[...Array.from({length:5},()=>({name:'helmet',level:0})),{name:'smoke',q:100},{name:'smoke',q:100}];await db.collection('user').updateOne({_id:p.owner},{$set:Object.fromEntries(items.map((item,i)=>['info.items0.'+i,item]))});return true})()`);
+    await live.post('/command',{character:merchant,type:'bank'});
+    await expect.poll(async()=>(await live.state()).bank?.packs?.items0?.[6]?.item?.q,{timeout:90_000}).toBe(100);
+    await expect.poll(async()=>(await live.state()).merchantCurrent,{timeout:90_000}).toBeNull();
+    await live.post('/merchant/force-stand',{enabled:true});
+    await live.post('/merchant/auto-npc-sale',{item:{name:'helmet',level:0},keep:2});
+    await live.post('/merchant/auto-npc-sale',{item:{name:'smoke'},keep:150});
+    // Persist the enabled routine before restoring its historical jobs. A
+    // restart heartbeat correctly removes jobs whose automation is disabled.
+    await live.post('/merchant/routine-priorities',{priorities:{'auto npc sales':98,'inventory cleanout':95,withdrawals:10},enabled:{'inventory cleanout':true,withdrawals:true,'auto npc sales':false}});
+    // Historical input reproduces the accumulated queue, never native outcomes.
+    await live.restoreHistoricalSettings(()=>({merchantQueue:Array.from({length:20},(_,i)=>({
+      id:'historical-cleanout-'+i,target,reason:'inventory cleanout',queuedAt:Date.now()-20_000+i,
+      rendezvousRetryCount:i%3,retryAt:Date.now()+60_000,
+    }))}));
+    await expect.poll(async()=>(await live.state()).merchantQueue.filter((job:any)=>job.reason==='inventory cleanout'&&job.target===target).length).toBe(1);
+    const collapsed=await live.state();
+    expect(collapsed.merchantQueue.find((job:any)=>job.reason==='inventory cleanout').rendezvousRetryCount).toBe(2);
+    await info.attach('collapsed-historical-cleanouts',{body:JSON.stringify(collapsed),contentType:'application/json'});
+    await live.post('/merchant/force-stand',{enabled:false});
+    await expect.poll(async()=>(await live.state()).merchantCurrent?.reason,{timeout:120_000}).toBe('inventory cleanout');
+    // Enable while a real party visit owns the merchant. Its bank-sale
+    // prerequisite must become visible before that visit finishes.
+    await live.post('/merchant/routine-priorities',{priorities:{},enabled:{'auto npc sales':true}});
+    await expect.poll(async()=>{
+      const state=await live.state();
+      samples.push({at:Date.now(),current:state.merchantCurrent,queue:state.merchantQueue,withdrawals:state.withdrawals[merchant]});
+      return state.merchantQueue.some((job:any)=>job.reason==='withdrawals'&&job.target===merchant&&job.priority===98)&&
+        state.withdrawals[merchant].filter((mark:any)=>mark.autoNpcRuleKey).length===4;
+    },{timeout:15_000}).toBe(true);
+    const native=()=>live.admin(`output=(async()=>{const p=get_player('${merchant}'),u=p.user||(await db.collection('user').findOne({_id:p.owner})).info;const items=[...p.items,...Object.entries(u).filter(([k,v])=>/^items\\d+$/.test(k)&&Array.isArray(v)).flatMap(([,v])=>v)].filter(Boolean);return {helmets:items.filter(i=>i.name==='helmet').length,smoke:items.filter(i=>i.name==='smoke').reduce((n,i)=>n+(i.q||1),0)}})()`);
+    await expect.poll(native,{timeout:240_000}).toEqual({helmets:2,smoke:150});
+    await expect.poll(async()=>{
+      const receipts=(await live.clients[merchant].events()).filter(entry=>entry.event==='game_response'&&entry.data?.place==='sell'&&entry.data.success===true);
+      return {helmets:receipts.filter(entry=>entry.data.item?.name==='helmet').length,smoke:receipts.filter(entry=>entry.data.item?.name==='smoke').reduce((n,entry)=>n+Number(entry.data.item.q||1),0)};
+    },{timeout:30_000}).toEqual({helmets:3,smoke:50});
+    await live.restartCoordinator();
+    expect(await native()).toEqual({helmets:2,smoke:150});
+    await expect.poll(async()=>{
+      const state=await live.state();
+      return Object.values(state.autoNpcSales).map((rule:any)=>({name:rule.item.name,keep:rule.keep})).sort((a:any,b:any)=>a.name.localeCompare(b.name));
+    }).toEqual([{name:'helmet',keep:2},{name:'smoke',keep:150}]);
+  } finally {
+    await info.attach('bank-sale-scheduling-native-evidence',{body:JSON.stringify({samples,state:await live.state(),events:await live.clients[merchant].events()}),contentType:'application/json'});
+  }
+});
+
 test('bank NPC sale rule withdraws native stock and respects disabled sales across restart', async ({ live }, info) => {
   test.setTimeout(240_000);
   const merchant = 'E2EMerchant';
-  await live.post('/merchant/routine-priorities', { priorities: {}, enabled: { 'auto npc sales': false, withdrawals: true } });
+  await live.post('/merchant/routine-priorities', { priorities: {}, enabled: { 'auto npc sales': false, withdrawals: false, 'party collection': false } });
   await live.admin(`output=(async()=>{const p=get_player('${merchant}');await db.collection('user').updateOne({_id:p.owner},{$set:{'info.items0.0':{name:'helmet',level:0},'info.items0.1':{name:'helmet',level:0,l:'l'}}});return true})()`);
   await live.post('/command', { character: merchant, type: 'bank' });
   await expect.poll(async () => (await live.state()).bank?.packs?.items0?.[0]?.item?.name, {timeout:90_000}).toBe('helmet');

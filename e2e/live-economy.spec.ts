@@ -247,11 +247,25 @@ test('unavailable upgrade estimate enforces its gold cap across native purchases
   try {
   await live.clients[merchant].page.route('**/party-api/merchant/checkpoint',async route=>{
     const body=route.request().postDataJSON();
-    if(held&&body.state&&typeof body.state==='object')await gate;
+    // Protection probes are not the fault target. Let the browser observe a
+    // real disconnect during restart instead of throwing from route.fetch.
+    if(!body.state||typeof body.state!=='object')return route.continue();
+    if(held){
+      await gate;
+      checkpoints.push(body.state);
+      // Once the paid checkpoint is durable, retire the proxy on release.
+      // Browser transport owns disconnect/reconnect against the restarted host.
+      return route.continue();
+    }
     const response=await route.fetch();
     if(body.state&&typeof body.state==='object') {
       checkpoints.push(body.state);
-      if(response.ok()&&!held&&Number(body.state.spent)>0&&!body.state.pendingPurchase){held=true;await gate;}
+      if(response.ok()&&!held&&Number(body.state.spent)>0&&!body.state.pendingPurchase){
+        held=true;await gate;
+        // The coordinator persisted this exact purchase before restart. Lose
+        // only its acknowledgement; never replay the completed checkpoint.
+        return route.abort('failed');
+      }
     }
     await route.fulfill({response});
   });
@@ -1358,6 +1372,25 @@ for (const kind of ['upgrade', 'compound']) test(`auto merchant collects twelve 
   await catalog(live,'helmet'); // Catalog readiness; ringsj is loot-only stock.
   if(kind==='compound') await live.clients[merchant].run(`(()=>{
     globalThis.__e2eCompoundOutcomes=[];
+    // Failure inventory: the native promise resolves before its final player
+    // inventory arrives; a placeholder is journaled as failure and the finite
+    // quota is never consumed. Delay only this operation's terminal inventory,
+    // preserving the real response, items and order of subsequent player frames.
+    const socket=parent.socket,onevent=socket.onevent,pending=[];
+    const fault=globalThis.__e2eCompoundPublication={heldAt:null,releasedAt:null,frames:0};
+    let timer;
+    fault.release=()=>{if(fault.releasedAt!==null)return;clearTimeout(timer);fault.releasedAt=Date.now();for(const packet of pending.splice(0))onevent.call(socket,packet);};
+    socket.onevent=function(packet){
+      const [event,data]=packet.data||[];
+      if(event==='player'&&fault.releasedAt===null){
+        if(fault.heldAt===null&&Array.isArray(data?.items)&&!data.q?.compound&&data.items.some(item=>item?.name==='ringsj'&&item.level===1)){
+          fault.heldAt=Date.now();timer=setTimeout(fault.release,750);
+        }
+        if(fault.heldAt!==null){pending.push(packet);fault.frames++;return;}
+      }
+      return onevent.call(socket,packet);
+    };
+    fault.restore=()=>{fault.release();socket.onevent=onevent;};
     parent.socket.on('game_response',data=>{
       const response=typeof data==='string'?data:data&&data.response;
       if(response==='compound_success'||response==='compound_fail')
@@ -1394,6 +1427,10 @@ for (const kind of ['upgrade', 'compound']) test(`auto merchant collects twelve 
     :'Native inventory must confirm exactly one finite upgrade result after collection and return travel'}).toBe(true);
   const completed=await count();
   if(kind==='compound') {
+    const publication=await live.clients[merchant].run('({heldAt:__e2eCompoundPublication.heldAt,releasedAt:__e2eCompoundPublication.releasedAt,frames:__e2eCompoundPublication.frames})');
+    expect(publication.heldAt).not.toBeNull();
+    expect(publication.releasedAt-publication.heldAt).toBeGreaterThanOrEqual(750);
+    expect(publication.frames).toBeGreaterThan(0);
     const outcomes=await live.clients[merchant].run('globalThis.__e2eCompoundOutcomes');
     const successes=outcomes.filter((event:any)=>event.response==='compound_success').length;
     const failures=outcomes.filter((event:any)=>event.response==='compound_fail').length;
@@ -1408,10 +1445,11 @@ for (const kind of ['upgrade', 'compound']) test(`auto merchant collects twelve 
   expect(afterRestart.length).toBe(completed.length);
   expect(afterRestart.filter(item=>item?.level===1).length).toBe(1);
   } finally {
+    const compoundPublication=kind==='compound'?await live.clients[merchant].run('(()=>{const f=globalThis.__e2eCompoundPublication;f.restore();return {heldAt:f.heldAt,releasedAt:f.releasedAt,frames:f.frames};})()'):undefined;
     live.clients[merchant].page.off('request',observeHandoff);
     live.clients[merchant].page.off('response',observeHandoffResponse);
     await Promise.all(handoffResponses);
-    await info.attach('auto-merchant-finite-processing-native',{body:JSON.stringify({kind,declaredNativeIngredients:12,admission,handoffs,state:await live.state(),inventory:await economy(live),
+    await info.attach('auto-merchant-finite-processing-native',{body:JSON.stringify({kind,compoundPublication,declaredNativeIngredients:12,admission,handoffs,state:await live.state(),inventory:await economy(live),
       compoundOutcomes:kind==='compound'?await live.clients[merchant].run('globalThis.__e2eCompoundOutcomes'):undefined,
       events:await live.clients[merchant].events(),ownerEvents:await live.clients[owner].events()}),contentType:'application/json'});
   }

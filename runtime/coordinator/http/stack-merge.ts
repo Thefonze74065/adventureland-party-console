@@ -6,6 +6,7 @@ interface Merge {
   to: unknown;
   source: Item;
   target: Item;
+  quantity?: number;
 }
 interface StackMergeState {
   merchantCharacter: string | null;
@@ -15,7 +16,7 @@ interface StackMergePorts {
   now(): number;
   anniversary(): { reserved?: unknown; busy?: unknown };
   bankboiBusy(): boolean;
-  plan(): Merge | null | false;
+  plan(boundary?: {jobId?: unknown; commandId?: unknown; command?: unknown}): Merge | null | false;
   identity(item: unknown): unknown;
 }
 export function createStackMergeRoute(state: StackMergeState, ports: StackMergePorts) {
@@ -32,7 +33,7 @@ export function createStackMergeRoute(state: StackMergeState, ports: StackMergeP
     );
   }
   function matches(planned: Merge, proposed: Record<string, unknown>): boolean {
-    if (planned.from !== proposed.from || planned.to !== proposed.to) return false;
+    if (planned.from !== proposed.from || planned.to !== proposed.to || planned.quantity !== proposed.quantity) return false;
     return (["source", "target"] as const).every(
       (key) =>
         ports.identity(planned[key]) === ports.identity(proposed[key]) &&
@@ -41,9 +42,10 @@ export function createStackMergeRoute(state: StackMergeState, ports: StackMergeP
   }
   return function merge(req: HttpRequest, res: HttpResponse): unknown {
     const body = requestObject(req.body),
-      planned = permitted(body) && ports.plan();
+      planned = permitted(body) && ports.plan(body);
     return res.json({
       allowed: !!(planned && body.merge && matches(planned, requestObject(body.merge))),
+      ...(body.next ? {merge: planned || null} : {}),
     });
   };
 }

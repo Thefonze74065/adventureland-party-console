@@ -18,6 +18,8 @@ function createRareCombat(party, members, realm) {
     busy: () => !!party.groupedCombat?.fights?.length,
     killed: sight => !!party.groupedCombat?.deaths?.some(d => same(d, sight)),
     claimed: sight => !!party.groupedCombat?.claims?.some(c => same(c,sight) && c.external),
+    releasedForTravel: (sight, since) => !!party.groupedCombat?.lostTargets?.some(t =>
+      same(t,sight) && t.retiredAt >= since && t.reason === 'released for travel; no current attacker'),
     rejected(sight) {
       const g=party.groupedCombat,c=party.activeConvoy?.huntTravel;
       const server=Object.values(party.statuses).find(s=>realm(s)===sight.realm)?.server || sight.realm.split(':').at(-1);

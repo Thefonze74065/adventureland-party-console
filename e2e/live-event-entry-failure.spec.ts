@@ -93,3 +93,30 @@ test(`native event entry recovers ${fault}`,async({live},info)=>{
   }
 });
 }
+
+test('ended A/B arena reconnects once and completes native Main recovery',async({live},info)=>{
+  test.setTimeout(360_000);
+  await live.post('/formation',{leader:W});
+  await live.post('/formation',{character:W,eventSelections:['abtesting']});
+  await live.admin(`events.abtesting=true;delete timers.abtesting;output=true`);
+  const observations:any[]=[];
+  try{
+    await expect.poll(async()=>{const s=await live.state('fast');return s.characters[W]?.map;},{timeout:90_000}).toBe('abtesting');
+    // Declare the stranded native instance left by prize settlement failure.
+    // Keep actual server exit validation, login restoration and all transport native.
+    const stranded=await live.admin(`events.abtesting=false;timers.abtesting=false;delete E.abtesting;broadcast_e();output={instance:!!instances.abtesting,map:get_player('${W}').map}`);
+    expect(stranded).toEqual({instance:true,map:'abtesting'});
+    await expect.poll(async()=>{
+      const s=await live.state();const c=s.characters[W];
+      observations.push({at:Date.now(),map:c?.map,recovery:c?.eventRecovery,progress:s.returnProgress?.[W],eventReturn:s.eventReturn});
+      if(observations.length>150)observations.splice(1,1);
+      return c?.map==='main'&&Date.now()-c.seenAt<3000&&!s.eventReturn;
+    },{timeout:240_000,message:'Ended native A/B must recover through one same-realm reconnect and clear the return barrier'}).toBe(true);
+    const native=await live.admin(`output=(()=>{const p=get_player('${W}');return {map:p.map,x:p.x,y:p.y}})()`);
+    expect(native.map).toBe('main');
+    expect(Math.hypot(native.x,native.y)).toBeLessThan(150);
+    await info.attach('native-abtesting-ended-recovery',{body:JSON.stringify({stranded,observations,native,final:await live.state()}),contentType:'application/json'});
+  }finally{
+    await live.post('/formation',{character:W,eventSelections:[]});
+  }
+});

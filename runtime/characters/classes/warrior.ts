@@ -41,6 +41,7 @@ export const role: Partial<Role> = {
     return partyTarget();
   },
   beforeAttack: async function (target) {
+    if (await sharedRoutine.skillOffense?.(target)) return true;
     // Boss movement belongs solely to approach-and-hold, including scatter mode.
     if (sharedRoutine.bossCombatActive?.()) {
       // An off-tank (not currently the boss's target) mitigates its damage with

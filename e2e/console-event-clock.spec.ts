@@ -37,10 +37,16 @@ test('Trick or Treat shows character allowance and honest shared account counts'
   await info.attach('trick-or-treat-knocks-remaining',{body:await page.screenshot({animations:'disabled'}),contentType:'image/png'});
   await send('P',[0,1],0);
   await expect(row).toContainText('Character: 0/7');await expect(row).toContainText('Account: 0/14');
+  // Restart can briefly publish a partial roster and unmount this popover.
+  // Close it deliberately, then verify the recovered character view separately.
+  await page.keyboard.press('Escape');await expect(row).toHaveCount(0);
   await page.unrouteAll({behavior:'wait'});
   await app.restartCoordinator();await send('W',[0,1,2,3,4,5,6],0);await send('P',[0,1],0);
   await page.route('**/party-api/state*',async route=>{await publish();await route.continue();});
   await expect.poll(async()=> {await publish();return (await app.state()).eventSchedules.find((e:any)=>e.id==='trickortreat')?.trickOrTreat?.characters?.P?.accountRemainingUpperBound;}).toBe(0);
+  await page.reload();
+  row=await open('P');
+  await expect(row).toContainText('Character: 0/7');await expect(row).toContainText('Account: 0/14');
   const tomorrow=new Date(Date.now()+86400000).toISOString().slice(0,10);
   await page.clock.setFixedTime(new Date(tomorrow+'T00:00:01Z'));
   await expect(row).toContainText('Character: —/7');await expect(row).toContainText('Account: —/14');

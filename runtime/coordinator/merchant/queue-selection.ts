@@ -67,7 +67,7 @@ export function coordinatorCollectionReady(
   if (!offeringCollectionReady(state, job)) return false;
   if (!offeringSupplyReady(state, job)) return false;
   if (merchantMovementBlocked(state, job)) return false;
-  if (job.reason === 'bank collection' || job.reason === 'withdrawals') return bankCollectionReason(state) === job.reason;
+  if (['bank collection', 'withdrawals', 'auto npc withdrawals'].includes(job.reason)) return bankCollectionReason(state) === job.reason;
   const reason = pickupReason(job.reason, job.target, state.merchantCharacter);
   if (!isItemCollection(reason)) return true;
   if (job.exchangeDeliveryId) return exchangeCollectionReady(state, job, reason, now());

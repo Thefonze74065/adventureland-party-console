@@ -3,6 +3,8 @@ import type { MerchantWork } from "../merchant/work.ts";
 import type { queueExchangeStorage } from "../inventory/exchange-storage.ts";
 import { exchangeRewardAction, type AutomaticActionState } from '../inventory/automatic-action.ts';
 import {createOfferingSupplyRoute} from '../inventory/offering-supply.ts';
+import {autoItemRuleKey} from '../inventory/item-identity.ts';
+import {ruleOwner} from '../inventory/shared-rules.ts';
 import type {UpgradeOffering} from '../../upgrade-offerings.ts';
 
 interface ExchangeChoice {
@@ -66,11 +68,18 @@ export function createMerchantExchangeRoutes(state: ExchangeState, ports: Exchan
     job.exchanges = body.remaining;
     job.exchangeRewards = body.rewards;
     job.exchangeResume = true;
-    ports.persist();
-    return res.json({ ok: true, rewardActions: body.rewards.map(raw => {
+    const rewardActions = body.rewards.map(raw => {
       const item = requestObject(raw);
-      return { item, action: exchangeRewardAction(state, item) };
-    }) });
+      const action = exchangeRewardAction(state, item);
+      if (action === 'bank' && typeof item.name === 'string' && item.name) {
+        const owner = ruleOwner(state, String(state.merchantCharacter));
+        const rules = (state.autoItemMarks ||= {})[owner] ||= {};
+        rules[autoItemRuleKey(item)] = 'bank';
+      }
+      return { item, action };
+    });
+    ports.persist();
+    return res.json({ ok: true, rewardActions });
   }
 
   function supply(req: HttpRequest, res: HttpResponse): unknown {

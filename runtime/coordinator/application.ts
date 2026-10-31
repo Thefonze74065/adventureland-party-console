@@ -185,7 +185,7 @@ export function startCoordinatorApplication(
         // A metrics disk/startup failure must not stop character coordination.
         // Preserve the original history and expose an unavailable endpoint.
         log.warn({ error }, 'Metrics storage unavailable; party coordination continues');
-        return { close() {}, install(router: HttpRouter) {
+        return { close() { return Promise.resolve(); }, install(router: HttpRouter) {
           const unavailable: HttpHandler = (_request, response) => response.status(503).json({ error: 'Metrics storage unavailable' });
           router.get('/party-api/metrics', unavailable); router.post('/party-api/metrics', unavailable);
           router.post('/party-api/metrics/reset', unavailable);
@@ -306,7 +306,7 @@ export function startCoordinatorApplication(
       character_manage,
       {
         now: () => Date.now(),
-        plan: () => bankStackRouting.servicePlan(party),
+        plan: () => consoleUpdate.blocksMerchant() ? null : bankStackRouting.servicePlan(party),
         assignSlot: assignHeadlessSlot,
         stop: (block) => softkill_block(block),
         persistRoster: persistRosterState,
@@ -849,7 +849,7 @@ export function startCoordinatorApplication(
       dispatch: dispatchMerchant,
       anniversary: merchantAnniversaryControl,
       bankboiBusy: () => bankboiService.busy(),
-      plan: (state, status) => merchantInventoryStacks.plan(state, status),
+      plan: (state, status, boundary) => merchantInventoryStacks.plan(state, status, boundary),
       identity: bankStackRouting.identity,
     });
     const {
@@ -2407,7 +2407,8 @@ export function startCoordinatorApplication(
                 primStacks.install(router);
                 failStacks.install(router);
                 router.get('/party-api/console-maintenance', (_req, res) => res.json(consoleUpdate.status(party.statuses,
-                  [...party.headlessSlots, ...party.steamMembers], !!party.steamSwitch && party.steamSwitch.phase !== 'complete')));
+                  [...party.headlessSlots, ...party.steamMembers], !!party.steamSwitch && party.steamSwitch.phase !== 'complete',
+                  Object.entries(character_manage).filter(([, block]) => block.enabled === false && block.connected === false && !block.instance).map(([name]) => name))));
                 const codeActivation = () => {
                   try { return String(JSON.parse(fs_regular.readFileSync(__dirname + '/../CODE/adventure_land/activation.json', 'utf8')).id || '') || null; }
                   catch { return null; }

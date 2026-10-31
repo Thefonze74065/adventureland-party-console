@@ -20,6 +20,8 @@ export interface HeartbeatStatus {
   x?: number;
   y?: number;
   seenAt?: number;
+  /** Latest coordinator command accepted by this client, before native completion. */
+  lastCommandId?: number;
   /** Hash of the compiled character artifact actually executing this heartbeat. */
   codeHash?: string | null;
   combat?: { kiting?: boolean };
@@ -78,6 +80,7 @@ export const heartbeatStateFields = [
 ] as const;
 
 export interface HeartbeatState extends Record<(typeof heartbeatStateFields)[number], unknown> {
+  nextCommandId: number;
   eventLimitsByCharacter?: import('../../../dashboard/lib/event-policy.ts').EventFormation['eventLimitsByCharacter'];
   eventSelectionsByCharacter?: Record<string, string[]>;
   dailyDungeons?: import("../../dungeons/contracts.ts").DungeonState;

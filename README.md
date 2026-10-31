@@ -29,7 +29,9 @@ Use `Start.cmd` from the extracted release ZIP. The repository's `distribution/S
 
 Use this option to work on the code. These launchers provide update notifications only; switching Git branches does not enable automatic installation.
 
-Install Git and Node **22.18+**. Run these commands in PowerShell.
+Install Git and Node **26.12.1+**. Run these commands in PowerShell.
+
+Node 26.12.1 is the minimum security baseline for CVE-2026-111497 (the Brotli decoder vulnerability). CI, Docker images and the packaged Windows launcher pin this release. Existing source installations must upgrade their Node runtime separately; staging a console build does not replace Node or restart running processes.
 
 1. Clone the repository:
 
@@ -110,7 +112,7 @@ Install Git and Docker with Compose. Raspberry Pi requires a **64-bit OS**.
 
 ### Linux terminal
 
-Use a **64-bit Linux system (x64 or arm64)**, including a Raspberry Pi with a 64-bit OS. Install Node **22.18+**, npm, Git, tar, and util-linux (which provides `flock`). Run the launcher as your normal user, without `sudo`.
+Use a **64-bit Linux system (x64 or arm64)**, including a Raspberry Pi with a 64-bit OS. Install Node **26.12.1+**, npm, Git, tar, and util-linux (which provides `flock`). Run the launcher as your normal user, without `sudo`.
 
 1. Clone the repository:
 
@@ -150,7 +152,7 @@ ALData provides public market and Ponty listings without a key. Authentication l
 
 For Windows development, start with `.\scripts\start-console.ps1 -DevDashboard`. Dashboard edits reload automatically; character edits rebuild and publish automatically. Edit source files, not generated bundles.
 
-For a full Windows rebuild and publication, stop the launcher and rerun `.\scripts\start-console.ps1`. For coordinator-only changes, use `.\scripts\start-console.ps1 -CoordinatorOnly`; this rebuilds and restarts services while preserving installed character assets.
+On startup, Party Console selects the newest completed console artifact and deploys it with readiness checks and rollback. Stop the launcher and rerun `.\scripts\start-console.ps1` to pick up staged artifacts. The legacy `-CoordinatorOnly` switch remains accepted; startup selects a complete artifact.
 
 For native Linux development, use `./scripts/start-console.sh`. Dashboard and character edits reload automatically. After coordinator, hosting, or dependency changes (including a `git pull` containing them), press Ctrl+C and run it again to rebuild and restart. The launcher does not automatically restart the coordinator during gameplay.
 

@@ -32,7 +32,7 @@ test('Tracktrix shows acquisition cost; tokens show guaranteed selectable reward
   const price = render({id:'tracker',exchanges:[token]});
   assert.match(price,/Exchange price/);assert.match(price,/4 × Monster Token/);assert.doesNotMatch(price,/Exchange reward/);
   const reward = render({id:'monstertoken',exchanges:[token]});
-  assert.match(reward,/Exchange reward/);assert.match(reward,/1 × Tracktrix/);assert.match(reward,/100%/);
+  assert.match(reward,/Exchange drops/);assert.match(reward,/1 × Tracktrix/);assert.match(reward,/100%/);
   assert.equal(render({id:'tracker',level:1,exchanges:[token]}),'');
 });
 test('boxes label actual rewards and display tiny probabilities without rounding them to zero', () => {
@@ -46,9 +46,9 @@ test('Reward in finds both direct and nested box rewards, with sprites and perce
   const catalog=ids.map(id=>({id,meta:{definition:game.G.items[id]}}));
   const exchanges=ids.map(id=>({id,key:id+'@0',level:0,name:game.G.items[id].name,required:1,sprite,results:exchangeRewards(game.G,id)}));
   const html=render({id:'hhelmet',catalog,exchanges});
-  assert.match(html,/Reward in/);assert.match(html,/Armor Box/);assert.match(html,/Mystery Box/);
-  assert.match(html,/15\.065427%/);assert.match(html,/box\.png/);
-  assert.doesNotMatch(render({id:'hhelmet',level:1,catalog,exchanges}),/Reward in/);
+  assert.match(html,/Exchange reward/);assert.match(html,/Armor Box/);assert.match(html,/Mystery Box/);
+  assert.match(html,/15\.0654%/);assert.match(html,/box\.png/);
+  assert.equal(render({id:'hhelmet',level:1,catalog,exchanges}),html,'Upgraded equipment retains its base-item acquisition sources');
 });
 
 test('Reward in includes non-box exchanges with their required quantity and reward odds', () => {
@@ -58,9 +58,9 @@ test('Reward in includes non-box exchanges with their required quantity and rewa
   assert.ok(dexterity, 'seashell exchange awards a dexterity elixir');
   const sprite={url:'/seashell.png',columns:1,rows:1,x:0,y:0};
   const html=render({id:dexterity.id,exchanges:[{id:'seashell',key:'seashell@0',level:0,name:definition.name,required:definition.e,sprite,results}]});
-  assert.match(html,/Reward in/);assert.match(html,/20 × Seashell/);
+  assert.match(html,/Exchange reward/);assert.match(html,/20 × Seashell/);
   assert.match(html,/seashell\.png/);
-  assert.ok(html.includes(`${Number((dexterity.chance*100).toFixed(6))}%`));
+  assert.ok(html.includes(`${(dexterity.chance*100).toLocaleString('en-US',{maximumSignificantDigits:6})}%`));
   assert.doesNotMatch(html,/per box opened/);
 });
 
@@ -73,7 +73,7 @@ test('Reward in combines alternate quantities, excludes token shops, and navigat
   const html=render(props);assert.match(html,/50%/);
   let root;const calls=[];
   await renderer.act(async()=>{root=renderer.create(React.createElement(ItemExchangeDetails,{...props,onInspect:(...args)=>calls.push(args)}));});
-  const section=root.root.findAllByType('section').find(s=>s.findByType('h3').children.join('')==='Reward in');
+  const section=root.root.findAllByType('section').find(s=>s.findByType('h3').children.join('')==='Exchange reward');
   assert.equal(section.findAllByType('button').length,1);
   await renderer.act(async()=>section.findByType('button').props.onClick());
   assert.equal(calls[0][0],'testbox');assert.equal(calls[0][2],0);

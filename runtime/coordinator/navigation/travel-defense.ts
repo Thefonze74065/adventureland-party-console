@@ -43,9 +43,15 @@ function current(t: CurrentAttacker, status: Observation, names: string[]): bool
 // that fight. Holding the convoy would stop a leader that cannot reach it
 // (live 2026-10-21 05:28Z: leader held in main while followers fought
 // Mr. Pumpkin in halloween).
-function eventBossElsewhere(t: CurrentAttacker, status: Observation, leader: Observation | undefined, now: number): boolean {
-  if (!leader || !fresh(leader.seenAt, now) || !leader.map || !status.map || !status.server || status.server !== leader.server || !t.mtype || !status.serverLiveEvents?.some(event => event?.name === t.mtype)) return false;
+function liveEventAttacker(t: CurrentAttacker, status: Observation): boolean {
+  return !!t.mtype && !!status.serverLiveEvents?.some(event => event?.name === t.mtype);
+}
+function differentEventLocation(status: Observation, leader: Observation): boolean {
   return status.map !== leader.map || String(status.in ?? status.map) !== String(leader.in ?? leader.map);
+}
+function eventBossElsewhere(t: CurrentAttacker, status: Observation, leader: Observation | undefined, now: number): boolean {
+  if (!leader || !fresh(leader.seenAt, now) || !leader.map || !status.map || !status.server || status.server !== leader.server || !liveEventAttacker(t, status)) return false;
+  return differentEventLocation(status, leader);
 }
 /** The member's only attackers are live event bosses, a map away from the leader. */
 export function eventFightElsewhere(party: DefenseState, name: string, now = Date.now()): boolean {

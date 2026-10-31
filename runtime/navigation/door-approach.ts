@@ -46,8 +46,15 @@ function transporterPoints(ports: ValidationPorts, from: Point, to: Step): Point
 }
 /** Choose a native collision-clear point inside the existing transporter interaction radius. */
 export function transporterApproach(ports: ValidationPorts, from: Point, to: Step): Point | undefined {
-  return transporterPoints(ports,from,to).sort((a,b)=>distance(from,a)-distance(from,b))
-    .find(point=>ports.walk(point,point)&&!stepIssue(ports,point,to,true));
+  const candidates=transporterPoints(ports,from,to).sort((a,b)=>distance(from,a)-distance(from,b))
+    .filter(point=>ports.walk(point,point)&&!stepIssue(ports,point,to,true));
+  const landingId=ports.game.npcs.transporter?.places[from.map];
+  const landing=typeof landingId==='number' ? ports.game.maps[from.map]?.spawns[landingId] : undefined;
+  // Native line collision accepts a stationary footprint inside enclosed
+  // scenery. Prefer a connector from the actor or the transporter's actual
+  // landing spawn, so an Inn exit cannot repeatedly target that empty pocket.
+  return candidates.find(point=>ports.walk(from,point)||!!landing&&
+    ports.walk({map:from.map,x:landing[0],y:landing[1]},point)) || candidates[0];
 }
 function connector(ports: ValidationPorts, from: Point, to: Step): Point | undefined {
   return approaches(ports, from, to)

@@ -66,6 +66,23 @@ test('rare handoff stops empty-zone search while the combat group selects its ta
  assert.equal(r.calls(),2,'ordinary zone search resumes after rare ownership ends');
 });
 
+// Failure inventory from the native hen return: defense may retain an engaged
+// but rejected target after selection clears; isOccupied can therefore be false.
+// Empty-zone movement must stay blocked, actual target approach must still work,
+// and ordinary farm search must resume after the convoy releases ownership.
+test('convoy defense retains movement when combat selection clears',()=>{
+ const r=movement(),moves=[];
+ r.c.move=(x,y)=>{moves.push({x,y});return Promise.resolve();};r.c.can_move_to=()=>true;
+ r.c.partyConvoyActive=true;r.c.convoyTraveling={id:'hen-return',defensePaused:true};r.c.__partyConvoyDefense='hen-return';
+ assert.equal(r.c.recoverFarmApproach(null),true);
+ assert.deepEqual(moves,[],'No empty-zone move may leave the defensive loot checkpoint');
+ assert.equal(r.c.recoverFarmApproach(r.target),false);
+ r.now(11600);assert.equal(r.c.recoverFarmApproach(r.target),true);
+ assert.equal(moves.length,1,'The same convoy still permits approaching a selected defensive target');
+ r.c.partyConvoyActive=false;r.c.convoyTraveling=null;r.c.__partyConvoyDefense=null;
+ r.c.recoverFarmApproach(null);assert.equal(moves.length,2,'Ordinary farm search resumes after release');
+});
+
 test('target outside priest spacing does not convoy when already attackable or still approaching',()=>{
  const r=movement();let requests=0;
  r.c.groupedFarming=()=>true;r.c.groupedCombat={anchor:{x:0,y:0},range:100};

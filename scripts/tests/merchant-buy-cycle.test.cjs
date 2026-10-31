@@ -137,6 +137,7 @@ test('buy command releases an idle stand operation and closes the stand before s
     request:async(path,{body})=>{calls.push([path,body]);},setInterval:()=>1,clearInterval(){},
     stop:async()=>{calls.push('stop');c.merchantIdleActive=false;},
     close_stand:async()=>{calls.push('close');c.character.stand=false;},recoverProductionJournal:async()=>calls.push('recover'),
+    bankStacks:null,compressMerchantInventory:async()=>{},
     freeInventorySlots:()=>42,merchantLuckyUpgrade:()=>({tidy:()=>assert.fail('must not relocate a pending upgrade outcome')}),
     setGathering:mode=>calls.push(mode),game_log(){},setTimeout:fn=>fn()});
   vm.runInContext(namedFunction(source,'runMerchantJob'),c);

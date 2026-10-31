@@ -187,3 +187,21 @@ test('timed-out collection releases reservation, stops its route and backs off',
  assert.equal(moves.length,3);assert.deepEqual(moves.slice(1),['stop','wake']);
  await c.runAnniversaryHandoff();assert.equal(moves.length,3);
 });
+
+// Failure inventory: finishing a cancelled cast can rotate the gathering mode
+// and invalidate the very manual equip waiting for its release. The handoff
+// must retain its generation until inventory ownership ends; normal rotation
+// must resume afterward and genuinely superseded handoffs must remain fenced.
+test('manual inventory ownership survives gathering mode rotation at cast release',async()=>{
+ const {c,switches}=fixture(),work=c.gatheringTick(1);await casting(c);
+ c.gatheringCooldowns.fishing=Date.now()+10000;
+ c.setGathering=mode=>{switches.push(mode);c.gatheringMode=mode;c.root.__merchantGatheringGeneration++;};
+ c.root.__partyInventoryCommands=1;
+ const accepted=await c.gatheringCommandHandoff({type:'equip',id:42});await work;
+ assert.equal(accepted,true);
+ assert.equal(c.root.__merchantGatheringGeneration,1);
+ assert.deepEqual(switches,[]);
+ c.root.__partyInventoryCommands=0;c.selectGatheringMode();
+ assert.deepEqual(switches,['mining']);
+ assert.equal(c.root.__merchantGatheringGeneration,2);
+});

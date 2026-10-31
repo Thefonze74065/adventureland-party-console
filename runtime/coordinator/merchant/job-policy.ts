@@ -11,8 +11,9 @@ interface BankCapacity {
 }
 interface PriorityState<Bid extends { priorityOverride?: number }> extends BankCapacity {
   merchantRoutinePriorities: Record<string, number>;
+  merchantAutomations?: Record<string, boolean | undefined>;
   standBids?: Record<string, Bid> | null;
-  withdrawals: Record<string, { pack?: string; slot?: number; improvement?: string }[] | undefined>;
+  withdrawals: Record<string, { pack?: string; slot?: number; improvement?: string; autoNpcRuleKey?: string }[] | undefined>;
 }
 interface InventoryCapacity extends BankCapacity {
   statuses: Record<string, { items?: unknown } | undefined>;
@@ -39,11 +40,18 @@ export function coordinatorMerchantPriority<Bid extends { priorityOverride?: num
   state: PriorityState<Bid>,
   job: PrioritizedJob,
 ): number {
-  return merchantJobPriority(job, {
+  const policy = {
     routines: state.merchantRoutinePriorities,
     bids: state.standBids || {},
-    completesStorageHandoff: (candidate) => completesStorageHandoff(state, candidate),
-  });
+    completesStorageHandoff: (candidate: PrioritizedJob) => completesStorageHandoff(state, candidate),
+  };
+  const priority = merchantJobPriority(job, policy);
+  // Retrieval is a dependency of the sale. Keep the withdrawal/threshold
+  // enable gates intact, but do not let unrelated party work invert priority.
+  if (job.target !== state.merchantCharacter || !['withdrawals', 'bank collection'].includes(job.reason) ||
+      state.merchantAutomations?.['auto npc sales'] === false ||
+      !(state.withdrawals[String(state.merchantCharacter)] || []).some(mark => mark.autoNpcRuleKey && hasMarkedWithdrawals([mark]))) return priority;
+  return Math.max(priority, merchantJobPriority({reason: 'auto npc sales'}, policy));
 }
 
 export function coordinatorPrioritizedBids<Bid extends { priorityOverride?: number }>(

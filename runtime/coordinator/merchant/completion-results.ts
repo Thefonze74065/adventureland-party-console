@@ -53,25 +53,33 @@ export function createCompletionResults(state: CompletionState, ports: Completio
       else state.upgrades[String(name)] = [];
     }
   }
+  type StatReceipt = NonNullable<CompletionReport['statScrollsApplied']>[number];
+  function appliedStatOriginal(receipt: StatReceipt): Record<string, unknown> | undefined {
+    const mark=requestObject(receipt.mark), original=requestObject(mark.item), actual=receipt.item;
+    if (mark.equipped || !Number.isSafeInteger(receipt.slot) || typeof mark.statType!=='string' || actual.stat_type!==mark.statType) return;
+    const previous:Item={...actual};
+    if(typeof original.stat_type==='string') previous.stat_type=original.stat_type;
+    else delete previous.stat_type;
+    if (deliveryMatches(previous,original) && deliveryMatches(original,previous)) return original;
+  }
+  function advanceStatDeliveries(receipt: StatReceipt, original: Record<string, unknown>, readyRecipients: Set<string>): void {
+    const mark=requestObject(receipt.mark);
+    // Only observed native mutation advances an item's reserved delivery identity.
+    for(const [recipient,deliveries] of Object.entries(state.merchantDeliveries)) for(const delivery of deliveries || []) {
+      if ((delivery.slot===mark.slot || delivery.slot===receipt.slot) && deliveryMatches(delivery.item,original) && deliveryMatches(original,delivery.item)) {
+        delivery.item={...receipt.item};delivery.slot=receipt.slot;
+        if(delivery.blocked==='Reserved delivery item missing') delete delivery.blocked;
+        if(deliveryReady(delivery)) readyRecipients.add(recipient);
+      }
+    }
+  }
   function appliedStatReceipts(name: string | null, body: CompletionReport): void {
     if (name !== state.merchantCharacter) return;
     const readyRecipients=new Set<string>();
     for (const receipt of body.statScrollsApplied || []) {
-      const mark=requestObject(receipt.mark), original=requestObject(mark.item), actual=receipt.item;
-      if (mark.equipped || !Number.isSafeInteger(receipt.slot) || typeof mark.statType!=='string' || actual.stat_type!==mark.statType) continue;
-      const previous:Item={...actual};
-      if(typeof original.stat_type==='string') previous.stat_type=original.stat_type;
-      else delete previous.stat_type;
-      if (!deliveryMatches(previous,original) || !deliveryMatches(original,previous)) continue;
-      // Cleanup of stale marks is not a native outcome. Only this explicit,
-      // observed mutation can advance an item's reserved delivery identity.
-      for(const [recipient,deliveries] of Object.entries(state.merchantDeliveries)) for(const delivery of deliveries || []) {
-        if ((delivery.slot===mark.slot || delivery.slot===receipt.slot) && deliveryMatches(delivery.item,original) && deliveryMatches(original,delivery.item)) {
-          delivery.item={...actual};delivery.slot=receipt.slot;
-          if(delivery.blocked==='Reserved delivery item missing') delete delivery.blocked;
-          if(deliveryReady(delivery)) readyRecipients.add(recipient);
-        }
-      }
+      const original = appliedStatOriginal(receipt);
+      if (!original) continue;
+      advanceStatDeliveries(receipt, original, readyRecipients);
       removeMatching(state.statScrolls[String(name)],[receipt.mark]);
     }
     // The dependency gate may have retired an empty delivery job. Native stat

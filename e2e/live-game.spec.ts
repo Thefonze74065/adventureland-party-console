@@ -253,9 +253,11 @@ test.describe('real server, native clients, maintained character runtime', () =>
       const events=await live.clients[P].events();
       const receipt=events.find((event:any)=>event.event==='new_map'&&event.at>=seed.at&&event.data?.name===spawn.map&&event.data?.effect===1);
       expect(receipt,'The first real cast must produce a Town transport').toBeTruthy();
-      const channelHeals=events.filter((event:any)=>event.at>=seed.at&&event.at<=receipt.at&&event.event==='hit'&&event.data?.hid===P&&event.data?.source==='heal');
-      const starts=events.filter((event:any)=>event.at>=seed.at&&event.at<=receipt.at&&event.event==='game_response'&&event.data?.place==='town'&&event.data?.in_progress);
-      await info.attach('native-town-healing-channel',{body:JSON.stringify({seed,receipt,channelHeals,starts}),contentType:'application/json'});
+      // Native transport and a later heal can share one ChronAL window timestamp.
+      // End the channel at its transport receipt's sequence, not an inclusive time.
+      const channelHeals=events.filter((event:any)=>event.at>=seed.at&&event.sequence<receipt.sequence&&event.event==='hit'&&event.data?.hid===P&&event.data?.source==='heal');
+      const starts=events.filter((event:any)=>event.at>=seed.at&&event.sequence<receipt.sequence&&event.event==='game_response'&&event.data?.place==='town'&&event.data?.in_progress);
+      await info.attach('native-town-healing-channel',{body:JSON.stringify({seed,receipt,channelHeals,starts,postArrivalHeals:events.filter((event:any)=>event.sequence>receipt.sequence&&event.at===receipt.at&&event.event==='hit'&&event.data?.hid===P&&event.data?.source==='heal')}),contentType:'application/json'});
       expect(channelHeals,'Routine heals must not cancel Town channeling').toEqual([]);
       expect(starts.length,'No second Town request may be needed after the declared injury').toBeLessThanOrEqual(1);
       expect(receipt.at-seed.at,'The original three-second native cast must finish without a walking fallback').toBeLessThan(8000);

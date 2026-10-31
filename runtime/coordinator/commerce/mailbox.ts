@@ -15,24 +15,62 @@ export function initialMailbox(value:unknown):MailboxState {
 export function createMailbox(inner:MailInbox,state:{mailbox?:MailboxState},ports:{now():number;persist():void;collecting(id:string):boolean}):MailInbox {
   const saved=state.mailbox ||= initialMailbox(undefined);
   let flight:Promise<unknown>|undefined;
-  let automationError:string|null=null;
+  const failures=new Map<string,{id:string;action:'collect'|'delete';error:string}>();
   const retryAt=new Map<string,number>();
   const messages=()=>{const inbox=requestObject(inner.snapshot());return (Array.isArray(inbox.messages)?inbox.messages:[]).map(requestObject);};
-  function snapshot(){const inbox=requestObject(inner.snapshot()),seen=new Set(saved.seenIds);return {...inbox,error:inbox.error||automationError,settings:{...saved.settings},outbox:saved.outbox.map(m=>({...m})),newCount:messages().filter(m=>typeof m.id==='string'&&!seen.has(m.id)).length};}
+  function snapshot(){
+    const inbox=requestObject(inner.snapshot()),seen=new Set(saved.seenIds),automationErrors=[...failures.values()];
+    return {...inbox,automationError:automationErrors.length?automationErrors.map(failure=>
+      `Automatic mail ${failure.action==='delete'?'deletion':'collection'} failed (${failure.id}): ${failure.error}`).join('; '):null,
+      automationErrors,settings:{...saved.settings},outbox:saved.outbox.map(m=>({...m})),newCount:messages().filter(m=>typeof m.id==='string'&&!seen.has(m.id)).length};
+  }
+  async function automate(id:string,action:'collect'|'delete'){
+    const key=action+':'+id;
+    if(ports.now()<(retryAt.get(key)||0))return;
+    retryAt.set(key,ports.now()+30000);
+    try{
+      if(action==='collect')await inner.collect(id);
+      else await inner.remove(id);
+      failures.delete(key);
+      if(action==='delete')retryAt.delete(key);
+    }catch(error){
+      failures.set(key,{id,action,error:String(requestObject(error).message||error)});
+    }
+  }
+  function actionStillDue(mail: Record<string, unknown> | undefined, action: 'collect' | 'delete'): boolean {
+    if (!mail?.item) return false;
+    return action === 'delete' ? saved.settings.autoDelete && mail.taken === true : saved.settings.autoCollect && mail.taken === false;
+  }
+  function retireFailures(current: Record<string, unknown>[]): void {
+    for(const [key,failure] of failures){
+      if (!actionStillDue(current.find(mail=>mail.id===failure.id), failure.action)) {
+        failures.delete(key);retryAt.delete(key);
+      }
+    }
+  }
+  function collectionPhase(mail: Record<string, unknown>, phase: string): boolean {
+    return !mail.collection || mail.collection === phase;
+  }
+  async function automateMail(mail: Record<string, unknown>): Promise<void> {
+    if(typeof mail.id!=='string'||!mail.item||ports.collecting(mail.id))return;
+    if(saved.settings.autoCollect&&mail.taken===false&&collectionPhase(mail,'failed'))await automate(mail.id,'collect');
+    else if(saved.settings.autoDelete&&mail.taken===true&&collectionPhase(mail,'collected'))await automate(mail.id,'delete');
+  }
   async function refresh(){
     if(flight)return flight;
     flight=(async()=>{
       await inner.refresh();
-      for(const mail of messages()){
-        if(typeof mail.id!=='string'||!mail.item||ports.collecting(mail.id))continue;
-        if(saved.settings.autoCollect&&mail.taken===false&&(!mail.collection||mail.collection==='failed'&&ports.now()>=(retryAt.get(mail.id)||0))){retryAt.set(mail.id,ports.now()+30000);await inner.collect(mail.id);}
-        else if(saved.settings.autoDelete&&mail.taken===true&&(!mail.collection||mail.collection==='collected'))await inner.remove(mail.id);
-      }
-      automationError=null;return snapshot();
-    })().catch(error=>{automationError=String(requestObject(error).message||error);throw error;});
+      const current=messages();
+      const ids=new Set(current.map(mail=>mail.id));
+      for(const key of retryAt.keys())if(!ids.has(key.slice(key.indexOf(':')+1)))retryAt.delete(key);
+      // Errors describe an action still due, independently of listing freshness.
+      retireFailures(current);
+      for(const mail of current)await automateMail(mail);
+      return snapshot();
+    })();
     try{return await flight;}finally{flight=undefined;}
   }
-  return {snapshot,refresh,collect:async id=>{await inner.collect(id);return snapshot();},remove:async id=>{await inner.remove(id);return snapshot();},
+  return {snapshot,refresh,collect:async id=>{await inner.collect(id);failures.delete('collect:'+id);return snapshot();},remove:async id=>{await inner.remove(id);failures.delete('delete:'+id);retryAt.delete('delete:'+id);return snapshot();},
     complete(id,success,error){inner.complete(id,success,error);void refresh().catch(()=>{});},
     async configure(input){const settings=requestObject(input);if(typeof settings.autoCollect!=='boolean'||typeof settings.autoDelete!=='boolean')throw Error('Choose both mailbox automation settings');saved.settings={autoCollect:settings.autoCollect,autoDelete:settings.autoDelete};ports.persist();return refresh();},
     // seenIds only marks listed mail as read. It keeps the newest SEEN_IDS_KEPT ids, so the settings key stops growing with each mail received.

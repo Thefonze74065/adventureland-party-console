@@ -39,6 +39,10 @@ exports.productionJournalContext = context => {
 
 exports.merchantGuards = (context, {stock = false, journal = false} = {}) => {
   context.root ||= {};
+  // Inventory compression has its own native E2E. These fixtures isolate
+  // production/stand ownership and start without a pending stack journal.
+  context.bankStacks ??= null;
+  context.compressMerchantInventory ??= async () => {};
   functions(context, ['verifyMerchantItemMarks']);
   if (stock) {
     context.partyAvailableCraftStock = require('../../../runtime/coordinator/merchant/craft-reservations.ts').availableCraftStock;

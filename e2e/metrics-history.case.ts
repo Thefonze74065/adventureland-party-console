@@ -67,8 +67,14 @@ test('metrics outbox keeps ring keys only for unconfirmed frames across a reload
     localStorage.setItem(key,JSON.stringify({runtime:'outbox-e2e',sequence:41,queue:[41],lost:false,goldMovement:0}));
     localStorage.setItem('cm_BrowserOutboxE2E_other','["fixture"]');
   },{key,queued});
-  const ringKeys=()=>page.evaluate(key=>Object.keys(localStorage).filter(name=>name.startsWith(key+':frame:')).sort(),key);
-  const header=()=>page.evaluate(key=>JSON.parse(localStorage.getItem(key)||'null'),key);
+  // The collector may append a frame between separate browser evaluations.
+  // Compare its header and ring from one synchronous storage snapshot.
+  const snapshot=()=>page.evaluate(key=>({
+    header:JSON.parse(localStorage.getItem(key)||'null'),
+    ringKeys:Object.keys(localStorage).filter(name=>name.startsWith(key+':frame:')).sort(),
+  }),key);
+  const ringKeys=async()=>(await snapshot()).ringKeys;
+  const header=async()=>(await snapshot()).header;
   const install=async(deliver:boolean)=>{
     await page.addScriptTag({content:script});
     await page.evaluate(deliver=>{
@@ -81,8 +87,8 @@ test('metrics outbox keeps ring keys only for unconfirmed frames across a reload
   await install(false);
   expect(await ringKeys(),'install removes the confirmed 1.5 ring keys and keeps the queued slot').toEqual([key+':frame:41']);
   await expect.poll(async()=>(await header()).queue.length,{timeout:15_000}).toBeGreaterThanOrEqual(3);
-  const pending=await header();
-  expect(await ringKeys()).toEqual(pending.queue.map((sequence:number)=>key+':frame:'+(sequence%1024)).sort());
+  const pendingSnapshot=await snapshot(),pending=pendingSnapshot.header;
+  expect(pendingSnapshot.ringKeys).toEqual(pending.queue.map((sequence:number)=>key+':frame:'+(sequence%1024)).sort());
   await page.reload();await install(true);
   await expect.poll(()=>page.evaluate(sequences=>{
     const sent=(window as any).metricsReceived.flatMap((batch:any)=>batch.frames.map((frame:any)=>frame.sequence));
@@ -95,7 +101,7 @@ test('metrics outbox keeps ring keys only for unconfirmed frames across a reload
   expect(original.first.gold).toBe(4242);expect(original.damage).toEqual(queued.damage);
   expect(received.every((batch:any)=>batch.runtime==='outbox-e2e')).toBe(true);
   // Every confirmed frame leaves the store; at most the frames still queued keep a key.
-  await expect.poll(async()=>{const queue=(await header()).queue;return JSON.stringify(await ringKeys())===JSON.stringify(queue.map((sequence:number)=>key+':frame:'+(sequence%1024)).sort())&&queue.length<=2;},{timeout:15_000}).toBe(true);
+  await expect.poll(async()=>{const current=await snapshot(),queue=current.header.queue;return JSON.stringify(current.ringKeys)===JSON.stringify(queue.map((sequence:number)=>key+':frame:'+(sequence%1024)).sort())&&queue.length<=2;},{timeout:15_000}).toBe(true);
   expect(await page.evaluate(()=>localStorage.getItem('cm_BrowserOutboxE2E_other'))).toBe('["fixture"]');
   await info.attach('metrics-outbox-ring-keys',{body:JSON.stringify({pending,received,ringKeys:await ringKeys()}),contentType:'application/json'});
 });

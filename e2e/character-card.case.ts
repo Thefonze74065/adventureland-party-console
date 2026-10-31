@@ -15,7 +15,7 @@ const patinder = {
   name: "Patinder", ctype: "merchant", primaryStat: "int", level: 61, hp: 4760, max_hp: 4760, mp: 2120, max_mp: 2700,
   attack: 33.4, frequency: 0.73, range: 82, speed: 10, unrestrictedSpeed: 82.1, standOpen: true, armor: 277, resistance: 500,
   str: 23, int: 110, dex: 99, vit: 50, fortitude: 15, luck: 100, xp: 0, max_xp: 1, gold: 0, map: "main", x: 0, y: 0, rip: false,
-  banking: false, seenAt: 0, items: [], conditions: [],
+  banking: false, seenAt: 0, items: [], conditions: [], goldBonus: 123.45,
   slots: { mainhand: { item: { name: "dartgun" }, meta: { definition: {}, properties: { attack: 48 }, sprite: null } } },
   combatStats: { crit: 1.5, critDamage: 20, lifesteal: 2, evasion: 3, armorPiercing: 10, fireResistance: 4 },
 };
@@ -61,6 +61,8 @@ test("character stats show the game's panel beside collapsible extras", async ({
   const dialog = page.getByRole("dialog", { name: "Patinder", exact: true });
   const card = dialog.getByRole("region", { name: "Character card", exact: true });
   const extras = dialog.getByRole("region", { name: "Character extras", exact: true });
+  await expect(extras.locator('[data-line="gold"]')).toHaveText('Gold: +123.45%');
+  expect(await color(extras.locator('[data-line="gold"] [data-label]'))).toBe(rgb('#FFD700'));
 
   // 1: the game's panel, line for line, with RUNSPD as the live stand-limited speed.
   const lines = await card.locator("[data-line]").evaluateAll((nodes) => nodes.map((node) => node.textContent));

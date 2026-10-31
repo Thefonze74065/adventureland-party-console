@@ -108,7 +108,10 @@ export function trackPursuit(old: Group | null | undefined, current: Fight | nul
   const identity = targetIdentity(current), prior = previousPursuit(old,identity,key);
   const p: Pursuit = prior ? {...prior,lastAt:now} : {identity,key,lastAt:now,idleMs:0,samples:{}};
   result.pursuit = p;
-  if (!old?.pairRevision && partyReady(members,current,now,paused) && huntReplacement(p,current,candidates,members,old,huntTarget,now,result)) return result;
+  // The closer candidate can create the first locked pair in the same tick
+  // that revokes the old pull. Finish that acknowledged switch; a locked pair
+  // still prevents starting any new distance-based replacement.
+  if ((!old?.pairRevision || p.replacementKind) && partyReady(members,current,now,paused) && huntReplacement(p,current,candidates,members,old,huntTarget,now,result)) return result;
   if(recovering(old,current))return result;
   progressPursuit(p,prior,current,candidates,members,now,paused,result);
   return result;

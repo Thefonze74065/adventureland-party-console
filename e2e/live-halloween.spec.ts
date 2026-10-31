@@ -73,7 +73,9 @@ test.afterEach(async({live},info)=>{
     await info.attach('native-halloween-return-geometry',{body:JSON.stringify(geometry),contentType:'application/json'});
   }
   }finally{
-  const restored=await live.admin(`output=(()=>{const restored=[];for(const [type,entry] of Object.entries(globalThis.__e2eHalloweenCatalogs||{})){
+  const restored=await live.admin(`output=(()=>{
+    if(Object.hasOwn(globalThis,'__e2eSlenderWarpSeason')){events.halloween=globalThis.__e2eSlenderWarpSeason;delete globalThis.__e2eSlenderWarpSeason;}
+    const restored=[];for(const [type,entry] of Object.entries(globalThis.__e2eHalloweenCatalogs||{})){
     if(G.monsters[type]!==entry.configured)throw Error('Declared native catalog changed during encounter: '+type);
     G.monsters[type]=entry.original;
     restored.push({type,declaredCharge:entry.configured.charge,originalCharge:entry.original.charge,restoredOriginal:G.monsters[type]===entry.original});
@@ -430,6 +432,12 @@ test.describe('Slenderman', () => {
   test.use({ initialPosition: { map: 'halloween', x: 0, y: 0 } });
   test('Halloween Slenderman follows native map-only sightings, reacquires a warp and returns after native death', async ({ live }, info) => {
     test.setTimeout(600_000);
+    // This case declares one observed warp below. The seasonal random warp
+    // scheduler otherwise relocates Slender before the first selected attack,
+    // and repeatedly during reacquisition, making the declared journey vanish.
+    const warpSchedule=await live.admin(`output=(()=>{globalThis.__e2eSlenderWarpSeason=events.halloween;events.halloween=false;
+      return {autonomousSeasonalWarps:false,declaredWarps:1,nativeCombat:true};})()`);
+    await info.attach('declared-slenderman-warp-schedule',{body:JSON.stringify(warpSchedule),contentType:'application/json'});
     const seeded = await spawn(live, 'slenderman', 'halloween', 120, 0);
     await prepare(live, 'slenderman');
     await expect.poll(async () => (await world(live, 'slenderman')).boss?.hp, { timeout: 60_000 }).toBeLessThan(seeded.hp);

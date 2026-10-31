@@ -2,6 +2,129 @@ import {test,expect} from './live-fixtures';
 
 const merchant='E2EMerchant',storage='E2EBankBoi';
 test.use({liveHeadless:true});
+
+test('manual BankBoi Lantern triplet survives delivery and restart before one native compound',async({live},info)=>{
+  test.setTimeout(300_000);
+  // Failure inventory: virtual packs are rejected; the wrong copy is selected;
+  // locked/reserved copies join the triplet; storage delivery loses group source
+  // slots; generic withdrawals steal inputs; restart replays or loses the group.
+  await live.post('/steam/action',{character:merchant,action:'logout'});
+  await expect.poll(async()=>!(await live.state()).activeSlots.some((s:any)=>s.character===merchant),{timeout:90_000}).toBe(true);
+  await expect.poll(async()=>{const op=(await live.state()).steamSwitch;return !op||op.phase==='complete';},{timeout:90_000}).toBe(true);
+  await live.post('/slots/1/spawn',{character:merchant});
+  await expect.poll(async()=>(await live.state()).characters[merchant]?.runtime,{timeout:90_000}).toBe('headless');
+  await live.post('/merchant/force-stand',{enabled:true});
+  const items=[...Array.from({length:3},()=>({name:'lantern',level:2})),{name:'lantern',level:2,l:'l'}];
+  const bank=await live.admin(`output=(async()=>{const c=await db.collection('character').findOne({'info.name':'${storage}'});c.info.items=${JSON.stringify(items)};await db.collection('character').replaceOne({_id:c._id},c);
+    const items0=Array.from({length:42},()=>({name:'coat',level:0})),items1=Array.from({length:42},(_,i)=>i<35?{name:'coat',level:0}:null);
+    await db.collection('user').updateOne({_id:c.owner},{$set:{'info.items0':items0,'info.items1':items1}});
+    return {gold:0,packs:{items0:items0.map((item,slot)=>({slot,item})),items1:items1.map((item,slot)=>item?{slot,item}:null)}};})()`);
+  await live.post('/bankboi/checkpoint',{character:merchant,bank});
+  await live.restoreHistoricalSettings(()=>({bankbois:{[storage]:{name:storage,state:'ready',items:items.map((item,slot)=>({slot,item}))}}}));
+  await expect.poll(async()=>(await live.state(true)).merchantCatalog?.allItems?.some((e:any)=>e.id==='lantern'&&e.compoundable),{timeout:30_000}).toBe(true);
+  const samples:any[]=[];
+  const native=()=>live.admin(`output=(async()=>{const c=await db.collection('character').findOne({'info.name':'${storage}'}),u=await db.collection('user').findOne({_id:c.owner}),p=get_player('${merchant}');return [...c.info.items,...Object.entries(u.info).filter(([k,v])=>/^items\\d+$/.test(k)&&Array.isArray(v)).flatMap(([,v])=>v),...(p?.items||[])].filter(i=>i?.name==='lantern');})()`);
+  try{
+    await live.post('/command',{character:merchant,type:'compound-mark',pack:'bankboi:'+storage,slot:1,item:{name:'lantern',level:2}});
+    await expect.poll(async()=>{
+      const s=await live.state(),groups=s.compounds[merchant]||[];
+      samples.push({at:Date.now(),groups,transaction:s.bankboiTransaction,withdrawals:s.withdrawals[merchant]});
+      return groups.length===1&&groups[0].items.length===3&&groups[0].items.every((m:any)=>/^items\d+$/.test(m.storage?.pack))&&!s.bankboiTransaction;
+    },{timeout:120_000}).toBe(true);
+    const delivered=(await live.state()).compounds[merchant];
+    expect(new Set(delivered[0].items.map((m:any)=>m.storage.pack+':'+m.storage.slot)).size).toBe(3);
+    expect(delivered[0].items.every((m:any)=>!m.item.l&&m.item.level===2)).toBe(true);
+    await live.restartCoordinator();
+    await expect.poll(async()=>(await live.state()).compounds[merchant]).toEqual(delivered);
+    await live.post('/merchant/force-stand',{enabled:false});
+    await expect.poll(async()=>{
+      const s=await live.state(),n=await native();
+      return (s.compounds[merchant]||[]).length===0&&
+        s.merchantActivity.filter((a:any)=>a.message==='Group 1 compounded'||a.message==='Group 1 compound failed').length===1&&
+        n.filter((i:any)=>i.level===2&&!i.l).length===0&&n.filter((i:any)=>i.l==='l').length===1&&
+        n.filter((i:any)=>i.level===3).length<=1;
+    },{timeout:120_000}).toBe(true);
+  }finally{
+    await info.attach('native-bankboi-manual-lantern-compound',{body:JSON.stringify({samples,native:await native(),state:await live.state()}),contentType:'application/json'});
+  }
+});
+
+test('safe maintenance waits for the active BankBoi instead of the stopped merchant',async({live},info)=>{
+  test.setTimeout(240_000);
+  // Failure inventory: recent merchant telemetry survives its native logout;
+  // maintenance waits forever for that old owner, misses the replacement, or
+  // admits another slot swap during the hold. Native worker lifecycle and
+  // client acknowledgements must prove the roster, rather than seeded receipts.
+  await live.post('/steam/action',{character:merchant,action:'logout'});
+  await expect.poll(async()=>!(await live.state()).activeSlots.some((s:any)=>s.character===merchant),{timeout:90_000}).toBe(true);
+  await expect.poll(async()=>{const op=(await live.state()).steamSwitch;return !op||op.phase==='complete';},{timeout:90_000}).toBe(true);
+  await live.post('/slots/1/spawn',{character:merchant});
+  await expect.poll(async()=>(await live.state()).characters[merchant]?.runtime,{timeout:90_000}).toBe('headless');
+  // Keep remote storage away from the bank so the maintenance request can
+  // observe its real slot occupancy before the visit completes.
+  await live.admin(`output=(async()=>{const c=await db.collection('character').findOne({'info.name':'${storage}'});Object.assign(c.info,{map:'winterland',in:'winterland',x:0,y:0,items:[{name:'offeringp',q:1}]});await db.collection('character').replaceOne({_id:c._id},c);return true;})()`);
+  await live.restoreHistoricalSettings(()=>({bankbois:{[storage]:{name:storage,state:'ready',items:[{slot:0,item:{name:'offeringp',q:1}}]}}}));
+  await live.post('/command',{character:merchant,type:'withdraw',pack:'bankboi:'+storage,slot:0,item:{name:'offeringp',q:1}});
+  const samples:any[]=[];
+  try{
+    await expect.poll(async()=>(await live.state()).activeSlots.some((s:any)=>s.character===storage),{timeout:90_000}).toBe(true);
+    live.consoleDrainLease('bankboi-safe-handoff');
+    await expect.poll(async()=>{
+      const state=await live.state();
+      const maintenance=await fetch(live.deploymentPaths.apiUrl+'/party-api/console-maintenance').then(r=>r.json());
+      samples.push({at:Date.now(),maintenance,slots:state.activeSlots,transaction:state.bankboiTransaction,
+        merchant:state.characters[merchant]?.consoleMaintenance,storage:state.characters[storage]?.consoleMaintenance});
+      return maintenance.id==='bankboi-safe-handoff'&&maintenance.ready&&
+        state.activeSlots.some((s:any)=>s.character===storage)&&
+        state.characters[storage]?.consoleMaintenance?.ready===true;
+    },{timeout:30_000}).toBe(true);
+  }finally{
+    await info.attach('native-bankboi-safe-handoff',{body:JSON.stringify({samples,state:await live.state()}),contentType:'application/json'});
+    live.consoleDrainLease(null);
+  }
+});
+
+test('automatic NPC sales retrieve BankBoi stock and preserve kept and locked copies',async({live},info)=>{
+  test.setTimeout(300_000);
+  // Failure inventory: remote stock is never discovered; duplicate requests sell
+  // twice; keep/locked copies are retrieved; delivery is mistaken for sale; a
+  // restart recreates completed demand. Native storage, sales and persistence
+  // remain authoritative after the declared offline inventory input.
+  await live.post('/steam/action',{character:merchant,action:'logout'});
+  await expect.poll(async()=>!(await live.state()).activeSlots.some((s:any)=>s.character===merchant),{timeout:90_000}).toBe(true);
+  await expect.poll(async()=>{const op=(await live.state()).steamSwitch;return !op||op.phase==='complete';},{timeout:90_000}).toBe(true);
+  await live.post('/slots/1/spawn',{character:merchant});
+  await expect.poll(async()=>(await live.state()).characters[merchant]?.runtime,{timeout:90_000}).toBe('headless');
+  const items=[...Array.from({length:5},()=>({name:'throwingstars',level:0})),{name:'helmet',level:0,l:'l'}];
+  await live.admin(`output=(async()=>{const c=await db.collection('character').findOne({'info.name':'${storage}'});c.info.items=${JSON.stringify(items)};await db.collection('character').replaceOne({_id:c._id},c);return true;})()`);
+  await live.post('/merchant/routine-priorities',{priorities:{},enabled:{withdrawals:false,'auto npc sales':false}});
+  await live.post('/merchant/auto-npc-sale',{item:{name:'throwingstars',level:0},keep:2});
+  await live.post('/merchant/auto-npc-sale',{item:{name:'helmet',level:0},keep:0});
+  await live.restoreHistoricalSettings(()=>({bankbois:{[storage]:{name:storage,state:'ready',items:items.map((item,slot)=>({slot,item}))}}}));
+  const observations:any[]=[];
+  const native=()=>live.admin(`output=(async()=>{const c=await db.collection('character').findOne({'info.name':'${storage}'}),u=await db.collection('user').findOne({_id:c.owner}),p=get_player('${merchant}');return {storage:c.info.items,bank:Object.entries(u.info).filter(([k,v])=>/^items\\d+$/.test(k)&&Array.isArray(v)).flatMap(([,v])=>v),merchant:p?.items||[]};})()`);
+  try{
+    await live.post('/merchant/routine-priorities',{priorities:{},enabled:{'auto npc sales':true}});
+    await expect.poll(async()=>{
+      const s=await live.state(),n=await native();
+      observations.push({at:Date.now(),withdrawals:s.withdrawals[merchant],transaction:s.bankboiTransaction,current:s.merchantCurrent,native:n});
+      if(observations.length>128)observations.shift();
+      const all=[...n.storage,...n.bank,...n.merchant].filter(Boolean);
+      return all.filter((i:any)=>i.name==='throwingstars').length===2 &&
+        all.some((i:any)=>i.name==='helmet'&&i.l==='l') &&
+        !s.bankboiTransaction && !(s.withdrawals[merchant]||[]).length &&
+        s.merchantActivity.filter((a:any)=>a.message.includes('Sold')&&a.message.includes('throwingstars')).length===3;
+    },{timeout:180_000,intervals:[250,500]}).toBe(true);
+    await live.restartCoordinator();
+    await expect.poll(async()=>{
+      const s=await live.state(),n=await native();
+      return [...n.storage,...n.bank,...n.merchant].filter((i:any)=>i?.name==='throwingstars').length===2 &&
+        !s.bankboiTransaction && !(s.withdrawals[merchant]||[]).length;
+    }).toBe(true);
+  }finally{
+    await info.attach('automatic-bankboi-npc-sales',{body:JSON.stringify({observations,native:await native(),state:await live.state()}),contentType:'application/json'});
+  }
+});
 test('BankBoi compound inputs admit merchant work only after native bank delivery',async({live},info)=>{
   test.setTimeout(360_000);
   await live.post('/steam/action',{character:merchant,action:'logout'});
@@ -147,3 +270,52 @@ for(const source of ['carried','native bank','optional absent','required absent'
     await info.attach('native-offering-stock-boundary',{body:JSON.stringify({source,native,observations,state:await live.state()}),contentType:'application/json'});
   }
 });
+
+
+
+
+test('BankBoi drains all seven reserve cells after a persisted movement timeout', async ({live}, info) => {
+  test.setTimeout(300_000);
+  // Failure inventory: an expired transport error permanently excludes the worker;
+  // retry ignores its cooldown; cargo is lost/duplicated; native completion arrives
+  // before queue cleanup or merchant restoration; restart replays completed cargo.
+  const merchant='E2EMerchant', storage='E2EBankBoi';
+  await live.post('/steam/action',{character:merchant,action:'logout'});
+  await expect.poll(async()=>!(await live.state()).activeSlots.some((s:any)=>s.character===merchant),{timeout:90_000}).toBe(true);
+  await expect.poll(async()=>{const op=(await live.state()).steamSwitch;return !op||op.phase==='complete';},{timeout:90_000}).toBe(true);
+  await live.post('/slots/1/spawn',{character:merchant});
+  await expect.poll(async()=> (await live.state()).characters[merchant]?.runtime,{timeout:90_000}).toBe('headless');
+  const bank=await live.admin(`output=(async()=>{
+    const p=get_player('${merchant}'),u=await db.collection('user').findOne({_id:p.owner});
+    u.info.items0=Array.from({length:42},()=>({name:'coat',level:0}));
+    u.info.items1=Array.from({length:42},(_,i)=>({name:i<35?'coat':'helmet',level:0}));
+    await db.collection('user').updateOne({_id:p.owner},{$set:{'info.items0':u.info.items0,'info.items1':u.info.items1}});
+    const c=await db.collection('character').findOne({'info.name':'${storage}'});c.info.items=Array(42).fill(null);
+    await db.collection('character').replaceOne({_id:c._id},c);
+    return {gold:0,packs:Object.fromEntries(['items0','items1'].map(pack=>[pack,u.info[pack].map((item,slot)=>({slot,item}))]))};
+  })()`);
+  await live.restoreHistoricalSettings(()=>({bankbois:{[storage]:{name:storage,state:'error',error:'POST /movement-plan · timeout',retryAt:0,items:[]}}}));
+  await live.post('/bankboi/checkpoint',{character:merchant,bank});
+  const observations:any[]=[];
+  const native=()=>live.admin(`output=(async()=>{const c=await db.collection('character').findOne({'info.name':'${storage}'}),u=await db.collection('user').findOne({_id:c.owner});return {items:c.info.items,bank:u?.info.items1};})()`);
+  try {
+    await expect.poll(async()=>{
+      const s=await live.state(),n=await native();
+      observations.push({at:Date.now(),queue:s.bankboiQueue,transaction:s.bankboiTransaction,workers:s.bankbois,native:n});
+      if(observations.length>128)observations.shift();
+      const worker=s.bankbois.find((w:any)=>w.name===storage);
+      return n.items.filter((i:any)=>i?.name==='helmet').length===7 &&
+        n.bank.slice(35,42).every((i:any)=>!i) && s.bankboiQueue.length===0 &&
+        !s.bankboiTransaction && worker?.state==='ready' &&
+        s.activeSlots.some((slot:any)=>slot.character===merchant);
+    },{timeout:180_000,intervals:[250,500]}).toBe(true);
+    await live.restartCoordinator();
+    await expect.poll(async()=>{
+      const s=await live.state(),n=await native();
+      return s.bankboiQueue.length===0 && !s.bankboiTransaction && n.items.filter((i:any)=>i?.name==='helmet').length===7;
+    }).toBe(true);
+  } finally {
+    await info.attach('bankboi-reserve-timeout-recovery',{body:JSON.stringify({observations,native:await native(),state:await live.state()}),contentType:'application/json'});
+  }
+});
+

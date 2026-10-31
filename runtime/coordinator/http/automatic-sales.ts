@@ -47,24 +47,43 @@ export function createAutomaticSaleRoutes(state: AutomaticSaleState, ports: Auto
     });
   }
   function updateNpc(item: Item, action: string, character?: string, keep?: number): void {
-    const key = character ? npcSaleRuleKey(item, character) : ports.key(item);
+    const key = npcKey(item, character);
     if (action === "remove") {
       delete state.autoNpcSales[key];
       discardNpc(mark => mark.autoRuleKey === key);
     } else {
-      if (!character && (state.autoNpcSales[key]?.keep ?? 0) !== (keep ?? 0)) {
-        // Unsent quantities were computed under the old reserve. Reconcile them
-        // from current stock after replacing the rule, including whole-stack trips.
-        discardNpc(mark => !!mark.auto && mark.autoRuleKey === key);
-        for (const [name, entries] of Object.entries(state.withdrawals || {}))
-          state.withdrawals![name] = entries?.filter(entry => entry.autoNpcRuleKey !== key);
-      }
-      ports.selectAction?.(item, character || String(state.merchantCharacter), 'npc');
-      state.autoNpcSales[key] = { item, createdAt: ports.now(), ...(character ? { character } : {}), ...(!character ? { keep: keep ?? 0 } : {}) };
+      replaceNpcRule(item, key, character, keep);
       if (character || state.merchantRules) return;
       delete state.autoStandMarks[key];
       discardStand(listing => !!listing.auto && listing.autoRuleKey === key);
     }
+  }
+  function npcKey(item: Item, character?: string): string {
+    return character ? npcSaleRuleKey(item, character) : ports.key(item);
+  }
+  function discardNpcWithdrawals(key: string): void {
+    for (const [name, entries] of Object.entries(state.withdrawals || {}))
+      state.withdrawals![name] = entries?.filter(entry => entry.autoNpcRuleKey !== key);
+  }
+  function replaceNpcRule(item: Item, key: string, character?: string, keep?: number): void {
+    if (!character && (state.autoNpcSales[key]?.keep ?? 0) !== (keep ?? 0)) {
+      // Recompute unsent quantities under the new reserve, including bank trips.
+      discardNpc(mark => !!mark.auto && mark.autoRuleKey === key);
+      discardNpcWithdrawals(key);
+    }
+    ports.selectAction?.(item, character || String(state.merchantCharacter), 'npc');
+    state.autoNpcSales[key] = { item, createdAt: ports.now(), ...npcRuleScope(character, keep) };
+  }
+  function npcRuleScope(character?: string, keep?: number) {
+    return character ? {character} : {keep: keep ?? 0};
+  }
+  function reserveInFlight(key: string, keep: number | undefined | null): boolean {
+    return (state.autoNpcSales[key]?.keep ?? 0) !== (keep ?? 0) &&
+      ['npc sales', 'auto npc sales'].includes(state.merchantCurrent?.reason || '') &&
+      state.npcSaleMarks.some(mark => mark.autoRuleKey === key);
+  }
+  function ruleCharacter(value: unknown): string | undefined {
+    return state.merchantRules ? undefined : typeof value === 'string' ? value : undefined;
   }
   function save(syncStand = false): void {
     ports.reconcile();
@@ -92,17 +111,14 @@ export function createAutomaticSaleRoutes(state: AutomaticSaleState, ports: Auto
     const body = requestObject(req.body),
       item = requestObject(body.item),
       action = requestText(body.action || "set");
-    const character = state.merchantRules ? undefined : typeof body.character === "string" ? body.character : undefined;
+    const character = ruleCharacter(body.character);
     if (character && !state.statuses?.[character]) return res.status(400).json({ error: "Unknown character" });
     if (action === "clear-all") clearNpc(character);
     else {
       const error = npcRuleError(item, body.keep, character);
       if (error) return res.status(400).json({ error });
-      const key = character ? npcSaleRuleKey(item, character) : ports.key(item);
-      if (action !== 'remove' && !character &&
-          (state.autoNpcSales[key]?.keep ?? 0) !== (requestedKeep(body.keep, character) ?? 0) &&
-          ['npc sales', 'auto npc sales'].includes(state.merchantCurrent?.reason || '') &&
-          state.npcSaleMarks.some(mark => mark.autoRuleKey === key))
+      const key = npcKey(item, character);
+      if (action !== 'remove' && !character && reserveInFlight(key, requestedKeep(body.keep, character)))
         return res.status(409).json({ error: 'Wait for the current NPC sale to finish before changing its reserve' });
       updateNpc(item, action, character, requestedKeep(body.keep, character)!);
     }

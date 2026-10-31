@@ -33,18 +33,27 @@ function matchesDefinition(kind: Kind, entry: Record<string, unknown>, expected:
   return isDeepStrictEqual(JSON.parse(JSON.stringify(projected)), JSON.parse(JSON.stringify(wanted)));
 }
 
-/** Compare complete client projections against the installed version's definitions. */
-export function validateCatalog(kind: Kind, value: unknown, definitions: CatalogDefinitions): string | null {
+function catalogEntryId(entry: Record<string, unknown>): string {
+  return typeof entry.id === 'string' ? entry.id : '';
+}
+function validateConditions(kind: Kind, value: unknown, definitions: CatalogDefinitions): string | null {
   if(kind==='skillCatalog' && definitions.conditions){
     const group=array(value).find(entry=>requestObject(entry).id==='conditions');
     const conditions=array(requestObject(group).skills);
     const result=validateCatalog('bestiaryCatalog',conditions,{...definitions,monsters:definitions.conditions});
     if(result)return 'conditions: '+result;
   }
+  return null;
+}
+
+/** Compare complete client projections against the installed version's definitions. */
+export function validateCatalog(kind: Kind, value: unknown, definitions: CatalogDefinitions): string | null {
+  const conditionError=validateConditions(kind,value,definitions);
+  if(conditionError)return conditionError;
   const expected = definitions[domains[kind]], found = new Set<string>();
   if (!expected || !Object.keys(expected).length) return 'installed definitions unavailable';
   for (const raw of entries(kind, value)) {
-    const entry = requestObject(raw), id = typeof entry.id === 'string' ? entry.id : '';
+    const entry = requestObject(raw), id = catalogEntryId(entry);
     if (!Object.hasOwn(expected, id)) return 'unknown entry: ' + id;
     if (found.has(id) && kind !== 'skillCatalog') return 'duplicate entry: ' + id;
     found.add(id);

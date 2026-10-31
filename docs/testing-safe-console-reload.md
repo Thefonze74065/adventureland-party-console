@@ -1,5 +1,13 @@
 # Safe console reload failure inventory
 
+A live safe-load investigation found empty current selections and no attackers
+while the drain still owned a visible previously engaged target. An eligible
+Trick or Treat candidate paused Hunt even though event polling was parked by
+maintenance. Replacing Hunt selection must not strand that captured fight or
+admit its successor. Validate both normal draining and Hunt/candidate turnover:
+retain native hits, the exact captured death, no successor hits during the hold,
+fresh ready acknowledgements, and renewed acquisition only after release.
+
 Completion must release the acquisition hold before reporting success, even if
 history cleanup is slow or fails. Pausing must retain a movement journey rather
 than reject its promise and strand its farm, hunt or event owner. Releasing or

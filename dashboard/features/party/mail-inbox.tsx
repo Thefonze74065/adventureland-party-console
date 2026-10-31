@@ -9,4 +9,5 @@ export type MailInbox = {
   count: number;
   updatedAt: number | null;
   error: string | null;
+  automationError?: string | null;
 };

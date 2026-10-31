@@ -87,7 +87,7 @@ export function createBankboiStorageRoutes<Transaction extends { bankboi: string
     persistCraftDeposits(body.deposited);
   }
   function persistCraftDeposits(deposits: StorageDeposit[] = []): void {
-    if (deposits.some((deposit) => deposit.request?.craftJobId)) ports.persistJobs?.();
+    if (deposits.some((deposit) => deposit.request?.craftJobId || deposit.request?.improvement === 'manual compounds')) ports.persistJobs?.();
   }
   function ownsCompletion(transaction: Transaction | null, raw: Record<string, unknown>): boolean {
     return !!transaction && transaction.bankboi === raw.character &&
@@ -111,13 +111,11 @@ export function createBankboiStorageRoutes<Transaction extends { bankboi: string
     recordInventory(body, entry);
     const observed = observeBank(body);
     recordMoves(body, entry);
+    if(body.relocated?.length)ports.persistJobs?.();
     if (observed) ports.adopt();
     delete state.commands[body.character];
     ports.persist();
-    if (receipt) {
-      completedReports.add(receipt);
-      if (completedReports.size > 32) completedReports.delete(completedReports.values().next().value!);
-    }
+    rememberCompletion(receipt);
     const response = res.json({ ok: true });
     ports
       .restore(transaction!)
@@ -129,6 +127,12 @@ export function createBankboiStorageRoutes<Transaction extends { bankboi: string
         ),
       );
     return response;
+  }
+  function rememberCompletion(receipt: string): void {
+    if (receipt) {
+      completedReports.add(receipt);
+      if (completedReports.size > 32) completedReports.delete(completedReports.values().next().value!);
+    }
   }
   return { checkpoint, complete };
 }

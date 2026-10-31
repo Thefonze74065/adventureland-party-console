@@ -3,7 +3,7 @@ interface ConnectionHost {
   parent?: { __partyServer?: string };
   document?: { currentScript: { src?: string } | SVGScriptElement | null };
 }
-export const steamBridgeVersion = 14;
+export const steamBridgeVersion = 15;
 export function needsSteamBridge(bridge: { version?: number; server?: string } | undefined, server: string): boolean {
   return !bridge || bridge.version !== steamBridgeVersion || bridge.server !== server;
 }

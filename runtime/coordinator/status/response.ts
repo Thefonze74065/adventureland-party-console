@@ -1,6 +1,6 @@
 import {collectPassing} from '../../combat/passing.ts';
 import {eventLimits} from '../../../dashboard/lib/event-policy.ts';
-import {cipherIngredients, type CipherGatheringContext} from '../../events/october.ts';
+import {cipherIngredients, type CipherGatheringPlan, type CipherGatheringContext} from '../../events/october.ts';
 import { bankStagingReserved } from '../inventory/reserved-cargo.ts';
 import {passingControl} from '../../combat/passing-admission.ts';
 import {requestObject} from '../http/contracts.ts';
@@ -57,38 +57,57 @@ const navigationCommands = new Set([
   "event-resume-travel",
   "return-leader",
 ]);
+// Manual equipment can wait for a gathering handoff before the client accepts it.
+// Keep the dispatch guard occupied through that wait, without replaying consumables.
+const acceptanceRetainedCommands = new Set(["equip", "unequip"]);
 
 /** Long-running commands remain deliverable until their completion endpoint acknowledges them. */
 export function createHeartbeatResponse(state: HeartbeatState, ports: HeartbeatResponsePorts) {
-  function cipherGathering(name:string):CipherGatheringContext {
-    const leader=state.leader;
-    const shared=!!leader&&ports.selectedEvents(leader).includes('witchcipher')&&
-      (name===leader||!!state.followers[name]||name===state.merchantCharacter);
-    const owner=shared?leader!:name, realm=state.statuses[owner]?.server;
-    const round=state.statuses[owner]?.eventSchedules?.find(entry=>entry.id==='witchcipher')?.cipher?.board?.id;
-    // Independent fighter scopes intentionally omit the merchant from their
-    // activeNames port; ingredient accounting still includes that merchant.
-    const participants=[...new Set([owner,...ports.activeNames().filter(member=>
-      shared&&!!state.followers[member]&&state.statuses[member]?.server===realm),
-      ...(state.merchantCharacter&&state.statuses[state.merchantCharacter]?.server===realm?[state.merchantCharacter]:[])])];
-    const stock=Object.fromEntries(cipherIngredients.map(id=>[id,0]));
-    let ready=true;
+  function reportedCipher(report: HeartbeatStatus | undefined) {
+    return report?.eventSchedules?.find(entry=>entry.id==='witchcipher')?.cipher;
+  }
+  function sharesCipher(name: string, leader: string | null): boolean {
+    return !!leader && ports.selectedEvents(leader).includes('witchcipher') &&
+      (name===leader || !!state.followers[name] || name===state.merchantCharacter);
+  }
+  function cipherParticipants(owner: string, shared: boolean, realm: string | undefined): string[] {
+    // Independent fighter scopes omit the merchant from activeNames; stock still includes it.
+    const merchant=state.merchantCharacter;
+    const members=ports.activeNames().filter(member=>shared && !!state.followers[member] && state.statuses[member]?.server===realm);
+    return [...new Set([owner,...members,...(merchant && state.statuses[merchant]?.server===realm ? [merchant] : [])])];
+  }
+  function observedCipherStock(member: string, realm: string | undefined, round: string | undefined) {
+    const report=state.statuses[member],cipher=reportedCipher(report);
+    // Require current-round inventory in the same fresh observation.
+    if(!round || cipher?.board?.id!==round || !report || !realm || report.server!==realm || ports.now()-Number(report.seenAt)>15000)return;
+    return cipher.runtime?.stock;
+  }
+  function cipherStock(participants: string[], realm: string | undefined, round: string | undefined) {
+    const stock=Object.fromEntries(cipherIngredients.map(id=>[id,0]));let ready=true;
     for(const member of participants){
-      const report=state.statuses[member];
-      const cipher=report?.eventSchedules?.find(entry=>entry.id==='witchcipher')?.cipher;
-      const runtime=cipher?.runtime;
-      // A recent heartbeat from before the new round still has old inventory.
-      // Require inventory and the current round in the same observation.
-      if(!round||cipher?.board?.id!==round||!report||!realm||report.server!==realm||ports.now()-Number(report.seenAt)>15000||!runtime?.stock){ready=false;continue;}
-      for(const id of cipherIngredients)stock[id]+=Math.max(0,Number(runtime.stock[id])||0);
+      const observed=observedCipherStock(member,realm,round);
+      if(!observed){ready=false;continue;}
+      for(const id of cipherIngredients)stock[id]+=Math.max(0,Number(observed[id])||0);
     }
-    const ownerPlan=state.statuses[owner]?.eventSchedules?.find(entry=>entry.id==='witchcipher')?.cipher?.runtime?.journal?.gathering;
+    return {stock,ready};
+  }
+  function merchantCipherRuntime(realm: string | undefined) {
     const merchant=state.statuses[state.merchantCharacter??''];
-    const runtime=merchant&&merchant.server===realm&&ports.now()-Number(merchant.seenAt)<15000?
-      merchant.eventSchedules?.find(entry=>entry.id==='witchcipher')?.cipher?.runtime:undefined;
-    const shortage=runtime?.journal?.gathering;
-    const plan=shortage?.reason==='recipe shortage'&&shortage.owner===owner&&shortage.realm===realm&&
-      (!ownerPlan||shortage.round===ownerPlan.round&&shortage.selectedAt>ownerPlan.selectedAt)?shortage:ownerPlan;
+    return merchant && merchant.server===realm && ports.now()-Number(merchant.seenAt)<15000 ? reportedCipher(merchant)?.runtime : undefined;
+  }
+  function cipherPlan(owner: string, realm: string | undefined, ownerPlan: CipherGatheringPlan | undefined, shortage: CipherGatheringPlan | undefined) {
+    return shortage?.reason==='recipe shortage' && shortage.owner===owner && shortage.realm===realm &&
+      (!ownerPlan || shortage.round===ownerPlan.round && shortage.selectedAt>ownerPlan.selectedAt) ? shortage : ownerPlan;
+  }
+  function gatheringPlan(runtime: ReturnType<typeof merchantCipherRuntime>) {
+    return runtime?.journal?.gathering;
+  }
+  function cipherGathering(name:string):CipherGatheringContext {
+    const shared=sharesCipher(name,state.leader),owner=shared?state.leader!:name,report=state.statuses[owner],realm=report?.server;
+    const cipher=reportedCipher(report),round=cipher?.board?.id;
+    const {stock,ready}=cipherStock(cipherParticipants(owner,shared,realm),realm,round);
+    const ownerPlan=gatheringPlan(cipher?.runtime),runtime=merchantCipherRuntime(realm);
+    const plan=cipherPlan(owner,realm,ownerPlan,gatheringPlan(runtime));
     return {owner,round,ready,stock,plan,mixesLeft:runtime?.day?.mixes_left};
   }
   function retireTownMembership(name: string): boolean {
@@ -118,18 +137,28 @@ export function createHeartbeatResponse(state: HeartbeatState, ports: HeartbeatR
   function restoreTownCommand(name: string): void {
     const town = state.townCycle;
     if (town?.pending.includes(name) && !state.commands[name] && town.revisions?.[name] === ports.navigationRevision(name))
-      state.commands[name] = {id: ports.now(), type:"town-party", cycleId:town.id};
+      state.commands[name] = {id: state.nextCommandId++, type:"town-party", cycleId:town.id};
   }
   function commandFor(name: string) {
     retireTownCommand(name);
     if (ports.escapeOwns(name) && state.escape?.stage !== "recovery-convoy") return null;
     restoreTownCommand(name);
     const command = state.commands[name] || null;
+    if (retireAcceptedEquipment(name, command)) return null;
     attachLuckySlot(name, command);
-    if (command && !retainedCommands.has(command.type)) delete state.commands[name];
+    if (!retainCommand(command)) delete state.commands[name];
     if (command && navigationCommands.has(command.type) && command.navigationRevision === undefined)
       command.navigationRevision = ports.navigationRevision(name);
     return command;
+  }
+  function retainCommand(command: HeartbeatState['commands'][string] | null): boolean {
+    return !command || retainedCommands.has(command.type) || acceptanceRetainedCommands.has(command.type);
+  }
+  function retireAcceptedEquipment(name: string, command: HeartbeatState['commands'][string] | null): boolean {
+    if (!command || !acceptanceRetainedCommands.has(command.type) ||
+        !(Number(state.statuses[name]?.lastCommandId) >= command.id)) return false;
+    delete state.commands[name];
+    return true;
   }
   function attachLuckySlot(name: string, command: HeartbeatState['commands'][string] | null): void {
     if (!command || name !== state.merchantCharacter) return;

@@ -14,7 +14,7 @@ const webUrl = process.env.E2E_GAME_WEB_URL;
 if (!webUrl || !isLoopback(new URL(webUrl).hostname)) throw Error('Local upstream web URL required');
 const auth = process.env.E2E_GAME_AUTH;
 if (!auth) throw Error('Disposable account auth required');
-const port = Number(process.env.E2E_COORDINATOR_PORT);
+let port = Number(process.env.E2E_COORDINATOR_PORT);
 const nativeFetch = globalThis.fetch;
 async function localFetch(input, init) {
   let url = new URL(String(input));
@@ -49,7 +49,19 @@ const account = {
 };
 const resolve = createRequire(path.join(root, '.caracal/standalones/CharacterCoordinator.js'));
 const nativeExpress = require('express');
-const fixtureExpress = Object.assign((...args) => nativeExpress(...args), nativeExpress);
+let listener;
+const fixtureExpress = Object.assign((...args) => {
+  const app=nativeExpress(...args),listen=app.listen;
+  app.listen=function(...parameters){
+    listener=listen.apply(this,parameters);
+    listener.once('listening',()=>{
+      port=listener.address().port;
+      process.env.AL_INTERNAL_API_PORT=String(port);
+    });
+    return listener;
+  };
+  return app;
+}, nativeExpress);
 const homeVisitorStatusFile = path.join(directory, 'home-visitor-status.jsonl');
 let homeVisitorStatusLines = fs.existsSync(homeVisitorStatusFile)
   ? fs.readFileSync(homeVisitorStatusFile, 'utf8').trim().split('\n').filter(Boolean).length : 0;
@@ -215,6 +227,8 @@ async function main() {
   await startCoordinatorApplication({ require: name => Object.hasOwn(adapters, name) ? adapters[name] : resolve(name),
     directory: platformDirectory, plannerWorkerFile: path.join(root, '.build/runtime/movement-planner.cjs'), loadFetch: async () => localFetch });
   if (startupError) throw startupError;
+  if(!listener)throw Error('Coordinator did not create its native HTTP listener');
+  if(!listener.listening)await new Promise((resolve,reject)=>{listener.once('listening',resolve);listener.once('error',reject);});
   const response = await localFetch('http://127.0.0.1:' + port + '/party-api/state?section=core');
   if (!response.ok) throw Error('Coordinator readiness: ' + response.status);
   if (process.send) process.send({ type: 'ready', port,clock:globalThis.__e2eChronalClock });

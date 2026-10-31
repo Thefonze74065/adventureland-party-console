@@ -1,5 +1,8 @@
 import { migrateRoutinePriorities, routineFor } from './routines.ts';
 export interface PrioritizedJob {
+  retryCount?: number;
+  rendezvousRetryCount?: number;
+  recoveryAttempts?: number;
   offeringSupply?: {offering: string; outstanding: number; state: string; blockingReason: string | null; rulesSignature: string; intents?: unknown};
   exchangePickupId?: string;
   exchangeDeliveryId?: string;

@@ -89,10 +89,17 @@ test('authentication loss clears all account-scoped caches', async () => {
  const client=createDashboardClient(), original=global.fetch;
  client.setQueryData(['party','character','A','inventory'],{items:[{name:'coat'}]});
  global.fetch=async()=>({ok:false,status:401});
+ let removedQuery;
  try {
-  await assert.rejects(client.fetchQuery(domainOptions(client,'core')));
+  const pending=client.fetchQuery(domainOptions(client,'core'));
+  removedQuery=client.getQueryCache().find({queryKey:key('core')});
+  await assert.rejects(pending);
   assert.equal(client.getQueryData(['party','character','A','inventory']),undefined);
- } finally {global.fetch=original;client.clear();}
+ } finally {
+  // Authentication removes the active query before its promise settles. Its
+  // final GC timer belongs to the removed query, outside client.clear().
+  removedQuery?.destroy();global.fetch=original;client.clear();
+ }
 });
 
 test('material conflict preserves structured shortages, invalidates commerce and never resubmits', async () => {

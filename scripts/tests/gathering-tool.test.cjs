@@ -3,7 +3,7 @@ const source = fs.readFileSync(require('node:path').join(__dirname, '../../chara
 const helper = source.slice(source.indexOf('  async function ensureGatheringTool('), source.indexOf('  async function equipGatheringTool('));
 function setup({ carried = false, bank = false, cancel = false } = {}) {
   const calls = [], character = { name: 'GoldMajesty', items: carried ? [{ name: 'rod' }] : [], slots: {} };
-  const context = vm.createContext({ character, root: { __merchantGatheringGeneration: 1 }, gatheringModes: ['fishing','mining'],
+  const context = vm.createContext({ gatheringAutoCraft:false,character, root: { __merchantGatheringGeneration: 1 }, gatheringModes: ['fishing','mining'],
     gatheringStatus() {}, close_stand: async () => {},
     smart_move: async () => { calls.push('bank'); character.bank = {}; if (cancel) context.root.__merchantGatheringGeneration = 2; },
     retrieveFromBankUntil: async name => { if (bank) character.items.push({ name }); },

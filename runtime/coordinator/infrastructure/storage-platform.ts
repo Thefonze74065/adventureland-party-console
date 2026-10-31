@@ -36,6 +36,7 @@ interface MergeStatus {
   name?: string;
   items?: (InventoryEntry | null)[];
   inventoryStackRetryAt?: unknown;
+  upgradeInventoryBusy?: unknown;
   banking?: unknown;
   gatheringActive?: unknown;
   anniversaryState?: { busy?: unknown };
@@ -47,10 +48,12 @@ export interface InventoryStacksPlatform {
   plan(
     state: MergeState,
     status: MergeStatus | null | undefined,
+    boundary?: {jobId?: unknown; commandId?: unknown; command?: unknown},
   ): {
     from: number;
     to: number;
     source: Item;
     target: Item;
+    quantity: number;
   } | null;
 }

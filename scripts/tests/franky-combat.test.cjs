@@ -51,6 +51,17 @@ test('attendance persists without event targets, but yields to exit, manual navi
   c.navigationIntent.cancelled=true;assert.equal(c.frankyCombatActive(),false);
   c.navigationIntent.cancelled=false;c.eventExitOwnsMovement=()=>true;assert.equal(c.frankyCombatActive(),false);
 });
+
+test('each Franky participant kills its own targeting mummy before returning to the boss',()=>{
+  const {c,add}=fixture(),boss=add('boss'),other=add('other',{mtype:'mummy',target:'Ally',x:1});
+  const mummy=add('mine',{mtype:'mummy',target:'Hero',x:50});
+  c.combatTargetId=boss.id;
+  assert.equal(c.nearestEventTarget(),mummy);
+  assert.equal(c.frankyTargetAllowed(mummy),true);
+  assert.equal(c.frankyTargetAllowed(other),false);
+  mummy.dead=true;assert.equal(c.nearestEventTarget(),boss);
+  mummy.dead=false;mummy.target='Ally';assert.equal(c.nearestEventTarget(),boss);
+});
 for(const range of [30,100,200]) test(`range ${range}: approach through adds, hold even too close, reapproach and stop on absence`,()=>{
   const {c,add,moves,stops}=fixture(range),boss=add('boss',{x:range+100});
   add('add',{mtype:'bat',x:5,range:100,target:'Hero'});

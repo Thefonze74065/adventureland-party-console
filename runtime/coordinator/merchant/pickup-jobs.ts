@@ -20,16 +20,25 @@ function mergeTiming(previous: PrioritizedJob, job: PrioritizedJob): void {
   const age = Math.min(previous.queuedAt ?? Infinity, job.queuedAt ?? Infinity);
   if (Number.isFinite(age)) previous.queuedAt = age;
   previous.retryAt = Math.max(previous.retryAt || 0, job.retryAt || 0);
+  mergeRetryBudget(previous, job);
   if (job.realmBlockedReason) previous.realmBlockedReason = job.realmBlockedReason;
 }
-export function mergePickupJobs<T extends PrioritizedJob>(jobs: T[], merchant: string | null | undefined): T[] {
+function mergeRetryBudget(previous: PrioritizedJob, job: PrioritizedJob): void {
+  for (const field of ['retryCount', 'rendezvousRetryCount', 'recoveryAttempts'] as const)
+    if (job[field] !== undefined) previous[field] = Math.max(previous[field] || 0, job[field] || 0);
+}
+export function mergePickupJobs<T extends PrioritizedJob>(jobs: T[], merchant: string | null | undefined, current?: PrioritizedJob | null): T[] {
   const collections = new Map<string, T>();
   const result: T[] = [];
   for (const original of jobs) {
     const job = normalizePickupJob(original, merchant);
-    if (job.reason !== 'marked items' || !job.target) { result.push(job); continue; }
-    const previous = collections.get(job.target);
-    if (!previous) { collections.set(job.target, job); result.push(job); continue; }
+    if (!['marked items', 'inventory cleanout'].includes(job.reason) || !job.target) { result.push(job); continue; }
+    // Cleanouts express current inventory demand, not separate orders. A
+    // running cleanout already owns this demand; never rewrite its command.
+    if (job.reason === 'inventory cleanout' && current?.reason === job.reason && current.target === job.target) continue;
+    const key = job.target + '\n' + job.reason;
+    const previous = collections.get(key);
+    if (!previous) { collections.set(key, job); result.push(job); continue; }
     mergeTiming(previous, job);
   }
   return result;

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 FROM docker:28-cli AS docker-client
-FROM --platform=$BUILDPLATFORM node:24.14.0-bookworm-slim AS build
+FROM --platform=$BUILDPLATFORM node:26.12.1-bookworm-slim AS build
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates util-linux && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -18,7 +18,7 @@ RUN rm -rf /app/.caracal/localStorage /app/.caracal/game_files /app/.caracal/log
     ln -s /data/localStorage /app/.caracal/localStorage && ln -s /data/game_files /app/.caracal/game_files && ln -s /data/logs /app/.caracal/logs
 RUN rm -rf /app/node_modules /app/dashboard/node_modules /app/.caracal/node_modules
 
-FROM node:24.14.0-bookworm-slim AS development
+FROM node:26.12.1-bookworm-slim AS development
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates tini gosu util-linux && rm -rf /var/lib/apt/lists/*
 COPY --from=docker-client /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker-client /usr/local/libexec/docker/cli-plugins/docker-buildx /usr/local/libexec/docker/cli-plugins/docker-buildx
@@ -37,7 +37,7 @@ HEALTHCHECK --interval=10s --start-period=240s CMD node -e "fetch('http://127.0.
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "/opt/party-seed/tools/hosting/docker-dev.mts"]
 
-FROM node:24.14.0-bookworm-slim AS production
+FROM node:26.12.1-bookworm-slim AS production
 ARG RELEASE_VERSION=development
 ARG RELEASE_REPOSITORY=thefonze74065/adventureland-party-console
 LABEL org.opencontainers.image.title="Adventureland Party Console" org.opencontainers.image.version=$RELEASE_VERSION org.opencontainers.image.source="https://github.com/$RELEASE_REPOSITORY"
@@ -60,7 +60,7 @@ HEALTHCHECK --interval=30s --start-period=60s CMD node -e "fetch('http://127.0.0
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "tools/hosting/docker-production.mts"]
 
-FROM node:24.14.0-bookworm-slim AS debug-browser
+FROM node:26.12.1-bookworm-slim AS debug-browser
 RUN npm install --prefix /opt/browser @playwright/test@1.63.0 && /opt/browser/node_modules/.bin/playwright install --with-deps chromium
 RUN apt-get update && apt-get install -y --no-install-recommends xvfb x11vnc novnc websockify util-linux && rm -rf /var/lib/apt/lists/*
 

@@ -1,4 +1,5 @@
 import {test,expect} from './live-fixtures';
+import type {CaveCommand} from '../runtime/dungeons/contracts';
 
 const W='E2EWarrior',P='E2EPriest';
 test.use({initialPosition:{map:'main',x:816,y:1180}});
@@ -55,16 +56,28 @@ test('Cave talk reopens a merchant after a later encounter, buys its item, and R
   await expect.poll(async()=>shopShown(await view()),{timeout:20_000,message:'The merchant shop must leave every snapshot'}).toBe(false);
   // The console reopens it with cave_talk from the member next to the merchant.
   const talkEvidence:any[]=[];
+  let talk:{name:string;command:CaveCommand}|undefined,reopenedView:any;
   await expect.poll(async()=>{
     const v=await view();talkEvidence.push({at:Date.now(),commands:v.state.commands,error:v.state.error});
-    if(shopShown(v))return true;
+    const issuedTalk=talk,speaker=issuedTalk&&v.members.find((m:any)=>m.name===issuedTalk.name);
+    if(talk&&speaker?.observation?.action?.id===talk.command.id&&
+        speaker.observation.action.status==='complete'&&speaker.observation.cave?.choice?.shop?.room==='0:shop'){
+      reopenedView=v;return true;
+    }
     // Far from the merchant this travels there; next to it the coordinator talks.
-    if(!v.state.travel)await act({action:'move',run:v.state.run,target:(await shopPoint()).id});
+    // Once talk is issued, a delayed shop observation must not click again:
+    // that second selection can start a new walk and replace the completed talk.
+    if(!v.state.travel&&!talk){
+      const issued=await act({action:'move',run:v.state.run,target:(await shopPoint()).id});
+      const commands=Object.entries<CaveCommand>(issued.state.commands).filter(([,c])=>c.action==='talk');
+      expect(commands.length).toBeLessThanOrEqual(1);
+      if(commands.length)talk={name:commands[0][0],command:commands[0][1]};
+    }
     return false;
   },{timeout:120_000,intervals:[2_000],message:'Selecting the merchant room must reopen its shop'}).toBe(true);
-  await info.attach('native-cave-talk-reopen',{body:JSON.stringify({replaced,talkEvidence:talkEvidence.slice(-10)}),contentType:'application/json'});
-  const reopened=(await view()).members.find((m:any)=>m.observation?.cave?.choice?.shop?.room==='0:shop').observation.cave.choice;
-  expect(Object.values((await view()).state.commands).some((c:any)=>c.action==='talk')).toBe(true);
+  await info.attach('native-cave-talk-reopen',{body:JSON.stringify({replaced,talk,talkEvidence:talkEvidence.slice(-10),reopened:reopenedView}),contentType:'application/json'});
+  const reopened=reopenedView.members.find((m:any)=>m.name===talk!.name).observation.cave.choice;
+  expect(reopenedView.state.commands[talk!.name]).toMatchObject({id:talk!.command.id,action:'talk',room:'0:shop'});
   // Give the shared purse the price and buy from the reopened shop.
   await native(`run.cave.gold=Math.max(run.cave.gold,${reopened.shop.price});cave_publish(run,true);return run.cave.gold;`);
   await expect.poll(async()=>(await view()).members[0].observation.cave.gold,{timeout:20_000}).toBeGreaterThanOrEqual(reopened.shop.price);

@@ -1,6 +1,7 @@
 import { collectsPartyItems, normalizePickupJob } from './pickup-jobs.ts';
 import { scopeWork } from './command-scope.ts';
 import { ownCommandType } from "./command-kind.ts";
+import {requestObject} from '../http/contracts.ts';
 import type {
   CharacterWork,
   CommandInputs,
@@ -18,7 +19,9 @@ function merchantSupplies(inputs: CommandInputs) {
   return {
     merchantGoldTarget: goldTarget(work, 0),
     ...(inputs.craftProtection ? {craftProtection: inputs.craftProtection} : {}),
-    merchantWithdrawals: work.withdrawals,
+    // Reserved manual triplets are retrieved by prepareBankCompounds, which
+    // records their exact inventory destinations before production.
+    merchantWithdrawals: (work.withdrawals || []).filter(mark => requestObject(mark).improvement !== 'manual compounds'),
     merchantBankMarked: work.marked,
     npcSales: inputs.npcSales,
   };
@@ -117,6 +120,9 @@ export function ownMerchantCommand(
     ...purchaseDetails(job, inputs),
     ...marketplaceDetails(job, inputs),
     ...merchantSupplies(inputs),
+    ...(job.reason === 'auto npc withdrawals' ? {
+      merchantWithdrawals: work.withdrawals.filter(mark => requestObject(mark).autoNpcRuleKey),
+    } : {}),
     ...reasonDetails[job.reason]?.(job, inputs),
     ...improvements(work, status, true, inputs.bankboiItems),
     ...sharedImprovements(job, inputs),

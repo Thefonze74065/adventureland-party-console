@@ -130,6 +130,10 @@ async ({ live, page }, info) => {
     const expectedRun=point.map.slice(5,point.map.lastIndexOf('_')),expectedFloor=Number(point.map.split('_').at(-1));
     const requests:{request:import('@playwright/test').Request;response?:Promise<{status:number;body:any;request:any}>}[]=[],attempts:unknown[]=[];
     let consumed=0,acceptedState:any,deferred=false;
+    const completedRequiredRoom=(view:any)=>deferNativeChoice&&view.state.phase==='active'&&view.state.run===expectedRun&&
+      view.members.length===2&&view.members.every((m:any)=>m.fresh&&m.observation?.alive&&
+        m.observation.cave?.run===expectedRun&&m.observation.cave.floor===expectedFloor&&!m.observation.cave.paused&&
+        m.observation.cave.points.some((p:any)=>p.id===point.id&&p.map===point.map&&p.required&&p.done));
     const match=(request:import('@playwright/test').Request)=>request.method()==='POST'&&new URL(request.url()).pathname==='/party-api/daily-dungeons'&&
       request.postDataJSON()?.action==='move'&&request.postDataJSON()?.target===point.id;
     const requested=(request:import('@playwright/test').Request)=>{if(match(request))requests.push({request});};
@@ -140,6 +144,9 @@ async ({ live, page }, info) => {
     const identity=async()=>{
       const view=await dungeon();expect(view.state.phase).toBe('active');expect(view.state.run).toBe(expectedRun);
       expect(view.members.every((m:any)=>m.observation?.alive&&m.observation.cave?.run===expectedRun&&m.observation.cave.floor===expectedFloor)).toBe(true);
+      if(completedRequiredRoom(view)){
+        deferred=true;attempts.push({submitted:false,completedRoom:point.id,view});return null;
+      }
       const paused=view.members.some((m:any)=>m.observation.cave.paused);
       if(paused&&deferNativeChoice&&requests.length===consumed){
         const nativeChoice=view.members.find((m:any)=>m.observation.cave.paused)?.observation.cave.choice;
@@ -182,6 +189,15 @@ async ({ live, page }, info) => {
         const result=await requests[consumed++].response!;
         expect(result.request.run).toBe(expectedRun);expect(result.request.target).toBe(point.id);
         attempts.push({submitted:true,status:result.status,error:result.body.error});
+        if(deferNativeChoice&&result.status===409&&result.body.error==='Destination unavailable'){
+          // Combat may finish after selection but before the move reaches the
+          // coordinator. Only both fresh native completion receipts retire it.
+          let completed:any;
+          await expect.poll(async()=>{
+            completed=await dungeon();return completedRequiredRoom(completed);
+          },{timeout:10_000,message:'Rejected required destination must have completed for both native participants'}).toBe(true);
+          deferred=true;attempts.push({submitted:true,completedRoom:point.id,view:completed});return true;
+        }
         if(result.status===409&&result.body.error==='Fresh matching dungeon run required'){if(!await identity())return true;return false;}
         expect(result.status,'Room selection must be accepted; unrelated errors are not retried').toBe(200);
         const accepted=result.body.state;expect(accepted.run).toBe(expectedRun);
@@ -298,7 +314,7 @@ async ({ live, page }, info) => {
     await expect(card.locator('canvas')).toBeVisible();
     let mapScreenshot: Buffer = Buffer.alloc(0);
     let mapPixels = {floor:0,texture:0,actor:0,armor:0};
-    await expect.poll(async () => {
+    try { await expect.poll(async () => {
       mapScreenshot = await card.locator('canvas').screenshot();
       const { data, info: size } = await sharp(mapScreenshot).removeAlpha().raw().toBuffer({ resolveWithObject: true });
       mapPixels = {floor:0,texture:0,actor:0,armor:0};
@@ -309,16 +325,20 @@ async ({ live, page }, info) => {
           if(x && data[i-3]>=data[i-2] && data[i-2]>=data[i-1] &&
             Math.abs(r-data[i-3])+Math.abs(g-data[i-2])+Math.abs(b-data[i-1])>20)mapPixels.texture++;
         }
-        // This minimap follows its actor: native sprite feet are at its center.
-        if(Math.abs(x-size.width/2)<=12 && Math.abs(y-size.height/2)<=12) {
+        // The center anchors the feet, not the middle of the native sprite.
+        // Sample its body above the anchor instead of clipping the head/torso
+        // and spending half the region on the floor below its feet.
+        if(Math.abs(x-size.width/2)<=12 && y>=size.height/2-24 && y<=size.height/2+2) {
           if(r>180 && g>180 && b>140)mapPixels.actor++;
           if(g>r*1.05 && b>r*1.15)mapPixels.armor++;
         }
       }
       return mapPixels.floor>200 && mapPixels.texture>200 && mapPixels.actor>=1 && mapPixels.armor>8;
     }, { timeout: 20_000, message: name + ' cave map must render textured native floor and its centered actor' }).toBe(true);
+    } finally {
     await info.attach(name+'-cave-map-pixel-evidence',{body:JSON.stringify(mapPixels),contentType:'application/json'});
-    await info.attach(name + '-cave-map', { body: mapScreenshot, contentType: 'image/png' });
+    if(mapScreenshot.length)await info.attach(name + '-cave-map', { body: mapScreenshot, contentType: 'image/png' });
+    }
   }
   await expect.poll(async () => (await dungeon()).state.error || null, { timeout: 15_000 }).toBe(null);
   expect((await dungeon()).state.progress.enabled).toBe(false);
@@ -1109,7 +1129,33 @@ async ({ live, page }, info) => {
     const room={id:'e2e-farewell',floor:0,map:p.map,x:${stairs.x},y:${stairs.y},kind:'encounter',required:false,revealed:true,started:false,done:false,actors:[],enemies:[],encounter:source};
     run.cave.rooms.push(room);cave_activate(run,room);cave_publish(run,true);return {run:run.key,room:room.id,map:room.map,x:room.x,y:room.y};
   })()`);
+  // Failure inventory: a native conversation pause can begin after stairs
+  // readiness was observed. Reject exactly the priest's first real transport
+  // through the server's own pause gate, then unfreeze immediately after its
+  // native response. No receipt is synthesized and unrelated traffic stays live.
+  await live.admin(`output=(()=>{
+    const p=get_player('E2EPriest'),socket=p.socket;
+    const fault=globalThis.__e2eStairPause={to:${JSON.stringify(stairs.to)},socket,emit:socket.emit,attempts:0};
+    fault.gate=function(data){
+      const instance=instances[p.in];
+      if(fault.started||data.to!==fault.to||instance.frozen)return;
+      fault.started={at:Date.now(),map:p.map,to:data.to};fault.attempts++;
+      fault.instance=instance;freeze_instance(instance,Date.now());fault.owned=instance.frozen;
+    };
+    socket.prependListener('transport',fault.gate);
+    socket.emit=function(event,data,...args){
+      const result=fault.emit.call(this,event,data,...args);
+      if(fault.started&&!fault.receipt&&event==='game_response'&&data?.place==='transport'&&data.reason==='cave_paused'){
+        fault.receipt={at:Date.now(),...data};socket.off('transport',fault.gate);socket.emit=fault.emit;
+        if(fault.owned&&fault.instance.frozen===fault.owned)resume_frozen_instance(fault.instance,Date.now());
+        fault.resumed=!fault.instance.frozen;
+      }
+      return result;
+    };
+    return true;
+  })()`);
   let answeredFarewell=false;
+  let pausedTransport:any=null;
   const stairReplies:{id:string;title:string;option:string;room:string;run:string}[]=[];
   const stairNativeChoices:any[]=[];
   const stairSamples:any[]=[];
@@ -1257,6 +1303,15 @@ async ({ live, page }, info) => {
       {timeout:300_000,message:'Manual stairs must continue after the farewell vote and transport both members'}).toBe(true);
   }finally{
     await stairContext.unroute('**/party-api/status',displaceCompletedStairs);
+    pausedTransport=await live.admin(`output=(()=>{
+      const fault=globalThis.__e2eStairPause;
+      fault.socket.off('transport',fault.gate);fault.socket.emit=fault.emit;
+      if(fault.owned&&fault.instance?.frozen===fault.owned)resume_frozen_instance(fault.instance,Date.now());
+      delete globalThis.__e2eStairPause;
+      return {started:fault.started,receipt:fault.receipt,attempts:fault.attempts,ownedPause:!!fault.owned,resumed:fault.resumed===true};
+    })()`);
+    await info.attach('native-stairs-pause-rejection',{body:JSON.stringify(pausedTransport),contentType:'application/json'});
+
     try{
       await info.attach('native-cave-stairs-readiness',{body:JSON.stringify({farewellDeclaration,stairDisplacement,nativeChoices:stairNativeChoices,samples:stairSamples,planning:await Promise.allSettled(stairPlanningReads),native:await Promise.allSettled(stairNativeReads),
         unavailable:['Coordinator status position/seenAt and CODE loading/socket ownership are not exposed by this dungeon response.']}),contentType:'application/json'});
@@ -1268,6 +1323,13 @@ async ({ live, page }, info) => {
     }
   }
   expect(answeredFarewell).toBe(true);
+  expect(pausedTransport.attempts).toBe(1);
+  expect(pausedTransport.ownedPause).toBe(true);
+  expect(pausedTransport.resumed).toBe(true);
+  expect(pausedTransport.receipt).toMatchObject({failed:true,reason:'cave_paused',place:'transport'});
+  await expect.poll(async()=>Promise.all(['E2EWarrior','E2EPriest'].map(async name=>
+    (await live.clients[name].events()).filter(entry=>entry.event==='new_map'&&entry.data?.name===stairs.to).length)),
+    {timeout:10_000,message:'Each participant must publish exactly one native arrival on the next floor'}).toEqual([1,1]);
   expect(stairDisplacement?.completed,'Native completed stairs must exercise actual displacement').toBe(true);
   expect(stairSamples.some(s=>s.members.some((m:any)=>m.expected?.independent===true)),
     'Displaced completion must receive a fresh independent movement command before stairs').toBe(true);
@@ -1498,12 +1560,13 @@ test(`Cave assembly regroups displaced completed participants before departure (
     const assertOwnership=()=>{if(people.some(actor=>get_player(actor.name)!==actor||actor.map!==map||actor.in!==instance||actor.rip))throw Error('Native staging participants changed during search');};
     const yieldToNative=async()=>{
       maxWorkSliceMs=Math.max(maxWorkSliceMs,cpuNow()-sliceStarted);
-      await new Promise(resolve=>setImmediate(resolve));yields++;assertOwnership();sliceStarted=cpuNow();
+      await new Promise(resolve=>setImmediate(resolve));yields++;assertOwnership();enemies=currentEnemies();sliceStarted=cpuNow();
     };
     const timing=()=>({elapsedMs:cpuNow()-started,yields,maxWorkSliceMs:Math.max(maxWorkSliceMs,cpuNow()-sliceStarted)});
     const rooms=run.cave.rooms.filter(r=>r.map===p.map&&['farm','patrol','fight','boss','darkmage'].includes(r.kind)).map(r=>({id:r.id,kind:r.kind,x:r.x,y:r.y}));
     const encounters=run.cave.rooms.filter(r=>r.map===p.map&&r.encounter&&!r.voted&&!r.done).map(r=>({id:r.id,x:r.x,y:r.y,npc:r.npc?{id:r.npc.id,x:r.npc.x,y:r.npc.y}:null}));
-    const enemies=Array.from(run.cave.actors).filter(a=>!a.dead&&a.map===p.map&&['enemy','predator'].includes(a.zone_actor?.side)).map(a=>({id:a.id,x:a.x,y:a.y}));
+    const currentEnemies=()=>Array.from(run.cave.actors).filter(a=>!a.dead&&a.map===p.map&&['enemy','predator'].includes(a.zone_actor?.side)).map(a=>({id:a.id,x:a.x,y:a.y}));
+    let enemies=currentEnemies();
     const pathClear=(from,to,obstacles,minimum)=>{
       const samples=Math.max(1,Math.ceil(Math.hypot(to.x-from.x,to.y-from.y)/20));
       for(let j=0;j<=samples;j++)for(const r of obstacles)if(Math.hypot(from.x+(to.x-from.x)*j/samples-r.x,from.y+(to.y-from.y)*j/samples-r.y)<minimum)return false;
@@ -1540,15 +1603,37 @@ test(`Cave assembly regroups displaced completed participants before departure (
         seen.add(key);connected.push(next);
       }
     }
-    for(let index=0;index<connected.length;index++){
+    // Prefer a connected corridor away from entry activity; the native search
+    // and delivery share one turn, with current actors refreshed after every yield.
+    for(let index=connected.length-1;index>=0;index--){
       if(cpuNow()-sliceStarted>=8)await yieldToNative();
       const {x,y}=connected[index],target={map:p.map,x,y};
       if(!people.every(actor=>actor.map===p.map&&can_move({map:p.map,x,y,going_x:x,going_y:y,base:actor.base})))continue;
       const offset=displacement(target,160),displaced=displacement(target,85);
       if(offset&&displaced){
+        const seed={map:p.map,x,y,offset,displaced};
+        if(people.some(p=>!p||p.rip||p.map!==seed.map||p.in!==people[0].in))throw Error('Native staging participants unavailable');
+        const obstacles=[...run.cave.rooms.filter(r=>r.map===seed.map&&['farm','patrol','fight','boss','darkmage'].includes(r.kind)).map(r=>({...r,clearance:420})),
+          ...run.cave.rooms.filter(r=>r.map===seed.map&&r.encounter&&!r.voted&&!r.done).map(r=>({...r,clearance:300})),
+          ...Array.from(run.cave.actors).filter(a=>!a.dead&&a.map===seed.map&&['enemy','predator'].includes(a.zone_actor?.side)).map(a=>({x:a.x,y:a.y,clearance:300}))];
+        for(const target of [seed.offset,seed.displaced]){
+          if(!people.every(p=>can_move({map:seed.map,x:seed.x,y:seed.y,going_x:target.x,going_y:target.y,base:p.base})))throw Error('Native staging collision changed');
+          const samples=Math.max(1,Math.ceil(Math.hypot(target.x-seed.x,target.y-seed.y)/20));
+          for(let j=0;j<=samples;j++)if(obstacles.some(r=>Math.hypot(seed.x+(target.x-seed.x)*j/samples-r.x,seed.y+(target.y-seed.y)*j/samples-r.y)<r.clearance))throw Error('Native staging clearance changed');
+        }
+        const beforePositions=people.map(actor=>({name:actor.name,x:actor.x,y:actor.y}));
+        const delivery=people.map(p=>{const name=p.name;
+        if(p.map!==seed.map)throw Error('Native staging floor changed');
+        const context=()=>({map:p.map,in:p.in,generated:G.maps[p.map].generated,info:instances[p.in].info,duel:p.duel,team:p.team,action:p.c});
+        const before=JSON.parse(JSON.stringify(context()));
+        const instance=p.in;transport_player_to(p,instance,[seed.x,seed.y]);
+        if(p.in!==instance||p.map!==seed.map)throw Error('Initial native staging changed instance or floor');
+        const after=JSON.parse(JSON.stringify(context()));
+        if(JSON.stringify(before)!==JSON.stringify(after))throw Error('Initial native staging changed cave action context');
+        return {name,map:p.map,x:p.x,y:p.y,before,after};});
         const path=[];for(let cursor=index;cursor>=0;cursor=connected[cursor].parent)path.push({x:connected[cursor].x,y:connected[cursor].y});
-        return {found:true,...target,offset,displaced,rooms,encounters,enemies,nativeFloor,timing:timing(),connectivity:{seed:run.seed,floor:floor.level,tile,reachableCells:connected.length,path:path.reverse()},
-          before:people.map(actor=>({name:actor.name,x:actor.x,y:actor.y}))};
+        return {found:true,...target,offset,displaced,delivery,rooms,encounters,enemies,nativeFloor,timing:timing(),connectivity:{seed:run.seed,floor:floor.level,tile,reachableCells:connected.length,path:path.reverse()},
+          before:beforePositions};
       }
     }
     return {found:false,map:p.map,rooms,encounters,enemies,nativeFloor,timing:timing(),connectivity:{seed:run.seed,floor:floor.level,tile,reachableCells:connected.length},
@@ -1556,28 +1641,7 @@ test(`Cave assembly regroups displaced completed participants before departure (
   })()`);
   await info.attach('declared-native-cave-safe-staging',{body:JSON.stringify(staging),contentType:'application/json'});
   expect(staging.found,'The actual connected native floor must provide both required safe displacements').toBe(true);
-  const stagingDelivery=await live.admin(`output=(()=>{
-    const seed=${JSON.stringify({map:staging.map,x:staging.x,y:staging.y,offset:staging.offset,displaced:staging.displaced})};
-    const people=['E2EWarrior','E2EPriest'].map(name=>get_player(name));
-    if(people.some(p=>!p||p.rip||p.map!==seed.map||p.in!==people[0].in))throw Error('Native staging participants unavailable');
-    const run=generated_entry(people[0]).record;
-    const obstacles=[...run.cave.rooms.filter(r=>r.map===seed.map&&['farm','patrol','fight','boss','darkmage'].includes(r.kind)).map(r=>({...r,clearance:420})),
-      ...run.cave.rooms.filter(r=>r.map===seed.map&&r.encounter&&!r.voted&&!r.done).map(r=>({...r,clearance:300})),
-      ...Array.from(run.cave.actors).filter(a=>!a.dead&&a.map===seed.map&&['enemy','predator'].includes(a.zone_actor?.side)).map(a=>({x:a.x,y:a.y,clearance:300}))];
-    for(const target of [seed.offset,seed.displaced]){
-      if(!people.every(p=>can_move({map:seed.map,x:seed.x,y:seed.y,going_x:target.x,going_y:target.y,base:p.base})))throw Error('Native staging collision changed');
-      const samples=Math.max(1,Math.ceil(Math.hypot(target.x-seed.x,target.y-seed.y)/20));
-      for(let j=0;j<=samples;j++)if(obstacles.some(r=>Math.hypot(seed.x+(target.x-seed.x)*j/samples-r.x,seed.y+(target.y-seed.y)*j/samples-r.y)<r.clearance))throw Error('Native staging clearance changed');
-    }
-    return people.map(p=>{const name=p.name;
-    if(p.map!==${JSON.stringify(staging.map)})throw Error('Native staging floor changed');
-    const context=()=>({map:p.map,in:p.in,generated:G.maps[p.map].generated,info:instances[p.in].info,duel:p.duel,team:p.team,action:p.c});
-    const before=JSON.parse(JSON.stringify(context()));
-    const instance=p.in;transport_player_to(p,instance,[${staging.x},${staging.y}]);
-    if(p.in!==instance||p.map!==${JSON.stringify(staging.map)})throw Error('Initial native staging changed instance or floor');
-    const after=JSON.parse(JSON.stringify(context()));
-    if(JSON.stringify(before)!==JSON.stringify(after))throw Error('Initial native staging changed cave action context');
-    return {name,map:p.map,x:p.x,y:p.y,before,after};});})()`);
+  const stagingDelivery=staging.delivery;
   await info.attach('native-cave-staging-delivery-context',{body:JSON.stringify(stagingDelivery),contentType:'application/json'});
   await expect.poll(async()=>Promise.all(['E2EWarrior','E2EPriest'].map(name=>live.clients[name].run(
     `character.map===${JSON.stringify(staging.map)}&&Math.hypot(character.real_x-(${staging.x}),character.real_y-(${staging.y}))<5`))),

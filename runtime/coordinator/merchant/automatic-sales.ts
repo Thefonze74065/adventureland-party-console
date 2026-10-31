@@ -1,6 +1,7 @@
 import { itemRuleConflicts } from "../inventory/shared-rules.ts";
 import type { DeconstructionMark } from "./deconstruction.ts";
 import type { Item, InventoryEntry } from "../contracts/item.ts";
+import type { BankboiInventory } from '../inventory/bankboi-completion.ts';
 import { availableCraftStock, craftProtection, type CraftReservationState } from "./craft-reservations.ts";
 import { automaticCommerceRuleKey, sameMarkedItem } from "../inventory/item-identity.ts";
 import { reconcileNpcSales, type NpcSale } from "./npc-sales.ts";
@@ -19,6 +20,7 @@ interface SaleEntry {
   item: Item;
 }
 interface SalesState extends PlayerSaleState, CraftReservationState {
+  bankbois?: Record<string, Pick<BankboiInventory, 'name' | 'items'>>;
   bankSnapshot?: { packs?: Record<string, (InventoryEntry | null)[] | undefined> } | null;
   withdrawals?: Record<string, { pack?: string; slot?: number; item?: Item | null; standListingId?: string; autoNpcRuleKey?: string }[] | undefined>;
   itemCollectionThreshold?: number;
@@ -29,7 +31,7 @@ interface SalesState extends PlayerSaleState, CraftReservationState {
   autoStandMarks: Record<string, { price: unknown } | undefined>;
   npcSaleMarks: NpcSale[];
   standListings: AutomaticStandMark[];
-  merchantCurrent?: NonNullable<CraftReservationState["merchantCurrent"]> & { reason?: string } | null;
+  merchantCurrent?: NonNullable<CraftReservationState["merchantCurrent"]> & { reason?: string; target?: string | null } | null;
   merchantQueue: (NonNullable<CraftReservationState["merchantQueue"]>[number] & { reason?: string; target?: string | null })[];
 }
 interface SalesPorts {
@@ -160,17 +162,23 @@ export function createAutomaticMerchantSales(state: SalesState, ports: SalesPort
     return changed;
   }
   function bankStockReady(): boolean {
-    return !!state.merchantCharacter && !state.merchantCurrent;
+    // A bank report can arrive during the merchant's own visit. Reserve its
+    // sale stock now; the next job consumes these durable withdrawals.
+    return !!state.merchantCharacter;
   }
   function availableBankStock() {
     const pending = state.withdrawals?.[String(state.merchantCharacter)] || [];
-    const stock = Object.entries(state.bankSnapshot?.packs || {}).flatMap(([pack, entries]) =>
+    const packs = [...Object.entries(state.bankSnapshot?.packs || {}),
+      ...Object.values(state.bankbois || {}).map(worker => ['bankboi:' + worker.name, worker.items] as const)];
+    const stock = packs.flatMap(([pack, entries]) =>
       (entries || []).map(entry => entry && !pending.some(mark => mark.pack === pack && mark.slot === entry.slot && sameMarkedItem(mark.item,entry.item)) ? { ...entry, craftLocation: pack } : null));
     // Withdrawals move whole stacks; leave partially reserved stacks untouched.
     return availableCraftStock(stock, craftProtection(state)).map((entry, index) =>
       entry?.item?.q === stock[index]?.item?.q ? entry : null);
   }
   function bankStandEntry(entry: (InventoryEntry & { craftLocation: string }) | null): entry is InventoryEntry & SaleEntry & { craftLocation: string } {
+    if (state.merchantCurrent) return false;
+    if (entry?.craftLocation.startsWith('bankboi:')) return false;
     if (!entry?.item || entry.item.l || !Number.isSafeInteger(entry.slot)) return false;
     return !state.autoNpcSales[automaticCommerceRuleKey(entry.item)] && !saleConflict(entry.item);
   }
@@ -260,7 +268,7 @@ export function createAutomaticMerchantSales(state: SalesState, ports: SalesPort
     if (collection) ports.queue([state.merchantCharacter], collection);
     else if (keptCopiesCarried(items)) ports.queue([state.merchantCharacter], "manual bank exchange");
   }
-  function reconcileMerchant(items: readonly (SaleEntry | null)[]): boolean {
+  function resizeKeptSales(): boolean {
     // Shared party rules can deliver a whole stack with an existing sale mark.
     // Clamp that intent too; new-mark allowances alone cannot protect the reserve.
     let resized = false;
@@ -285,6 +293,10 @@ export function createAutomaticMerchantSales(state: SalesState, ports: SalesPort
         return quantity > 0;
       });
     }
+    return resized;
+  }
+  function reconcileMerchant(items: readonly (SaleEntry | null)[]): boolean {
+    const resized = resizeKeptSales();
     // Banked sales also reserve capacity against opportunistic buys.
     const marks = markInventory(items), bankChanged = markBankStock();
     const changed = reconcileSales(items) || marks.changed || bankChanged || resized;

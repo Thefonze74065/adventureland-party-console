@@ -7,6 +7,10 @@ test('lucky slot recovery retires ambiguous restoration and preserves provable n
   // Failure modes: ambiguous restoration blocks later work or swaps unrelated
   // stock; valid potion quantity recovery loses items; replay repeats a native
   // swap or reissues the completed upgrade.
+  // This isolated native journal owns its two cells against ordinary idle bag
+  // compression, just as a live inventory command owns them in production.
+  await live.clients[merchant].run(`globalThis.__partyInventoryCommands=(globalThis.__partyInventoryCommands||0)+1;true`);
+  try {
   await live.admin(`output=(()=>{const p=get_player('${merchant}');p.items[20]={name:'hpot1',q:4};p.items[21]={name:'helmet',level:1};cache_player_items(p);resend(p,'reopen+cid');return p.items.slice(20,22);})()`);
   await expect.poll(async()=>(await live.clients[merchant].snapshot()).items[20]?.q).toBe(4);
   const journal={from:20,to:21,item:{name:'helmet',level:0},displaced:{name:'hpot1',q:5},phase:'running'};
@@ -24,6 +28,9 @@ test('lucky slot recovery retires ambiguous restoration and preserves provable n
   expect(recovered.journal).toBeNull();
   expect(recovered.items).toEqual([{name:'helmet',level:1},{name:'hpot1',q:4}]);
   await info.attach('lucky-recovery-native-result',{body:JSON.stringify({recovered,events:await live.clients[merchant].events()}),contentType:'application/json'});
+  } finally {
+    await live.clients[merchant].run(`globalThis.__partyInventoryCommands=Math.max(0,(globalThis.__partyInventoryCommands||0)-1);true`);
+  }
 });
 
 test('Hunt blacklist full catalog scrolls and sprites select their own monster', async ({page,live},info) => {
@@ -191,13 +198,27 @@ test.describe('stale merchant recovery', () => {
     // stale assigned work blocks the native ownership/login recovery path.
     const context = live.clients[merchant].page.context();
     let allowOneReport = false;
+    let reportInFlight = false;
+    const reportReceipts:{at:number;status:number}[]=[];
     await context.route('**/party-api/status', async route => {
       if (route.request().postDataJSON()?.name === merchant) {
-        if (allowOneReport) { allowOneReport = false; await route.fetch(); }
+        if (allowOneReport&&!reportInFlight) {
+          reportInFlight=true;
+          try{
+            const response=await route.fetch();
+            reportReceipts.push({at:Date.now(),status:response.status()});
+            // Restart may require protocol resync before accepting status.
+            // Deliver that handshake; drop only the accepted report's response.
+            if(response.status()===409)return await route.fulfill({response});
+            expect(response.ok()).toBe(true);
+            allowOneReport=false;
+          }finally{reportInFlight=false;}
+        }
         return route.abort('connectionfailed');
       }
       return route.fallback();
     });
+    try{
     await live.restoreHistoricalSettings(() => ({ merchantCurrent: {
       id: 'offline-exhausted', target: merchant, reason: 'manual bank exchange',
       phase: 'assigned', startedAt: Date.now() - 181_000, recoveryAttempts: 3,
@@ -207,6 +228,7 @@ test.describe('stale merchant recovery', () => {
     // to assign it, drop its response, then withhold every further worker report.
     allowOneReport = true;
     await expect.poll(async () => (await live.state()).merchantCurrent?.id, { timeout: 20_000 }).toBe('offline-exhausted');
+    expect(reportReceipts.filter(receipt=>receipt.status>=200&&receipt.status<300)).toHaveLength(1);
     const assigned = await live.state();
     await expect.poll(() => Date.now() - assigned.merchantCurrent.startedAt).toBeGreaterThan(7000);
     // Exercise the real roster action guard while the job still exists. This
@@ -224,5 +246,9 @@ test.describe('stale merchant recovery', () => {
     await context.unroute('**/party-api/status');
     await expect.poll(async () => (await live.clients[merchant].snapshot()).statusAt, { timeout: 30_000 }).toBeGreaterThan(Date.now() - 5000);
     await info.attach('offline-merchant-timeout-and-login', { body: JSON.stringify({ assigned, login, timedOut, recovered: await live.state() }), contentType: 'application/json' });
+    }finally{
+      await context.unroute('**/party-api/status');
+      await info.attach('offline-merchant-report-admission',{body:JSON.stringify(reportReceipts),contentType:'application/json'});
+    }
   });
 });

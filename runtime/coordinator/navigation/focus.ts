@@ -67,6 +67,10 @@ export function createFocusSelection(state: FocusState, ports: FocusPorts) {
       (!name || state.monsterHunt.participants.includes(name))
     );
   }
+  function invalidateClearedFocus(name: string | null): void {
+    const shared = !name || name === state.leader;
+    ports.invalidate(shared ? ports.members() : [name!], "monster focus cleared", shared);
+  }
   function select(
     name: string | null,
     focus: string[],
@@ -82,8 +86,7 @@ export function createFocusSelection(state: FocusState, ports: FocusPorts) {
     }
     if (changed && !huntOwnsFocus(name)) ports.focusChanged?.();
     if (!focus.length && !huntOwnsFocus(name)) {
-      const shared = !name || name === state.leader;
-      ports.invalidate(shared ? ports.members() : [name], "monster focus cleared", shared);
+      invalidateClearedFocus(name);
     }
   }
   return { select };

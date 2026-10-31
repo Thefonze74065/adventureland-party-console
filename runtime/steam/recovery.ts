@@ -83,9 +83,9 @@ export function createSteamRecovery(host: GameWindow & { localStorage: Storage }
     return owned(name, latest) && !deliberatelyStopped(host.localStorage, name);
   }
   function owned(name: string, reply: BridgeReply) {
-    if (reply.primary !== host.character?.name || !reply.steam?.includes(name)) return false;
+    if (!reply.steam?.includes(name)) return false;
     const op = reply.operation;
-    if (!op || op.phase === "complete") return true;
+    if (!op || op.phase === "complete") return reply.primary === host.character?.name;
     return confirmedArrival(name, reply);
   }
   function confirmedArrival(name: string, reply: BridgeReply) {
@@ -94,7 +94,8 @@ export function createSteamRecovery(host: GameWindow & { localStorage: Storage }
     // Steam. Repair only an existing connected CODE frame, never a login or
     // ownership transfer. Otherwise a stale runner deadlocks failed arrivals.
     if (!op.releasedAt || !op.multi || !["navigate", "failed"].includes(op.phase)) return false;
-    if (op.multi.primary !== reply.primary || !op.multi.desired.includes(name)) return false;
+    if (op.multi.primary !== host.character?.name || !op.multi.desired.includes(name)) return false;
+    if (reply.primary && reply.primary !== op.multi.primary) return false;
     const game = gameFor(name);
     return !!op.destinationRealm && !!game &&
       "SR_" + game.server_region + game.server_identifier === op.destinationRealm;

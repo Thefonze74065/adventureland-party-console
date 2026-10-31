@@ -55,7 +55,7 @@ export function installSkillRuntime(root: CombatRoot) {
         Number(host.next_skill?.[id]) - Date.now() > (id === 'attack' || skills[id]?.share === 'attack' ? 2 : 0),
       damageMultiplier: host.damage_multiplier || mitigation,
       incoming: t => projectiles.incoming(t.id, Date.now()),
-      range: (t, id) => skillRange(actor, t, skills[id]),
+      range: (t, id) => skillRange(actor, t, skills[id], id),
       allowed: (t, id) => authorized(result, t, id),
     };
     return result;
@@ -70,7 +70,7 @@ export function installSkillRuntime(root: CombatRoot) {
     return w.actor.hp - 2 * incomingDps({ ...w, context: added }, w.actor) > w.actor.max_hp * .3;
   }
   function targetAuthorized(t: Combatant, id: SkillId): boolean {
-    return !!shared.skillTargetAllowed?.(t as Target) && shared.rareAttackAllowed?.(t as Target, id) !== false;
+    return !!shared.skillTargetAllowed?.(t as Target, id) && shared.rareAttackAllowed?.(t as Target, id) !== false;
   }
   const returnExcluded = new Set<string>(['taunt','agitate','charge','dash','blink','scare','stomp','cleave','fanofknives']);
   function returnTargetBlocked(t:Combatant,id:SkillId):boolean {
@@ -82,13 +82,17 @@ export function installSkillRuntime(root: CombatRoot) {
     return !!world().skills[d.skill]?.hostile && d.targets.some(t=>!shared.returnAttacker?.(t as Target));
   }
   // Area effects and movement skills cannot honor strict boss-only, hold-position combat
-  // (Franky). Scare stays allowed: warrior.ts casts it directly (it's
-  // untargeted) as how an off-tank mitigates the boss's damage without contesting aggro.
-  const bossExcluded = new Set<string>(['agitate','charge','dash','blink','stomp','cleave','fanofknives']);
+  // (Franky). Cleave is the explicit area exception, and Scare stays allowed: warrior.ts
+  // casts it directly (it's untargeted) as how an off-tank mitigates the boss's damage
+  // without contesting aggro. Single-target skills defend only against this member's
+  // mummies while the boss remains the default target.
+  const bossExcluded = new Set<string>(['agitate','charge','dash','blink','stomp','fanofknives']);
   function bossSkillBlocked(id: SkillId, targets: Combatant[]): boolean {
     if (!shared.bossCombatActive?.()) return false;
     return bossExcluded.has(id) || !!world().skills[id]?.hostile &&
-      targets.some(t => t.type !== 'monster' || !shared.bossTargetAllowed?.(t as Target) || !shared.skillTargetAllowed?.(t as Target));
+      targets.some(t => t.type !== 'monster' ||
+        id !== 'cleave' && !shared.bossTargetAllowed?.(t as Target) ||
+        !shared.skillTargetAllowed?.(t as Target, id));
   }
   // While fan farming, the next Mental Burst is tried the moment its cooldown ends instead of on the
   // next support tick (a median 350 ms later); with no mob to kill then, the support tick keeps trying.
@@ -107,7 +111,7 @@ export function installSkillRuntime(root: CombatRoot) {
   function castSkill(d:SkillDecision):Promise<unknown> {
     if (bossSkillBlocked(d.skill, d.targets)) return Promise.reject(new Error('Skill conflicts with boss-only combat'));
     if(returnCastBlocked(d))return Promise.reject(new Error('Skill conflicts with return movement or attacker-only policy'));
-    const argument=d.argument ?? (d.targets.length>1 || world().skills[d.skill]?.multi ? d.targets.map(t=>t.id) : d.targets[0]?.id || d.targets[0]?.name);
+    const argument=d.skill === 'cleave' ? undefined : d.argument ?? (d.targets.length>1 || world().skills[d.skill]?.multi ? d.targets.map(t=>t.id) : d.targets[0]?.id || d.targets[0]?.name);
     const castAt = Date.now(), cast = host.use_skill(d.skill,argument);
     if (d.skill === 'mentalburst') void cast.then(() => scheduleBurst(castAt), () => undefined);
     return cast;
@@ -162,10 +166,10 @@ export function hitbox(entity: object): { awidth?: number; aheight?: number } {
   if (typeof native.get_width !== 'function' || typeof native.get_height !== 'function') return {};
   return { awidth: native.get_width(entity), aheight: native.get_height(entity) };
 }
-export function skillRange(actor: Actor, target: Combatant, s?: SkillDefinition): boolean {
+export function skillRange(actor: Actor, target: Combatant, s?: SkillDefinition, id?: SkillId): boolean {
   if (!s) return false;
   const base = s.use_range ? actor.range : s.range || actor.range;
   const range = base * (s.range_multiplier || 1) + (s.range_bonus || 0);
   const distanceTo = typeof distance === 'function' ? distance(actor, target) : Math.hypot(actor.x - target.x, actor.y - target.y);
-  return distanceTo <= range;
+  return id === 'cleave' ? distanceTo < range : distanceTo <= range;
 }

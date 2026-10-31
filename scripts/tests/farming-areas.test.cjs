@@ -35,7 +35,7 @@ function catalogFromGame() {
     cave: { monsters: [{type:'mvampire',boundaries:[['cave',-367,-1296,-14,-1057],['cave',1068,-123,1420,78]],count:1}] }
   } } };
   const source = fs.readFileSync('characters/shared.js','utf8');
-  const fn = source.slice(source.indexOf('  function monsterChoices()'),source.indexOf('  function bestiaryCatalog()'));
+  const fn = source.slice(source.indexOf('  function monsterChoices('),source.indexOf('  function bestiaryCatalog()'));
   context.monsterSpriteDefinition = () => null;
   vm.runInNewContext(fn+';result=monsterChoices()',context);
   return JSON.parse(JSON.stringify(context.result));

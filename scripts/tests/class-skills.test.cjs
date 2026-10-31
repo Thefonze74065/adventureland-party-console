@@ -9,6 +9,30 @@ const {createSkillEngine}=require('../../runtime/characters/skills/engine.ts');
 const protection=require('../../runtime/characters/skills/protection.ts');
 const {skillRange}=require('../../runtime/characters/skills/runtime.ts');
 
+// Failure inventory: one-target or out-of-range Cleave; strangers counted as
+// party aggro; scatter spends reserved MP; urgent Cleave blocked by budget;
+// insufficient actual MP or unauthorized collateral silently ignored.
+test('Cleave uses its full footprint and bypasses budget only for grouped aggro or Franky',async()=>{
+  for(const mode of ['scatter','grouped','franky']) {
+    const r=fixture('warrior');r.actor.slots.mainhand={name:'axe'};
+    r.w.skills.cleave={name:'Cleave',type:'skill',class:['warrior'],wtype:['axe'],level:52,mp:720,range:160,hostile:true,pierces_immunity:true};
+    r.w.context.mode=mode==='franky'?'event':mode;r.w.context.event=mode==='franky'?'franky':null;
+    r.w.range=t=>Math.hypot(t.x,t.y)<160;
+    const a=r.add('a',{x:20,y:0,target:'Hero'});
+    assert.equal(damageChoices(r.w,a).length,0,'one target');
+    const b=r.add('b',{x:30,y:0,target:'Hero'});
+    r.actor.mp=720;r.w.skills.hardshell={name:'Hardshell',type:'skill',class:['warrior'],mp:480};
+    const engine=createSkillEngine(r.ports);
+    assert.equal(await engine.offense(a),mode!=='scatter',mode+' MP reserve');
+    r.actor.mp=10000;r.cooldowns.clear();
+    if(mode==='grouped') { b.target='Stranger';assert.equal(damageChoices(r.w,a).length,0);b.target='Hero'; }
+    b.x=160;assert.equal(damageChoices(r.w,a).length,0,'native range is strict');b.x=30;
+    b.authorized=false;assert.equal(damageChoices(r.w,a).length,0,'cannot omit area collateral');b.authorized=true;
+    r.actor.mp=719;assert.equal(damageChoices(r.w,a).length,0,'actual cast cost');
+    engine.stop();
+  }
+});
+
 test('every catalog level and class gate is enforced at its boundary',()=>{
  for(const ctype of ['ranger','rogue','paladin','priest']){
   const {w}=fixture(ctype);

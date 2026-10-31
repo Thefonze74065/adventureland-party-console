@@ -3,6 +3,7 @@ const React=require('../../dashboard/node_modules/react'), {create,act}=require(
 global.IS_REACT_ACT_ENVIRONMENT=true;
 function load(file){const context={exports:{},require(name){
  if(name==='react')return React;
+ if(name==='./item-selection')return load('item-selection');
  if(name==='./stand-capacity')return require('../../dashboard/features/party/stand-capacity.ts');
  if(name==='react/jsx-runtime')return require('../../dashboard/node_modules/react/jsx-runtime');
  if(name==='@tanstack/react-query')return {useQuery:()=>({data:{gold:1}}),useQueryClient:()=>({})};

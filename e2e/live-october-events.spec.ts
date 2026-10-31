@@ -1,8 +1,16 @@
 import {test,expect} from './live-fixtures';
 import {cipherIngredients,trickOrTreatRoute} from '../runtime/events/october';
 import {supportedEvents} from '../dashboard/lib/event-policy';
+import type {Route} from '@playwright/test';
 
 test.use({initialPosition:{map:'halloween',x:0,y:0}});
+
+async function publishedCipherStock(live:import('./live-fixtures').LiveGame,name:string){
+  const state=await live.state(),report=state.characters[name];
+  const cipher=report?.eventSchedules?.find((event:{id:string})=>event.id==='witchcipher')?.cipher;
+  return Object.fromEntries(cipherIngredients.map(id=>[id,cipher?.runtime?.stock?.[id]??0]));
+}
+
 
 test('October native door tour visits every door once and restores its farming checkpoint',async({live},info)=>{
   test.setTimeout(420_000);
@@ -22,7 +30,29 @@ test('October native door tour visits every door once and restores its farming c
   expect(receipts.doors).toEqual([...trickOrTreatRoute]);
   const followerReceipts=await live.clients.E2EPriest.run("get('party-october-E2EPriest')");
   expect(followerReceipts.doors).toEqual([...trickOrTreatRoute]);
-  await expect.poll(async()=>{const s=await live.state();return !s.eventSessions?.[name]&&!s.eventReturn&&s.characters[name]?.joinedEvent==null;},{timeout:120_000}).toBe(true);
+  const returnSamples:any[]=[];
+  const observeReturn=async()=>{
+    const s=await live.state();
+    returnSamples.push({at:Date.now(),recovery:s.eventReturn,convoy:s.activeConvoy,
+      characters:[name,'E2EPriest'].map(n=>({name:n,map:s.characters[n]?.map,x:s.characters[n]?.x,y:s.characters[n]?.y,
+        seenAt:s.characters[n]?.seenAt,joinedEvent:s.characters[n]?.joinedEvent,convoyNavigation:s.characters[n]?.convoyNavigation}))});
+    return s;
+  };
+  try{
+    // Exiting the final door's map and returning to the saved checkpoint are
+    // separate native journeys. Require the exit milestone before timing return.
+    await expect.poll(async()=>{
+      const s=await observeReturn();
+      const members=[name,'E2EPriest'].map(n=>s.characters[n]);
+      return members.every(c=>c&&c.joinedEvent==null)&&
+        (s.eventReturn?s.eventReturn.phase==='checkpoint'&&s.eventReturn.pending.length===0:
+          !s.activeConvoy&&members.every(c=>c.map===checkpoint.partyLocation.map&&Math.hypot(c.x-checkpoint.partyLocation.x,c.y-checkpoint.partyLocation.y)<100));
+    },{timeout:120_000,message:'Both door-tour participants must finish the event exit'}).toBe(true);
+    await expect.poll(async()=>{const s=await observeReturn();return !s.eventSessions?.[name]&&!s.eventReturn&&s.characters[name]?.joinedEvent==null;},
+      {timeout:120_000,message:'The dispatched checkpoint return must finish and clear recovery'}).toBe(true);
+  }finally{
+    await info.attach('october-door-return-milestones',{body:JSON.stringify(returnSamples),contentType:'application/json'});
+  }
   await expect.poll(async()=>{const actual=await live.clients[name].snapshot();return actual.map===checkpoint.partyLocation.map&&Math.hypot(actual.x-checkpoint.partyLocation.x,actual.y-checkpoint.partyLocation.y)<100;},{timeout:120_000}).toBe(true);
   const final=await live.clients[name].snapshot();
   await live.restartCoordinator();
@@ -207,12 +237,19 @@ test.describe('October Graveyard targeting',()=>{
     await live.post('/formation',{leader:name});
     await live.post('/formation',{character:'E2EPriest',follow:true});
     const seed=await live.admin(`output=(()=>{
-      const result={};for(const [type,x] of [['zombie',235],['gargoyle',275]]){
+      // This exclusion journey needs exactly its two declared targets. Ambient
+      // Gargoyles otherwise keep Priest healing against unrelated attackers,
+      // preventing the required offensive hits on the declared Zombie.
+      const result={removed:[]};for(const m of Object.values(instances.spookytown.monsters)){
+        result.removed.push(String(m.id));remove_monster(m,{method:'disappear',nospawn:true});
+      }
+      for(const [type,x] of [['zombie',235],['gargoyle',275]]){
         G.monsters[type]={...G.monsters[type],hp:100000000,attack:1,speed:0,charge:0,range:1,aggro:0,peaceful:true};
         const m=new_monster('spookytown',{type,count:1,boundary:[x,-1440,x,-1440]},{temp:1});result[type]=String(m.id);
       }
       E.graveyard={live:true,start:Date.now(),map:'spookytown',x:255,y:-1545,wave:1,left:2};broadcast_e();return result;
     })()`);
+    await info.attach('declared-graveyard-exclusion-targets',{body:JSON.stringify(seed),contentType:'application/json'});
     await live.post('/formation',{character:name,eventSelections:['graveyard'],eventLimits:{event:'graveyard',limits:{deathLimit:null,timeLimitMinutes:null,monsters:['zombie','ghoul']}}});
     await expect.poll(async()=>{const hits=await live.clients[name].events();return ['E2EWarrior','E2EPriest'].every(name=>hits.filter((e:any)=>e.event==='hit'&&String(e.data?.id)===seed.zombie&&e.data?.hid===name&&e.data?.damage>0).length>=3);},{timeout:90_000}).toBe(true);
     const excluded=await live.admin(`output=(()=>{const m=instances.spookytown.monsters[${JSON.stringify(seed.gargoyle)}];return {hp:m.hp,max_hp:m.max_hp,target:m.target}})()`);
@@ -226,25 +263,41 @@ test.describe('October Graveyard targeting',()=>{
 });
 
 test.describe('October Cipher gathering',()=>{
-  test.use({initialPosition:null,initialMonsterSpawn:'arcticbee'});
+  // CI exposed a transfer gap when combat settles on opposite sides of this
+  // native target. Retain those coordinates instead of a roaming ambient seed.
+  test.use({initialPosition:{map:'winterland',x:1321.03,y:-796.51},initialMonsterSpawn:null});
   test('October party gathers and transfers ingredients to its designated merchant',async({live},info)=>{
     test.setTimeout(600_000);
     const name='E2EWarrior',merchant='E2EMerchant';
     await live.post('/formation',{leader:name});
     await live.post('/formation',{character:'E2EPriest',follow:true});
-    const seed=await live.admin(`output=(()=>{
+    const encounter=await live.admin(`output=(()=>{
       const p=get_player('${name}');
       const ingredients=${JSON.stringify(cipherIngredients)};
       for(let i=0;i<ingredients.length;i++){if(p.items[20+i])throw Error('Seed slot occupied');p.items[20+i]=i===1?null:{name:ingredients[i],q:3};}
       cache_player_items(p);resend(p,'reopen+cid');
-      G.monsters.arcticbee={...G.monsters.arcticbee,hp:100000000,attack:1,speed:0,charge:0,range:1,aggro:0,peaceful:true};
-      const m=new_monster(p.map,{type:'arcticbee',count:1,boundary:[p.x,p.y,p.x,p.y]},{temp:1});
+      // This journey needs one surviving gathering target and no Frost Scale
+      // drops. Retire the ambient pack with the reset journal's no-respawn path.
+      for(const ambient of Object.values(instances[p.in].monsters))
+        if(ambient.type==='arcticbee')remove_monster(ambient,{silent:true,nospawn:true});
+      const original=G.monsters.arcticbee;let m;
+      try{
+        G.monsters.arcticbee={...original,hp:100000000,attack:1,speed:0,charge:0,range:1,aggro:0,peaceful:true};
+        m=new_monster(p.map,{type:'arcticbee',count:1,boundary:[1124.48,-796.51,1124.48,-796.51]},{temp:1});
+      }finally{G.monsters.arcticbee=original;}
+      return {id:String(m.id),map:p.map,x:p.x,y:p.y};
+    })()`);
+    const expectedStock=Object.fromEntries(cipherIngredients.map((id,i)=>[id,i===1?0:3]));
+    await expect.poll(()=>publishedCipherStock(live,name),{timeout:30_000,
+      message:'The seeded party stock must be published before the gathering round begins'}).toEqual(expectedStock);
+    const seed={...encounter,board:await live.admin(`output=(()=>{
       witch_cipher_start({id:'e2e-october-gathering'});
       // Declare a shorter native drop window up front; retain six minutes of
       // actual gathering and exercise the same published cutoff without a sleep.
       witch_cipher.gather_end=Date.now()+7*60_000;witch_cipher_publish();
-      return {id:String(m.id),map:p.map,x:p.x,y:p.y,board:witch_cipher_public()};
-    })()`);
+      return witch_cipher_public();
+    })()`) };
+    try{
     await live.post('/formation',{character:name,eventSelections:['witchcipher'],eventLimits:{event:'witchcipher',limits:{deathLimit:null,timeLimitMinutes:null,cipher:{gatherMinutes:20,minClues:1,automatic:false}}}});
     await expect.poll(async()=>{const s=await live.state();return ['E2EWarrior','E2EPriest',merchant].every(n=>s.characters[n]?.joinedEvent==='witchcipher');},{timeout:60_000}).toBe(true);
     await expect.poll(async()=>{const hits=await live.clients[name].events();return hits.filter((e:any)=>e.event==='hit'&&String(e.data?.id)===seed.id&&e.data?.hid===name&&e.data?.damage>0).length>=3;},{timeout:60_000}).toBe(true);
@@ -265,6 +318,7 @@ test.describe('October Cipher gathering',()=>{
     await expect.poll(async()=>{const s=await live.state();return [name,'E2EPriest',merchant].every(n=>s.characters[n]?.joinedEvent!=='witchcipher');},{timeout:120_000}).toBe(true);
     expect(await live.clients[merchant].run('character.witchcipher?.mixes??0')).toBe(0);
     await info.attach('october-native-gathering-and-transfer',{body:JSON.stringify({seed,plans,retained,remaining,merchant:await live.clients[merchant].snapshot(),events:await live.clients[name].events(),state:await live.state()}),contentType:'application/json'});
+    }finally{await live.admin(`output=(()=>{const m=instances[${JSON.stringify(seed.map)}]?.monsters[${JSON.stringify(seed.id)}];if(m)remove_monster(m,{silent:true});return true;})()`);}
   });
 });
 
@@ -277,13 +331,19 @@ test.describe('October Cipher inventory decisions',()=>{
     const seed=await live.admin(`output=(()=>{
       const p=get_player('${merchant}'),ingredients=${JSON.stringify(cipherIngredients)};
       for(let i=0;i<ingredients.length;i++){if(p.items[20+i])throw Error('Seed slot occupied');p.items[20+i]={name:ingredients[i],q:i===0?25:1};}
-      cache_player_items(p);resend(p,'reopen+cid');witch_cipher_start({id:'e2e-stock-decision'});
+      cache_player_items(p);resend(p,'reopen+cid');return {stock:p.items};
+    })()`);
+    const expectedStock=Object.fromEntries(cipherIngredients.map((id,i)=>[id,i===0?25:1]));
+    await expect.poll(()=>publishedCipherStock(live,merchant),{timeout:30_000,
+      message:'The declared starting inventory must reach the client and coordinator before publishing a Cipher round'}).toEqual(expectedStock);
+    const board=await live.admin(`output=(()=>{
+      witch_cipher_start({id:'e2e-stock-decision'});
       witch_cipher.secret=${JSON.stringify(shortage?Array(5).fill('frostscale'):['verdantspore','frostscale','embercoal','gloomfeather','frostscale'])};
       if(${shortage})witch_cipher.history=Array.from({length:5},(_,i)=>({mix:witch_cipher.secret.map((name,j)=>j===i?'embercoal':name),right:4}));
       witch_cipher_publish();
       global.e2eCipherReceipts=[];const original=witch_cipher_brew;
       witch_cipher_brew=async function(player,names){const at=Date.now(),result=await original(player,names);e2eCipherReceipts.push({at,player:player.name,mix:names.slice(),result});return result;};
-      return {board:witch_cipher_public(),stock:p.items};
+      return witch_cipher_public();
     })()`);
     // Native day claims survive earlier rounds on this fixture's shared realm.
     // Assert an exact unchanged counter, in addition to zero brew receipts.
@@ -297,17 +357,45 @@ test.describe('October Cipher inventory decisions',()=>{
     }else{
       await expect.poll(()=>live.admin('output=e2eCipherReceipts[0]||null'),{timeout:90_000}).toMatchObject({player:merchant,mix:Array(5).fill('verdantspore'),result:{success:true,right:1}});
     }
-    await info.attach('october-native-stock-decision',{body:JSON.stringify({seed,startingMixes,receipts:await live.admin('output=e2eCipherReceipts'),journal:await live.clients[merchant].run(`get('party-october-${merchant}')`),state:await live.state()}),contentType:'application/json'});
+    await info.attach('october-native-stock-decision',{body:JSON.stringify({seed,board,expectedStock,startingMixes,receipts:await live.admin('output=e2eCipherReceipts'),journal:await live.clients[merchant].run(`get('party-october-${merchant}')`),state:await live.state()}),contentType:'application/json'});
   });
 });
 
 test.describe('October Cipher complete stock at cutoff',()=>{
-  test.use({initialPosition:null,initialMonsterSpawn:'goo'});
+  test.use({initialPosition:null,initialMonsterSpawn:'goo',initialPositions:{E2EMerchant:{map:'main',x:80,y:-80}}});
   test('October Cipher gathers through the cutoff then brews with all four ingredient types',async({live},info)=>{
     test.setTimeout(420_000);
     const name='E2EWarrior',merchant='E2EMerchant';
+    let holdMerchant=true;
+    const merchantEntry=async(route:Route)=>{
+      const body=route.request().postDataJSON();
+      if(holdMerchant&&body?.character===merchant&&body.event==='witchcipher'){
+        await route.fulfill({status:200,json:{allowed:false,reason:'Declared gathering-only merchant entry hold'}});return;
+      }
+      await route.fallback();
+    };
+    await live.clients[merchant].page.context().route('**/party-api/hunt-event-permission',merchantEntry);
+    // Retain these native receipts independently of the rolling combat log.
+    await live.clients[merchant].frame.evaluate(()=>{
+      const game=window as any;
+      const ledger:any[]=[];
+      const listener=(data:any)=>{
+        if(data?.response==='item_received'&&data.item==='verdantspore'&&['E2EWarrior','E2EPriest'].includes(data.name)&&data.q>0)
+          ledger.push({at:Date.now(),data:JSON.parse(JSON.stringify(data))});
+      };
+      game.__e2eCipherTransfers={ledger,listener,socket:game.socket};
+      game.socket.on('game_response',listener);
+    });
+    try{
     await live.post('/formation',{leader:name});
     await live.post('/formation',{character:'E2EPriest',follow:true});
+    // Party loot can award an item to any native party member regardless of
+    // distance. Keep this recipient outside that pool until delivery is proven.
+    await live.post('/formation',{character:merchant,follow:false});
+    await expect.poll(()=>live.admin(`output=!!get_player('${merchant}').party`)).toBe(false);
+    await live.post('/merchant/stand-location',{map:'main',x:80,y:-80});
+    await live.post('/merchant/force-stand',{enabled:true});
+    await expect.poll(async()=>{const c=await live.clients[merchant].snapshot();return c.map==='main'&&Math.hypot(c.x-80,c.y+80)<=35;},{timeout:60_000}).toBe(true);
     const seed=await live.admin(`output=(()=>{
       const p=get_player('${merchant}'),ingredients=${JSON.stringify(cipherIngredients)};
       for(let i=1;i<ingredients.length;i++){if(p.items[20+i])throw Error('Seed slot occupied');p.items[20+i]={name:ingredients[i],q:25};}
@@ -316,23 +404,60 @@ test.describe('October Cipher complete stock at cutoff',()=>{
       // inventory, action result, or runtime deadline transition after setup.
       G.events.witchcipher.loot=100;
       witch_cipher_start({id:'e2e-cutoff-complete'});witch_cipher.gather_end=Date.now()+3*60_000;
-      witch_cipher.secret=Array(5).fill('frostscale');
+      witch_cipher.secret=Array(5).fill('verdantspore');
       witch_cipher.history=Array.from({length:5},(_,i)=>({mix:witch_cipher.secret.map((name,j)=>j===i?'embercoal':name),right:4}));witch_cipher_publish();
+      // Reproduce a realm-calendar collision on every date, not just 06:00.
+      // The disposable world's background schedule must not replace our round.
+      const collision={id:'e2e-ambient-calendar-cipher',event:'witchcipher',at:Date.now(),status:'scheduled',season:'halloween'};
+      event_schedule_state().state().occurrences.push(collision);
       global.e2eCipherReceipts=[];const original=witch_cipher_brew;
       witch_cipher_brew=async function(player,names){const at=Date.now(),result=await original(player,names);e2eCipherReceipts.push({at,player:player.name,mix:names.slice(),result});return result;};
-      return {board:witch_cipher_public()};
+      return {board:witch_cipher_public(),calendarCollision:collision};
     })()`);
     await live.post('/formation',{character:name,eventSelections:['witchcipher'],eventLimits:{event:'witchcipher',limits:{deathLimit:null,timeLimitMinutes:null,cipher:{minClues:5,automatic:true}}}});
-    await expect.poll(()=>live.clients[name].run(`get('party-october-${name}')?.gathering`),{timeout:60_000}).toMatchObject({mode:'gathering',ingredient:'verdantspore',monster:'goo'});
-    await expect.poll(()=>live.clients[merchant].run("character.items.filter(item=>item?.name==='verdantspore').reduce((n,item)=>n+(item.q||1),0)"),{timeout:120_000}).toBeGreaterThan(0);
+    await expect.poll(()=>live.clients[name].run(`get('party-october-${name}')?.gathering`),{timeout:60_000}).toMatchObject({round:seed.board.id,mode:'gathering',ingredient:'verdantspore',monster:'goo'});
+    // Gathering uses real fighter stock while the merchant waits at its stand,
+    // outside both the native loot party and the 400-unit loot radius.
+    let gatheringStock:Record<string,Pick<import('typed-adventureland').CharacterEntity,'map'|'x'|'y'>&{stock:Record<string,number>}>={};
+    await expect.poll(async()=>{
+      gatheringStock=await live.admin(`output=Object.fromEntries(['E2EWarrior','E2EPriest','E2EMerchant'].map(name=>{const p=get_player(name);return [name,{map:p.map,x:p.x,y:p.y,stock:Object.fromEntries(${JSON.stringify(cipherIngredients)}.map(id=>[id,p.items.reduce((n,item)=>n+(item?.name===id?(item.q||1):0),0)]))}]}))`);
+      return cipherIngredients.every(id=>Object.values(gatheringStock).reduce((sum,player)=>sum+player.stock[id],0)>0);
+    },{timeout:120_000,message:'Real party loot must complete all four shared ingredient types before cutoff'}).toBe(true);
+    await info.attach('october-native-gathered-stock',{body:JSON.stringify(gatheringStock),contentType:'application/json'});
     const before=await live.admin('output={at:Date.now(),receipts:e2eCipherReceipts}');
     expect(before.at).toBeLessThan(seed.board.gather_end);expect(before.receipts).toEqual([]);
-    await expect.poll(()=>live.admin('output=e2eCipherReceipts[0]||null'),{timeout:240_000}).toMatchObject({mix:Array(5).fill('frostscale'),result:{success:true,cracked:true}});
+    await expect.poll(()=>live.admin('output=Date.now()'),{timeout:240_000}).toBeGreaterThanOrEqual(seed.board.gather_end);
+    holdMerchant=false;
+    await live.post('/merchant/force-stand',{enabled:false});
+    await expect.poll(()=>live.admin('output=e2eCipherReceipts[0]||null'),{timeout:240_000}).toMatchObject({mix:Array(5).fill('verdantspore'),result:{success:true,cracked:true}});
     const receipts=await live.admin('output=e2eCipherReceipts');
     expect(receipts[0].at).toBeGreaterThanOrEqual(seed.board.gather_end);
+    await expect.poll(()=>live.clients[merchant].run("character.items.filter(item=>item?.name==='verdantspore').reduce((n,item)=>n+(item.q||1),0)"),{timeout:120_000}).toBeGreaterThan(0);
+    const receivedSpores=async()=>live.clients[merchant].frame.evaluate(start=>(window as any).__e2eCipherTransfers.ledger.filter((entry:{at:number})=>entry.at>=start),seed.board.start);
+    await expect.poll(async()=>(await receivedSpores()).length,{timeout:30_000,message:'Native transfer receipts must confirm delivery of the gathered ingredient'}).toBeGreaterThan(0);
+    const transferReceipts=await receivedSpores();
     const journal=await live.clients[name].run(`get('party-october-${name}')`);
-    expect(journal.gathering).toMatchObject({mode:'brewing',reason:'gathering ended'});
-    await info.attach('october-native-cutoff-complete',{body:JSON.stringify({seed,before,receipts,journal,state:await live.state()}),contentType:'application/json'});
+    expect(journal.gathering).toMatchObject({round:seed.board.id,mode:'brewing',reason:'gathering ended'});
+    // Explicit calendar coverage still uses the native scheduler and publication.
+    // Only unrelated automatic starts are isolated by the default fixture.
+    try{
+      await live.admin('globalThis.__e2eAllowScheduledEvents=true;event_schedule_tick(Date.now());output=true');
+      await expect.poll(async()=>{
+        const s=await live.state();return s.eventSchedules.find((event:{id:string})=>event.id==='witchcipher')?.cipher?.board?.id;
+      },{timeout:30_000}).toBe(seed.calendarCollision.id);
+      await info.attach('october-native-cutoff-complete',{body:JSON.stringify({seed,gatheringStock,before,receipts,transferReceipts,journal,state:await live.state()}),contentType:'application/json'});
+    }finally{await live.admin('globalThis.__e2eAllowScheduledEvents=false;output=true');}
+    }finally{
+      holdMerchant=false;
+      await live.clients[merchant].page.context().unroute('**/party-api/hunt-event-permission',merchantEntry);
+      const transfers=await live.clients[merchant].frame.evaluate(()=>{
+        const game=window as any,observer=game.__e2eCipherTransfers;
+        observer.socket.off('game_response',observer.listener);
+        delete game.__e2eCipherTransfers;
+        return observer.ledger;
+      });
+      await info.attach('october-retained-native-transfers',{body:JSON.stringify(transfers),contentType:'application/json'});
+    }
   });
 });
 

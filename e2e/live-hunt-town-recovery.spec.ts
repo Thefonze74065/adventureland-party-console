@@ -92,6 +92,11 @@ for (const {restart, lateTransport} of [{restart:false,lateTransport:false},{res
           fault.events.push({ event: 'town-request-delayed', at: Date.now(), queued: pending.length });
           if (!fault.delayed) timer = setTimeout(() => fault.release('bounded-gate-expired'), 30000);
           fault.delayed = true;
+          if(${JSON.stringify(lateTransport)}){
+            const primary=parent.parent;
+            if(primary.character?.name===${JSON.stringify(W)})
+              primary.document.getElementById('maincode')?.contentWindow.__e2eLeaderTownFault?.release('follower-town-request-held');
+          }
           return socket;
         }
         if (event === 'town') fault.events.push({ event: 'native-town-request', at: Date.now() });
@@ -175,12 +180,33 @@ for (const {restart, lateTransport} of [{restart:false,lateTransport:false},{res
     };
     try {
       if (lateTransport) await live.clients[W].run(`(()=>{
-        const fault=globalThis.__e2eLeaderTownFault={};
-        const onPlayer=data=>{if(!fault.interruption&&data.c?.town){
+        // The leader can reach the released transition barrier first. Stopping
+        // its cast immediately can revoke the follower before it emits Town,
+        // leaving no delayed packet. Gate only this native request until that
+        // actual follower packet exists; keep all coordinator traffic flowing.
+        const socket=parent.socket,emit=socket.emit,pending=[];
+        const fault=globalThis.__e2eLeaderTownFault={events:[],released:false};
+        let timer;
+        fault.release=reason=>{
+          if(fault.released)return;
+          fault.released=true;fault.reason=reason;clearTimeout(timer);
+          fault.events.push({event:'leader-town-gate-released',reason,at:Date.now(),queued:pending.length});
+          for(const packet of pending.splice(0))emit.apply(socket,packet);
+        };
+        socket.emit=function(event,...args){
+          if(event==='town'&&!fault.released){
+            pending.push([event,...args]);
+            fault.events.push({event:'leader-town-request-held',at:Date.now(),queued:pending.length});
+            timer??=setTimeout(()=>fault.release('bounded-gate-expired'),5000);
+            return socket;
+          }
+          return emit.apply(socket,[event,...args]);
+        };
+        const onPlayer=data=>{if(fault.reason==='follower-town-request-held'&&!fault.interruption&&data.c?.town){
           fault.interruption={at:Date.now(),x:character.x,y:character.y};stop('town');
         }};
-        parent.socket.on('player',onPlayer);
-        fault.restore=()=>parent.socket.off('player',onPlayer);
+        socket.on('player',onPlayer);
+        fault.restore=()=>{socket.off('player',onPlayer);fault.release('fixture-cleanup');socket.emit=emit;};
       })()`);
       await start(live, W, 'bee');
       if (lateTransport) {
@@ -308,12 +334,12 @@ for (const {restart, lateTransport} of [{restart:false,lateTransport:false},{res
       expect(profile(await live.state()).monsterHunt?.message || '').not.toContain('Waiting for fresh Main town arrival');
       await artifact(live, info, 'partial-town-native-reunion-and-rewards', { before, destination, split, interruption, recovery, restart, restartAt, huntCycle, plans, planResponses, recoveryPositions, recoveryStates, recoveryHistory, longestWithoutCloser, recoveryMethod, nativeTownRequests, nativeTownCompletedAt, townEligibility });
     } finally {
-      if(lateTransport) await live.clients[W].run('globalThis.__e2eLeaderTownFault?.restore()');
+      const leaderFault=lateTransport?await live.clients[W].run(`(()=>{const f=globalThis.__e2eLeaderTownFault;if(!f)return null;f.restore();return {events:f.events,interruption:f.interruption,reason:f.reason};})()`):undefined;
       context.off('request', observePlan);
       context.off('response', observeResponse);
       await Promise.all(pendingResponses);
       const faults = await live.clients[P].run(`(() => { const fault = globalThis.__e2eTownFault; if (!fault) return null; fault.restore(); return fault.events; })()`).catch(error => ({ error: String(error) }));
-      await info.attach('town-fault-and-planner-requests', { body: JSON.stringify({ faults, plans, planResponses, recoveryPositions, recoveryStates }), contentType: 'application/json' });
+      await info.attach('town-fault-and-planner-requests', { body: JSON.stringify({ faults, leaderFault, plans, planResponses, recoveryPositions, recoveryStates }), contentType: 'application/json' });
       await live.admin(`output=(()=>{
         const original=globalThis.__e2eHuntRareOriginal?.bee;
         if(!original)return false;

@@ -33,6 +33,7 @@ type InventoryPorts = Omit<Parameters<typeof createAutomaticSaleRoutes>[1], "rec
     plan: (
       state: InventoryState,
       status: InventoryState["statuses"][string],
+      boundary?: {jobId?: unknown; commandId?: unknown; command?: unknown},
     ) => ReturnType<MergePorts["plan"]>;
   };
 
@@ -52,7 +53,7 @@ export function createCoordinatorInventoryActions(state: InventoryState, ports: 
   const bid = createMerchantBidRoute(state, shared);
   const merge = createStackMergeRoute(state, {
     ...shared,
-    plan: () => ports.plan(state, state.statuses[String(state.merchantCharacter)]),
+    plan: boundary => ports.plan(state, state.statuses[String(state.merchantCharacter)], boundary),
   });
   return { automatic, npc, stand, handoff, receipts, idle, bid, merge };
 }

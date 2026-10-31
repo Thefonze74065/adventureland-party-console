@@ -1,6 +1,7 @@
 const {stackDepositPlan} = require('../runtime/bank-stacks.ts');
 const {bankStagingReserved} = require('../runtime/coordinator/inventory/reserved-cargo.ts');
 const {entryMeta} = require('../runtime/coordinator/inventory/catalog-meta.ts');
+const {retryableStorageError} = require('../runtime/coordinator/inventory/storage-retry.ts');
 // Reports carry per-copy meta, so the stack size comes from merchantCatalog.
 const stackLimit = (entry, catalog) => Number(entryMeta(catalog, entry)?.definition?.s) || 1;
 // A partial stack has one preferred home across physical and virtual panes.
@@ -64,12 +65,6 @@ function unloadPlan(party, worker) {
 }
 // Checkpoint transport failures can resume through the existing durable bank
 // journal. Unknown operation/game errors still require review.
-function retryableStorageError(error) {
-  return /^(bank_unavailable|not_in_bank|interrupted)$/.test(error || '') ||
-    /^bank data did not load:/.test(error || '') ||
-    /Cannot read properties of undefined \(reading 'items1'\)/.test(error || '') ||
-    /^(GET|POST) \/(merchant\/bank-sort\/checkpoint|bankboi\/(checkpoint|complete)) · (network|timeout)(:.*)?$/.test(error || '');
-}
 function servicePlan(party, { includeCoolingDown = false } = {}) {
   // Checkpoints and merchant reservations must retain work while a worker retries.
   // Dispatch uses the default so it never starts a worker before its retry time.

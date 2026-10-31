@@ -209,6 +209,7 @@ export function itemCardLines({ meta, item, level, properties, setName, usable, 
     lines.push({ kind: "prop", key: "weapon_type", label: "Type", value: `T${prettyFloat(Number(definition.tier) || 0)} ${WEAPON_TYPES[wtype] || titleCase(wtype)}`, color: COLORS.gray,
       valueColor: usable ? "#56A244" : "#CC3837" });
   lines.push({ kind: "prop", key: "info", label: "[i]", value: infoPhrase(meta, level), color: COLORS.gray });
+  if (item.name === 'cxjar') lines.push({kind:'prop',key:'filled_with',label:'Filled with',value:typeof item.data === 'string' && item.data.trim() ? item.data : 'nothing',color:COLORS.gray});
   return lines;
 }
 

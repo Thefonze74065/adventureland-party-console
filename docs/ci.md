@@ -1,7 +1,7 @@
 # Gitea regression CI
 
 `.gitea/workflows/ci.yml` runs when a pull request is opened, reopened, or updated using the
-existing `ubuntu-latest` runner and a `node:24.14.0-bookworm` job container.
+existing `ubuntu-latest` runner and a `node:26.12.1-bookworm` job container.
 Enable Actions in this repository's settings and ensure its runner scope includes
 this repository. Pushes to a branch with an open pull request trigger its PR run;
 there is no separate push run. Branches without an open PR do not run CI.

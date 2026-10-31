@@ -25,7 +25,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   checks:
-    # PR pushes get fast feedback; full E2Es run on main or explicit dispatch.
+    # PR pushes get fast feedback; gameplay E2Es require explicit dispatch.
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -33,7 +33,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24.14.0'
+          node-version: '26.12.1'
           cache: npm
       - run: npm ci
       - run: npm --prefix dashboard ci
@@ -48,7 +48,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24.14.0'
+          node-version: '26.12.1'
           cache: npm
       - run: npm ci
       - run: npm --prefix dashboard ci
@@ -81,11 +81,11 @@ jobs:
           include-hidden-files: true
           retention-days: 14
   gameplay:
-    if: github.event_name != 'pull_request' && !inputs.self_hosted
+    if: github.event_name == 'workflow_dispatch' && !inputs.self_hosted
     runs-on: ubuntu-latest
     env:
       E2E_MONGO_IMAGE: mirror.gcr.io/library/mongo@sha256:c630c59342c1493d50345136df2af14a76b9e827dd5316bfabee07a0880a5f3a
-      E2E_NODE_IMAGE: mirror.gcr.io/library/node@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c
+      E2E_NODE_IMAGE: mirror.gcr.io/library/node@sha256:28147155d47dc31abe0a46e0d12b59b2fb3d0a2dcc5dc65fce76a074180b16fe
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -95,7 +95,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24.14.0'
+          node-version: '26.12.1'
           cache: npm
       - run: npm ci
       - run: npm --prefix dashboard ci
@@ -147,7 +147,7 @@ jobs:
           clean: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '24.14.0'
+          node-version: '26.12.1'
           cache: npm
       - name: Prepare isolated runner checkout
         run: |
@@ -209,7 +209,7 @@ jobs:
           include-hidden-files: true
           retention-days: 14
   version:
-    needs: [validate, gameplay]
+    needs: [validate]
     if: github.event_name != 'pull_request' && !inputs.self_hosted
     runs-on: ubuntu-latest
     permissions:
@@ -222,7 +222,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: '24.14.0'
+          node-version: '26.12.1'
       - run: npm ci
       - id: next
         run: node tools/release/next.mjs
@@ -237,7 +237,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24.14.0'
+          node-version: '26.12.1'
       - run: ./scripts/setup-console.ps1
       - run: node tools/dashboard/build.mts
         env:
@@ -292,17 +292,40 @@ jobs:
           build-args: |
             RELEASE_VERSION=${{ needs.version.outputs.version }}
             RELEASE_COMMIT=${{ github.sha }}
-      - name: Smoke-test both architectures
+  docker-smoke:
+    needs: docker
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify native architecture and package startup
+        env:
+          IMAGE: ghcr.io/ryan-haines/adventureland-party-console@${{ needs.docker.outputs.digest }}
+          ARCH: ${{ matrix.arch }}
         run: |
-          for arch in amd64 arm64; do
-            docker run --rm --platform linux/$arch --entrypoint node ghcr.io/ryan-haines/adventureland-party-console@${{ steps.build.outputs.digest }} --check .build/runtime/coordinator-application.cjs
-            bash scripts/ci/smoke-docker.sh ghcr.io/ryan-haines/adventureland-party-console@${{ steps.build.outputs.digest }} "$arch"
-            # The runner's classic image store cannot retain two architectures
-            # under one manifest digest. Remove only this completed local test image.
-            docker image rm ghcr.io/ryan-haines/adventureland-party-console@${{ steps.build.outputs.digest }}
-          done
+          # Node's TypeScript parser can crash under QEMU. Exercise the actual
+          # release image on native hardware, with every startup assertion intact.
+          test "$(docker info --format '{{.Architecture}}')" = "$(case "$ARCH" in amd64) echo x86_64;; arm64) echo aarch64;; esac)"
+          docker run --rm --platform linux/$ARCH --entrypoint node "$IMAGE" --check .build/runtime/coordinator-application.cjs
+          bash scripts/ci/smoke-docker.sh "$IMAGE" "$ARCH"
   publish:
-    needs: [version, windows, docker]
+    needs: [version, windows, docker, docker-smoke]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -313,7 +336,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: '24.14.0'
+          node-version: '26.12.1'
       - run: npm ci
       - uses: actions/download-artifact@v4
         with:

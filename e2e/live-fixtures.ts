@@ -6,6 +6,7 @@ import {expect,installObservationClock} from './network-clock';
 import {cleanupWorkspace} from './workspace';
 import { launchGameClient, type LiveClient } from './live-game-client';
 import { type ChildProcess } from 'node:child_process';
+import {createServer as createHttpServer} from 'node:http';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import type { Page,Frame,BrowserContext } from '@playwright/test';
@@ -25,6 +26,7 @@ const require = createRequire(import.meta.url);
 const bootstrap = require('./game/bootstrap.cjs');
 export type LiveGame = {
   url: string;
+  coordinatorBinding:{port:number;occupiedPort:number|null};
   clients: Record<string, LiveClient>;
   state(catalogs?: boolean | 'fast'): Promise<any>;
   savedTownCycle(): {id:string;pending:string[];revisions?:Record<string,number>} | null;
@@ -40,7 +42,8 @@ export type LiveGame = {
   reconnectClient(name: string): Promise<void>;
 };
 
-export const test = base.extend<{ live: LiveGame; loadout: NativeLoadout; primaryClass: 'warrior' | 'ranger' | 'mage' | 'rogue'; extraFighter: 'mage' | null; merchantDefault: string | null; liveHeadless: boolean; recordNativeVideo: boolean; movementMode: 'alclient' | 'shadow'; staleWorkerRealm: string | null; initialPosition: {map: string; x: number; y: number} | null; initialPositions: Record<string,{map:string;x:number;y:number}> | null; initialEventSpawn: string | null; initialMonsterSpawn: string | null; initialConsoleHold: boolean; initialGatheringReady: boolean }>({
+export const test = base.extend<{ live: LiveGame; occupyCoordinatorPort:boolean; loadout: NativeLoadout; primaryClass: 'warrior' | 'ranger' | 'mage' | 'rogue'; extraFighter: 'mage' | null; merchantDefault: string | null; liveHeadless: boolean; recordNativeVideo: boolean; movementMode: 'alclient' | 'shadow'; staleWorkerRealm: string | null; initialPosition: {map: string; x: number; y: number} | null; initialPositions: Record<string,{map:string;x:number;y:number}> | null; initialEventSpawn: string | null; initialMonsterSpawn: string | null; initialConsoleHold: boolean; initialGatheringReady: boolean; initialPeacefulAmbientMaps: string[] }>({
+  occupyCoordinatorPort:[false,{option:true}],
   loadout: ['god', {option:true}],
   primaryClass: ['warrior', {option:true}],
   extraFighter: [null, {option:true}],
@@ -50,12 +53,13 @@ export const test = base.extend<{ live: LiveGame; loadout: NativeLoadout; primar
   initialMonsterSpawn: [null, {option:true}],
   initialConsoleHold: [false, {option:true}],
   initialGatheringReady: [false, {option:true}],
+  initialPeacefulAmbientMaps: [[], {option:true}],
   initialEventSpawn: [null, {option:true}],
   liveHeadless: [false, {option:true}],
   recordNativeVideo: [process.env.E2E_NATIVE_VIDEO==='1', {option:true}],
   movementMode: ['alclient', {option:true}],
   staleWorkerRealm: [null, {option:true}],
-  live: [async ({ browser, context:dashboardContext, dashboard, loadout, primaryClass, extraFighter, merchantDefault, initialPosition, initialPositions, initialEventSpawn, initialMonsterSpawn, initialConsoleHold, initialGatheringReady, liveHeadless, recordNativeVideo, movementMode, staleWorkerRealm }, use, testInfo) => {
+  live: [async ({ browser, context:dashboardContext, dashboard, occupyCoordinatorPort, loadout, primaryClass, extraFighter, merchantDefault, initialPosition, initialPositions, initialEventSpawn, initialMonsterSpawn, initialConsoleHold, initialGatheringReady, initialPeacefulAmbientMaps, liveHeadless, recordNativeVideo, movementMode, staleWorkerRealm }, use, testInfo) => {
     const pools=JSON.parse(process.env.E2E_GAME_POOLS||'[]');
     const pool=pools[testInfo.parallelIndex];
     if(!pool)throw Error('Missing isolated game pool for parallel worker '+testInfo.parallelIndex);
@@ -105,7 +109,9 @@ export const test = base.extend<{ live: LiveGame; loadout: NativeLoadout; primar
     }
     await testInfo.attach('native-loadout-seed', {body:JSON.stringify(equipment,null,2),contentType:'application/json'});
     await testInfo.attach('live-seed', { body: JSON.stringify({ ...manifest, auth: '[disposable credential omitted]' }, null, 2), contentType: 'application/json' });
-    const port = await unusedPort(), log = path.join(directory, 'coordinator.log');
+    // The child binds port zero atomically; retain its reported port on restart.
+    let port=0;
+    const occupiedPort=occupyCoordinatorPort?await unusedPort():null, log = path.join(directory, 'coordinator.log');
     let coordinator: ChildProcess | undefined;
     let identityEnvironment:NodeJS.ProcessEnv={};
     const blocked: string[] = [];
@@ -132,7 +138,8 @@ export const test = base.extend<{ live: LiveGame; loadout: NativeLoadout; primar
     await context.addCookies([{ name: 'auth', value: manifest.auth, url: manifest.webUrl }]);
     const access = new Access(path.join(directory, 'access.json'));
     await access.load();
-    const server = gateway({ access, configured: () => true, dashboardPort: dashboard.port, apiPort: port });
+    const occupied=createHttpServer((_request,response)=>response.end('owned E2E port occupant'));
+    const server = gateway({ access, configured: () => true, dashboardPort: dashboard.port, get apiPort(){return port;} });
     let live: LiveGame | undefined;
     const clients: Record<string, LiveClient> = {};
     const exchanges: unknown[] = [];
@@ -155,6 +162,8 @@ export const test = base.extend<{ live: LiveGame; loadout: NativeLoadout; primar
         const failed = (error: Error) => { cleanup(); reject(error); };
         const exited = (code: number | null) => failed(new Error(`Live coordinator exited (${code})\n${details()}`));
         const message = (value: any) => { if (value?.type === 'ready') {
+          if(!Number.isInteger(value.port)||value.port<=0||(port!==0&&value.port!==port)){failed(new Error('Coordinator readiness reported an invalid or changed port'));return;}
+          port=value.port;
           try{if(observationClock.backend==='chronal-network'){
             expect(value.clock?.backend).toBe('chronal-network');expect(value.clock.rate).toBe(observationClock.rate);expect(value.clock.epoch).toBe(observationClock.epoch);expect(value.clock.errors).toEqual([]);
           }}catch(error){failed(error as Error);return;}
@@ -169,12 +178,39 @@ export const test = base.extend<{ live: LiveGame; loadout: NativeLoadout; primar
       });}
       finally{exchanges.push({at:Date.now(),coordinatorRestartReadiness:reason,observations});}
     }
+    let peacefulAmbientSeeded=false;
     try {
+      if(initialPeacefulAmbientMaps.length){
+        const seed=await game.admin(`output=(()=>{
+          if(Object.keys(players).length||Object.keys(dc_players).length)throw Error('Peaceful ambient input requires disconnected native clients');
+          const maps=data.maps;
+          for(const map of maps)if(!instances[map])throw Error('Unknown peaceful ambient map: '+map);
+          const saved=globalThis.__e2eInitialPeacefulAmbient={definitions:structuredClone(G.monsters),ambient:[],construct:new_monster};
+          const declare=m=>{
+            if(!m||!maps.includes(m.map))return m;
+            saved.ambient.push({map:m.in,id:m.id,aggro:m.aggro,peaceful:m.peaceful});
+            m.aggro=0;m.peaceful=true;
+            if(m.target)stop_pursuit(m,{stop:true,cause:'declared peaceful initial population'});
+            return m;
+          };
+          // Keep native respawns and unrelated maps intact; apply the same
+          // declared input to later actors in these two journey maps only.
+          new_monster=function(){return declare(saved.construct.apply(this,arguments));};
+          for(const map of maps)for(const m of Object.values(instances[map].monsters))declare(m);
+          return {at:Date.now(),maps,actors:saved.ambient.length,players:Object.keys(players).length};
+        })()`,{maps:initialPeacefulAmbientMaps});
+        peacefulAmbientSeeded=true;
+        await testInfo.attach('peaceful-ambient-before-native-login',{body:JSON.stringify(seed),contentType:'application/json'});
+      }
+      if(occupiedPort!==null){
+        await new Promise<void>((resolve,reject)=>{occupied.once('error',reject);occupied.listen(occupiedPort,'127.0.0.1',resolve);});
+        await testInfo.attach('declared-coordinator-port-occupant',{body:JSON.stringify({port:occupiedPort}),contentType:'application/json'});
+      }
       await start();
       await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
       const url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
       live = {
-        url, clients,
+        url, clients, coordinatorBinding:{port,occupiedPort},
         async state(catalogs = false) {
           // Match the dashboard's existing catalog-free polling API. Catalog checks
           // explicitly request the full projection; never cache or synthesize state.
@@ -235,7 +271,7 @@ export const test = base.extend<{ live: LiveGame; loadout: NativeLoadout; primar
             ? JSON.parse(stored[stateKey]) : structuredClone(stored[stateKey] || {});
           const settings = decoded(key);
           const historical = await restore(structuredClone(settings));
-          const allowed = new Set(['escape', 'combatRecovery', 'characterLocations', 'location', 'farmingPolicy', 'farmingProfiles', 'eventSelectionsByCharacter', 'activeConvoy', 'deferredEventReturns', 'eventReturn', 'monsterHunt', 'merchantDeliveries', 'npcSaleMarks', 'merchantCurrent', 'merchantQueue', 'merchantRealmRequests', 'autoNpcSales', 'autoStandMarks', 'merchantCharacter', 'bankbois', 'bankboiTransaction', 'production', 'nativeStand', 'standBids', 'luckyUpgradeSlots', 'luckySlotResume', 'luckySlotLocks', 'autoItemMarks', 'autoUpgradeMarks', 'autoCompounds', 'gatheringCooldowns']);
+          const allowed = new Set(['escape', 'combatRecovery', 'characterLocations', 'location', 'farmingPolicy', 'farmingProfiles', 'eventSelectionsByCharacter', 'activeConvoy', 'deferredEventReturns', 'eventReturn', 'monsterHunt', 'merchantDeliveries', 'npcSaleMarks', 'merchantCurrent', 'merchantQueue', 'merchantRealmRequests', 'autoNpcSales', 'autoStandMarks', 'merchantCharacter', 'bankbois', 'bankboiTransaction', 'production', 'nativeStand', 'standBids', 'luckyUpgradeSlots', 'luckySlotResume', 'luckySlotLocks', 'autoItemMarks', 'autoUpgradeMarks', 'autoCompounds', 'upgrades', 'gatheringCooldowns']);
           if (Object.keys(historical).some(key => !allowed.has(key))) throw Error('Historical seed may only patch declared recovery, Hunt, navigation and native WTB settings');
           await testInfo.attach('declared-historical-settings-seed', { body: JSON.stringify(historical), contentType: 'application/json' });
           const bankKeys = new Set(['bankbois', 'bankboiTransaction']);
@@ -474,6 +510,8 @@ export const test = base.extend<{ live: LiveGame; loadout: NativeLoadout; primar
           }
         } finally {
           await diagnostic(network.close());
+          occupied.closeAllConnections();
+          if(occupied.listening)await diagnostic(new Promise<void>(resolve=>occupied.close(()=>resolve())));
           server.closeAllConnections();
           await diagnostic(new Promise<void>(resolve => {
             if (server.listening) server.close(() => resolve());
@@ -481,6 +519,14 @@ export const test = base.extend<{ live: LiveGame; loadout: NativeLoadout; primar
           }));
           try { if (coordinator) await stop(coordinator, true); }
           finally {
+            if(peacefulAmbientSeeded)await game.admin(`output=(()=>{
+              const saved=globalThis.__e2eInitialPeacefulAmbient;
+              for(const [type,definition] of Object.entries(saved.definitions))G.monsters[type]=definition;
+              for(const previous of saved.ambient){const m=instances[previous.map].monsters[previous.id];if(m)for(const key of ['aggro','peaceful']){
+                if(previous[key]===undefined)delete m[key];else m[key]=previous[key];
+              }}
+              new_monster=saved.construct;delete globalThis.__e2eInitialPeacefulAmbient;return true;
+            })()`);
             if(observationClock.backend==='chronal-network'){
               const endpoint=new URL('/scope',process.env.E2E_CLOCK_BROKER);endpoint.searchParams.set('scope',directory);endpoint.searchParams.set('token',process.env.E2E_CLOCK_TOKEN||'');await fetch(endpoint);
             }

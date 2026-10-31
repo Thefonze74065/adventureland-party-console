@@ -115,3 +115,40 @@ test('superseded native Town progress ends quietly and stale pending membership 
     await info.attach('native-town-progress-transport',{body:JSON.stringify({staging,heldBody,heldAt,releasedAt,responses,savedTownCycle:live.savedTownCycle()}),contentType:'application/json'});
   }
 });
+
+test('restored native Town keeps subsequent party travel commands increasing',async({live},info)=>{
+  test.setTimeout(240_000);
+  await live.post('/formation',{leader:W});
+  await live.post('/formation',{character:P,follow:true});
+  const receipts:any[]=[];
+  const context=live.clients[W].page.context();
+  let hold=true;
+  const gate=async(route:import('@playwright/test').Route)=>{
+    if(!hold)return route.fallback();
+    receipts.push({at:Date.now(),body:route.request().postDataJSON()});
+    await route.fulfill({status:409,contentType:'application/json',body:JSON.stringify({error:'Declared delayed Town completion acknowledgement'})});
+  };
+  await context.route('**/party-api/town-complete',gate);
+  try{
+    await live.post('/town-party',{});
+    await expect.poll(()=>receipts.some(r=>r.body.character===W)&&receipts.some(r=>r.body.character===P),{timeout:60_000}).toBe(true);
+    const before=Object.fromEntries(await Promise.all([W,P].map(async n=>[n,Math.max(await live.clients[n].run('globalThis.__partyLastCommand'),...receipts.filter(r=>r.body.character===n).map(r=>r.body.commandId))])));
+    const restartingAt=Date.now();
+    await live.restartCoordinator();
+    await expect.poll(async()=>[W,P].every(n=>receipts.some(r=>r.at>=restartingAt&&r.body.character===n&&r.body.commandId>before[n])),{timeout:60_000}).toBe(true);
+    const restored=Object.fromEntries(await Promise.all([W,P].map(async n=>[n,await live.clients[n].run('globalThis.__partyLastCommand')])));
+    hold=false;
+    await expect.poll(()=>live.savedTownCycle()?.pending.length||0,{timeout:60_000}).toBe(0);
+    await live.post('/travel',{map:'main',x:0,y:350});
+    let native:any;
+    await expect.poll(async()=>{
+      const [s,positions]=await Promise.all([live.state(),live.admin(`output=Object.fromEntries(['${W}','${P}'].map(n=>{const p=get_player(n);return [n,{map:p.map,x:p.x,y:p.y,moving:!!p.moving}]}))`)]);
+      native=positions;
+      return !s.activeConvoy&&[W,P].every(n=>s.characters[n]?.map==='main'&&Math.hypot(s.characters[n].x,s.characters[n].y-350)<35&&
+        s.characters[n].lastCommandId>restored[n]&&Date.now()-s.characters[n].seenAt<3000&&
+        native[n].map==='main'&&!native[n].moving&&Math.hypot(native[n].x,native[n].y-350)<35);
+    },{timeout:90_000,message:'Both native fighters must apply newer commands and physically reach the farming waypoint after restored Town'}).toBe(true);
+    for(const n of [W,P]){expect(native[n].map).toBe('main');expect(Math.hypot(native[n].x,native[n].y-350)).toBeLessThan(35);}
+    await info.attach('native-restored-town-command-sequence',{body:JSON.stringify({before,restored,receipts,native,final:await live.state()}),contentType:'application/json'});
+  }finally{hold=false;await context.unroute('**/party-api/town-complete',gate);}
+});

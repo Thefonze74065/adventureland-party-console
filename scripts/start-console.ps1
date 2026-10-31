@@ -8,6 +8,16 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Keep the check in PowerShell: Windows PowerShell strips embedded quotes from
+# JavaScript passed through node -e using its legacy native argument handling.
+$nodeVersionText = & node --version
+$nodeVersion = $null
+if ($LASTEXITCODE -ne 0 -or
+    -not [version]::TryParse(([string]$nodeVersionText).Trim().TrimStart('v'), [ref]$nodeVersion) -or
+    $nodeVersion -lt [version]'26.12.1') {
+    throw 'Install Node 26.12.1 or later before starting the console.'
+}
+
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $caracalRoot = Join-Path $repoRoot ".caracal"
 $configPath = Join-Path $caracalRoot "config.js"
@@ -152,13 +162,12 @@ $dashboardProcess = $null
 $gameBuildProcess = $null
 $ownsRuntime = $false
 try {
-    # The managed host resumes the durable active candidate. Source changes build
-    # isolated candidates in the background and require the title refresh action.
-    # Legacy restart switches remain accepted without implicitly publishing code.
+    # Startup deploys the newest completed candidate. Builds completed during
+    # gameplay remain staged until a console load or the next startup.
     Stop-ExistingCaracalSupervisor
     $ownsRuntime = $true
     Stop-StaleDashboardProcesses
-    Write-Host 'Starting the active console candidate. Completed source builds appear beside the title for deliberate activation.'
+    Write-Host 'Starting Party Console and deploying the newest completed candidate. Later builds remain staged beside the title.'
     node (Join-Path $repoRoot 'tools/hosting/local.mts')
     if ($LASTEXITCODE -ne 0) { throw "Party services exited with code $LASTEXITCODE." }
 } finally {

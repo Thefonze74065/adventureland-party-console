@@ -119,7 +119,10 @@ export function reconcileUpgradeMarks(
     return { ...ready, slot: entry.slot };
   });
   const relocated = relocateUpgradeMarks(marks, items, rules, equipped);
-  const retained = relocated.filter((mark) => validUpgrade(mark, items, rules, equipped));
+  // An admitted pass is durable intent. Missing, reserved or ambiguous inventory
+  // is not a native destruction receipt and must not erase its original target.
+  const retained = relocated.filter((mark) => validUpgrade(mark, items, rules, equipped) ||
+    mark.auto && !!mark.passId && activeRule(rules[autoItemRuleKey(mark.item)], mark.tiers));
   const state = { marks: retained, changed: JSON.stringify(retained) !== before };
   for (const entry of items) considerUpgrade(entry, rules, items, state);
   return state;
@@ -137,15 +140,16 @@ export function clearResolvedUpgradeMarks(
 
 /** Keep matches already in place before assigning any displaced pass to a slot. */
 function relocateUpgradeMarks(marks: UpgradeMark[], items: Inventory, rules: Rules, equipped: Equipment): UpgradeMark[] {
-  const claimed = new Set(marks.filter(mark => !mark.equipped && validUpgrade(mark, items, rules, equipped)).map(mark => mark.slot));
+  const claimed = new Set(marks.filter(mark => !mark.equipped && validUpgrade(mark, items, rules, equipped)).map(mark => mark.liveSlot ?? mark.slot));
   return marks.map(mark => {
     if (!mark.auto || mark.equipped || validUpgrade(mark, items, rules, equipped)) return mark;
     const candidates = items.filter(entry => entry && !claimed.has(entry.slot) &&
-      validUpgrade({...mark, slot:entry.slot}, items, rules, equipped));
+      Number(entry.item?.level || 0) < Number(mark.item.level || 0) + Number(mark.tiers) &&
+      validUpgrade({...mark, slot:entry.slot, liveSlot:entry.slot}, items, rules, equipped));
     if (candidates.length !== 1) return mark;
     const slot = candidates[0]!.slot;
     claimed.add(slot);
-    return {...mark, slot};
+    return {...mark, slot, liveSlot:slot, liveItem:candidates[0]!.item!};
   });
 }
 

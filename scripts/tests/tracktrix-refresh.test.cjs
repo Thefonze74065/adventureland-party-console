@@ -7,9 +7,10 @@ test('inventory callbacks acquire and remove Tracktrix without idle polling', ()
   let requests = 0, nextTimer = 0;
   const timers = new Map();
   const r = vm.createContext({ root: {}, requestSilentTracker: null, character: { items: [] }, trackerDropData: null,
-    trackerCatalogInitialized: true,
+    trackerCatalogInitialized: true, trackerTablesSignature: "", catalogGeneration: 0,
     setTimeout: (callback, delay) => { timers.set(++nextTimer, { callback, delay }); return nextTimer; },
     clearTimeout: id => timers.delete(id), parent: { caracAL: true, socket: { emit: () => requests++ } } });
+  vm.runInContext(require('./helpers/named-function.cjs').namedFunction(source,'trackerCatalogSignature'),r);
   vm.runInContext(source.slice(source.indexOf('  function holdsTracktrix('), source.indexOf('  var playerDirectoryListener')), r);
   const update = items => r.trackerInventoryListener({ items });
   update([]); update([{ name: 'hpot1' }]);

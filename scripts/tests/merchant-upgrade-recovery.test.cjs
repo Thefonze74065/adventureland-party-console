@@ -59,15 +59,15 @@ test('bank-sourced pass persists before production and resumes at its original t
   Object.assign(party, {merchantCharacter:'M', production:{attempts:{}}, autoCompounds:{}});
   const mark = {passId:'pass',slot:19,item:{name:'wcap',level:0},tiers:8,auto:true};
   beginProduction(party,{id:'first',kind:'upgrade',item:mark.item,automatic:{family:'upgrade',key:'wcap@+0',mark}});
-  assert.deepEqual(party.upgrades.M,[mark]);
+  assert.deepEqual(party.upgrades.M,[{...mark,liveItem:mark.item,liveSlot:19}]);
   finishProduction(party,'first',true);
   const busy = {items:[],upgradeInventoryBusy:true};
   assert.equal(reconcileCoordinatorUpgradeMarks(party,'M',busy),false);
-  assert.deepEqual(party.upgrades.M,[mark]);
+  assert.deepEqual(party.upgrades.M,[{...mark,liveItem:mark.item,liveSlot:19}]);
   party.upgrades=JSON.parse(JSON.stringify(party.upgrades));
   const snapshot=status(4);snapshot.items[0].slot=7;
   r.reconcileAutoUpgradeMarks('M',snapshot);
-  assert.deepEqual(party.upgrades.M,[{...mark,slot:7}]);
+  assert.deepEqual(party.upgrades.M,[{...mark,slot:7,liveSlot:7,liveItem:{name:"wcap",level:4}}]);
   assert.equal(processingPending(party,{name:'wcap',level:4}),true);
   assert.equal(processingPending(party,{name:'wcap',level:8}),false);
   r.clearResolvedUpgradeMarks('M',[mark]);

@@ -21,6 +21,8 @@ test('home realm change confirms every active character including merchant', asy
   page.on('pageerror', error => pageErrors.push(error.message));
   const names = ['E2EWarrior', 'E2EPriest', 'E2EMerchant'];
   const accountNames = [...names, 'E2EBankBoi'];
+  const homePlanning: unknown[] = [];
+  let guardedPage: typeof page | undefined;
   try {
     // Native admission permits only one merchant. A managed merchant can be
     // paused and restored while the offline storage merchant changes its home.
@@ -42,6 +44,20 @@ test('home realm change confirms every active character including merchant', asy
     await live.restartCoordinator();
     await expect.poll(async () => (await live.state()).realmControl?.homeRealm, {timeout:30_000}).toBe('SR_USII');
     await freshParticipants(live, names);
+    // Failure inventory: native set_home has no location prerequisite. A route
+    // outage must not fail account home changes or replay the cooldown mutation.
+    // Reject only this participant's planning during the current home operation;
+    // keep native home receipts, status and persistence completely unmodified.
+    guardedPage = live.clients.E2EPriest.page;
+    await guardedPage.route('**/party-api/movement-plan', async route => {
+      const body = route.request().postDataJSON();
+      const operation = (await live.state()).realmControl?.operation;
+      if (body.character === 'E2EPriest' && operation?.phase === 'setting-home' &&
+          operation.homeExecutors?.includes('E2EPriest')) {
+        homePlanning.push({at:Date.now(),operation:operation.id,request:body});
+        await route.abort('timedout');
+      } else await route.continue();
+    });
     await page.goto(live.url);
     // The real dashboard deliberately pauses queries while hidden. Interact
     // with its foreground page, as a user does after the native clients open.
@@ -82,6 +98,15 @@ test('home realm change confirms every active character including merchant', asy
       const record=await db.collection('character').findOne({'info.name':name});homes[name]=record.info.p.home;
     }return homes;})()`);
     expect(database).toEqual({E2EBankBoi:'USI'});
+    expect(homePlanning, 'Native home setting must not depend on a walking route').toEqual([]);
+    const homeReceipts = async () => Promise.all(['E2EWarrior','E2EPriest'].map(async name => ({
+      name, receipts:(await live.clients[name].events()).filter((event:any) =>
+        event.at >= state.realmControl.operation.startedAt && event.event === 'game_response' && event.data?.place === 'set_home'),
+    })));
+    await expect.poll(async () => (await homeReceipts()).map(entry => entry.receipts.map((event:any) => event.data)),
+      {timeout:15_000,message:'Each native participant must receive exactly one successful home mutation receipt'})
+      .toEqual(['E2EWarrior','E2EPriest'].map(() => [{home:'USI',success:true,response:'home_set',place:'set_home'}]));
+    await info.attach('native-home-mutation-receipts', {body:JSON.stringify(await homeReceipts()),contentType:'application/json'});
     await info.attach('native-account-home-realms', {body:JSON.stringify({native,database,state:state.realmControl}),contentType:'application/json'});
   } catch (error) {
     await info.attach('home-realm-dashboard-readiness',{body:JSON.stringify({reads,browser:await page.evaluate(()=>{
@@ -92,7 +117,11 @@ test('home realm change confirms every active character including merchant', asy
     if (screenshot) await info.attach('home-realm-dashboard-failure', {body:screenshot,contentType:'image/png'}).catch(()=>{});
     throw error;
   } finally {
-    try { await info.attach('home-realm-dashboard-errors', {body:JSON.stringify(pageErrors),contentType:'application/json'}); }
+    try {
+      await guardedPage?.unrouteAll({behavior:'wait'});
+      await info.attach('home-realm-planner-dependency', {body:JSON.stringify(homePlanning),contentType:'application/json'});
+      await info.attach('home-realm-dashboard-errors', {body:JSON.stringify(pageErrors),contentType:'application/json'});
+    }
     finally { await page.close(); }
   }
 });

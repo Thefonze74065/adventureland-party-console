@@ -60,7 +60,7 @@ function client(mode='request') {
   G:{items:{a:{},z:{},reserved:{},bkey:{type:'bank_key',unlocks:'bank_b'}},maps:{bank:{doors:[[0,0,0,0,'bank_b',0,0,'key']]},bank_b:{doors:[[0,0,0,0,'bank',0,0]]}}},
   movement:{move:async dest=>{const map=typeof dest==='string'?dest:dest.map;calls.push(map);r.character.map=map;return true}},
   request:async(path,{body})=>{calls.push(body.action);const v=c.call('checkpoint',body);if(v.code!==200)throw Error(v.error);return v},
-  gatheringStatus(){},setTimeout:f=>f(),sleep:async()=>{},bankStackIdentity:x=>JSON.stringify(x),
+  gatheringStatus(){},setTimeout:f=>f(),sleep:async()=>{},bankStackIdentity:require('../../runtime/bank-stacks.ts').stackIdentity,
   bankStoreFully:async inv=>{for(const pack of r.bankPacksOnCurrentFloor()){for(let slot=0;slot<42;slot++){if(pack==='items1'&&slot>=35)continue;if(!bank[pack][slot]){bank[pack][slot]=r.character.items[inv];r.character.items[inv]=null;return}}}throw Error('full')}
  });
  vm.runInContext(source.slice(source.indexOf('  // A visit spans all bank floors'),source.indexOf('  async function bankRetrieveConfirmed(')>0?source.indexOf('  async function bankRetrieveConfirmed('):source.indexOf('  async function sortCurrentBankFloor(')),r);
@@ -167,7 +167,7 @@ test('interrupted runtime becomes visibly retryable without waiting for another 
 
 test('restart recovers a held sort item before ordinary bank work is allowed to start',async()=>{
  const t=client();t.r.character.map='bank';t.r.character.items[0]=t.bank.items0[0];t.bank.items0[0]=null;
- t.r.root.__partyBankSortJournal=[{slot:0,floor:'bank',identities:[JSON.stringify(t.r.character.items[0])]}];
+ t.r.root.__partyBankSortJournal=[{slot:0,floor:'bank',identities:[t.r.bankStackIdentity(t.r.character.items[0])]}];
  await t.r.recoverBankSortBeforeWork();assert.equal(t.r.character.items[0],null);assert.equal(t.r.bankSortRecovered,true);
 });
 // Swap confirmation waits on a clock; these tests advance it instead of sleeping.

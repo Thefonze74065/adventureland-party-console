@@ -294,8 +294,11 @@ export function createMerchantOrderRoute(state: MerchantOrderState, ports: Merch
     return false;
   }
   /** Automatic supply orders use the same durable material allocation and execution. */
+  function validSupplyQuantity(quantity: number): boolean {
+    return Number.isSafeInteger(quantity) && quantity >= 1;
+  }
   function restockSupply(item: string, quantity: number): boolean {
-    if (!state.merchantCharacter || !Number.isSafeInteger(quantity) || quantity < 1) return false;
+    if (!state.merchantCharacter || !validSupplyQuantity(quantity)) return false;
     if (restockPending(item)) return true;
     const choices=catalog(), buy=choices.buyable.some(choice=>choice.id===item), craft=choices.craftable.find(choice=>choice.id===item);
     if (!buy && !craft || craftProtection(state).error) return false;

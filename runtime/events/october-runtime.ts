@@ -19,6 +19,7 @@ export interface OctoberPorts {
   status():{halloween?:unknown;witchcipher?:CipherBoard};
   definitions():Record<string,EventDefinition>;
   position():Point; stock():Record<string,number>;
+  inventorySpace?():number;
   gathering():CipherGatheringContext|null;
   doorStatus():{doors?:number[];doors_left?:number}|null;
   load():Journal|null; save(journal:Journal):void;
@@ -79,6 +80,9 @@ export function createOctoberRuntime(ports:OctoberPorts) {
   function gatherType(board:CipherBoard){return planFor(board)?.monster;}
   function manual(board:CipherBoard){const value=config().manual;return value && value.round===board.id && value.cracks===(board.cracks??0) && !current().handled?.includes(value.id)?value:null;}
   function activity(name:string):Activity|null {
+    if(name==='trickortreat'&&ports.merchant()&&ports.inventorySpace?.()===0){
+      phase='waiting for inventory capacity';detail='Free inventory space before visiting doors';return null;
+    }
     const status=ports.status(), saved=current();
     if(name==='trickortreat')return status.halloween && ports.doorStatus()?.doors_left!==0 && !saved.doorLimit && saved.doors.length<7
       ? {name,state:{id:'doors:'+saved.day},types:[],kind:'interaction'}:null;

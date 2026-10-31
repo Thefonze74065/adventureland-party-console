@@ -46,7 +46,7 @@ test('closing nested monster details preserves both passive hunting and farming 
  const props={policy:'default',effectiveMode:'default',blacklist:{},catalog:[{id:'bee',name:'Bee'}],onClearBlacklist:async()=>{},onSelect(){},onRareChange:async()=>{},
   renderMonsterDetails:(id,close)=>React.createElement('Dialog',{open:true,'data-monster':id,onOpenChange:open=>{if(!open)close()}},React.createElement('button',{'aria-label':'Close monster',onClick:close}))};
  let view;try{
-  await act(async()=>view=create(React.createElement(farmingModule.exports.FarmingModeControl,props)));
+  await act(async()=>view=create(React.createElement(function ControlledFarming(){const [settingsOpen,setSettingsOpen]=React.useState(false);return React.createElement(farmingModule.exports.FarmingModeControl,{...props,settingsOpen,onSettingsOpenChange:setSettingsOpen});})));
   await act(async()=>view.root.findAllByType('Button').find(n=>n.props['aria-label']==='Farming settings').props.onClick());
   await act(async()=>view.root.findAllByType('Button').find(n=>text(n)==='Open passive hunting menu').props.onClick());
   const search=()=>view.root.findByProps({'aria-label':'Filter passive hunting monsters'});

@@ -11,7 +11,7 @@ function functions(source, names) {
  visit(tree);assert.equal(found.length,names.length);return ts.transpileModule(found.join('\n'),{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
 }
 function client(event='snowman') {
- const calls=[], c={root:{},character:{name:'M',ctype:'merchant',map:'main',slots:{mainhand:{name:'goldenpower'}}},
+ const calls=[], c={lastDeathInfo:null,eventPrizeSpaceAvailable:()=>true,root:{},character:{name:'M',ctype:'merchant',map:'main',slots:{mainhand:{name:'goldenpower'}}},
   G:{maps:{main:{}},events:{}},navigationIntent:{revision:1,cancelled:false},eventsEnabled:true,
   joinedEvent:null,eventTraveling:false,eventReturnPending:false,banking:false,stocking:false,upgrading:false,
   merchantIdleActive:false,gatheringActive:false,luckyUpgradeService:null,eventPollBusy:false,

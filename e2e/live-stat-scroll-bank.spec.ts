@@ -7,7 +7,9 @@ const merchant = 'E2EMerchant';
 const native = (live: { admin(code: string): Promise<any> }, scroll='strscroll') => live.admin(`output=(async()=>{const p=get_player('${merchant}');
   const u=p.user||(await db.collection('user').findOne({_id:p.owner})).info;
   const scrolls=list=>(list||[]).filter(i=>i&&i.name===${JSON.stringify(scroll)}).reduce((n,i)=>n+(i.q||1),0);
-  return {helmet:p.items[20],gold:p.gold+(Number(u.gold)||0),carried:scrolls(p.items),
+  const goldByCharacter=Object.fromEntries(['E2EWarrior','E2EPriest','${merchant}'].map(name=>[name,get_player(name).gold]));
+  const bankGold=Number(u.gold)||0;
+  return {helmet:p.items[20],gold:Object.values(goldByCharacter).reduce((sum,gold)=>sum+gold,bankGold),goldByCharacter,bankGold,carried:scrolls(p.items),
     bank:Object.entries(u).filter(([k,v])=>/^items[0-9]+$/.test(k)&&Array.isArray(v)).reduce((n,[,v])=>n+scrolls(v),0)};})()`);
 
 for (const {deliver,stat} of [{deliver:false,stat:'str'},{deliver:true,stat:'str'},{deliver:false,stat:'luck'}]) test(`a merchant ${stat} stat scroll comes from the bank${deliver ? ' before higher priority delivery' : ' instead of being bought again'}`, async ({ live }, info) => {
@@ -53,7 +55,8 @@ for (const {deliver,stat} of [{deliver:false,stat:'str'},{deliver:true,stat:'str
     expect(completions.flatMap(body=>body.statScrollsApplied||[])[0].item.stat_type).toBe(stat);
     const after = await native(live,scroll);
     // 1: the banked scroll was used; nothing was bought. A bank visit may deposit
-    // carried gold, so compare carried plus banked gold.
+    // carried gold, and delivery may collect the recipient's gold. Compare all
+    // three native party balances plus the bank, preserving exact conservation.
     expect(after).toMatchObject({ carried: 0, bank: 0 });
     expect(after.gold).toBe(before.gold);
   } finally {

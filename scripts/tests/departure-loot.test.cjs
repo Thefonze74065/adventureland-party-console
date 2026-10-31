@@ -177,3 +177,41 @@ test('temporary convoy communication hold suspends collection without retiring i
   assert.equal(calls,2);assert.equal(api.convoy.report().complete,true);
  } finally {api?.stop();global.setInterval=saved;}
 });
+
+// Failure inventory: a captured neutral may be retired while still visible;
+// stale/other-convoy control must not release it, and live attackers still block
+// loot even after retirement. Exercise the retained client/loot boundary before
+// changing production; native Hen kill/drop/return E2Es cover the full journey.
+test('fresh owned Hunt retirement releases neutral defense loot without bypassing live attackers',async()=>{
+ const fs=require('node:fs'),vm=require('node:vm');
+ const {namedFunction}=require('./helpers/named-function.cjs');
+ const source=fs.readFileSync('characters/shared.js','utf8');
+ const target={id:'117',type:'monster',mtype:'hen',map:'main',in:'main',visible:true,hp:60,target:null};
+ const c=require('./helpers/client-dependencies.cjs').passingContext({
+  Date:{now:()=>10000},character:{name:'W',map:'main',in:'main'},parent:{entities:{117:target}},
+  convoyTraveling:{id:'c',epoch:3,purpose:'monster-hunt',huntTarget:'goo',defensePaused:true,defenseTargets:[target]},
+  root:{__partyHuntTravelAt:10000,__partyHuntTravel:{id:'c',epoch:3,defending:true,primary:target,committed:[target]}},
+  isAttackingPartyMember:t=>t.target==='W',groupedCombat:{deaths:[]},
+ });
+ vm.runInContext(['departureTargetEngaged','departureCombatPending'].map(n=>namedFunction(source,n)).join('\n'),c);
+ assert.equal(c.departureCombatPending(),true,'the committed neutral remains owned');
+ c.root.__partyHuntTravel.primary=null;c.root.__partyHuntTravel.committed=[];
+ c.root.__partyHuntTravelAt=6000;
+ assert.equal(c.departureCombatPending(),true,'stale control cannot release defense');
+ c.root.__partyHuntTravelAt=11000;
+ assert.equal(c.departureCombatPending(),true,'future control cannot release defense');
+ c.root.__partyHuntTravelAt=10000;c.root.__partyHuntTravel.epoch=4;
+ assert.equal(c.departureCombatPending(),true,'another epoch cannot release defense');
+ c.root.__partyHuntTravel.epoch=3;target.target='W';
+ assert.equal(c.departureCombatPending(),true,'a real attacker remains a blocker');
+ target.target=null;
+ let calls=0,now=10000;
+ const position={realm:':USII',map:'main',in:'main',x:0,y:0};
+ const loot=createDepartureLoot({now:()=>++now,cancelled:()=>false,position:()=>position,
+  defending:()=>c.departureCombatPending(),loot:async()=>{calls++;return true;},chests:()=>[],
+  nextObservation:async()=>{}});
+ loot.accept({...position,id:'retired-defense-loot',after:9999},10000);
+ await loot.tick();
+ assert.equal(calls,1,'retired neutral must permit the real departure-loot state machine');
+ assert.equal(loot.report().complete,true);
+});

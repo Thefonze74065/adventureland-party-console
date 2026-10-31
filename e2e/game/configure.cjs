@@ -12,6 +12,16 @@ if (caveSource.split(upstreamFollow).length === 2 && !caveSource.includes(guarde
   fs.writeFileSync(caveRules, caveSource.replace(upstreamFollow, guardedFollow));
 else if (caveSource.includes(upstreamFollow) || caveSource.split(guardedFollow).length !== 2)
   throw Error('Pinned Cave farewell snapshot compatibility guard no longer matches upstream');
+// The pinned mail transaction runs in an isolated context without in_arr.
+// Preserve native authorization and persistence using equivalent membership.
+const mailApi = '/game/api.js';
+const mailSource = fs.readFileSync(mailApi, 'utf8');
+const upstreamOwnership = '!mail.owner || !in_arr(A.owner, mail.owner)';
+const guardedOwnership = '!mail.owner || !mail.owner.includes(A.owner)';
+if (mailSource.split(upstreamOwnership).length === 2 && !mailSource.includes(guardedOwnership))
+  fs.writeFileSync(mailApi, mailSource.replace(upstreamOwnership, guardedOwnership));
+else if (mailSource.includes(upstreamOwnership) || mailSource.split(guardedOwnership).length !== 2)
+  throw Error('Pinned native mail transaction compatibility guard no longer matches upstream');
 const root = '/game/secretsandconfig/';
 const keys = require(root + 'keys.js');
 Object.assign(keys, {

@@ -8,6 +8,7 @@ import { test, expect, type LiveGame } from './live-fixtures';
 // next Math.random() call, which is the gathering roll, returns a hit or a miss. Every other roll,
 // and every native action (travel, tool equip, cast, item grant, cooldown), is the real game.
 const name = 'E2EMerchant';
+const gatheringTest = test.extend({initialGatheringReady:true});
 type Roll = { mode: string; outcome: string; at: number };
 
 async function rolls(live: LiveGame): Promise<Roll[]> {
@@ -17,7 +18,7 @@ async function stock(live: LiveGame): Promise<number> {
   return live.admin(`output=get_player('${name}').items.filter(item=>item&&!['rod','pickaxe','hpot0','mpot0','hpot1','mpot1'].includes(item.name)).reduce((n,item)=>n+(item.q||1),0)`);
 }
 
-test('a missed fishing or mining channel is recast at once; a success waits for the game cooldown', async ({ live }, info) => {
+gatheringTest('a missed fishing or mining channel is recast at once; a success waits for the game cooldown', async ({ live }, info) => {
   test.setTimeout(600_000);
   for (const mode of ['fishing', 'mining']) await live.post('/merchant/gather', { mode, enabled: false });
   await expect.poll(async () => (await live.state()).gatheringModes, { timeout: 30_000 }).toEqual([]);
@@ -38,15 +39,22 @@ test('a missed fishing or mining channel is recast at once; a success waits for 
   expect(seed.level, 'Fishing and Mining need level 16').toBeGreaterThanOrEqual(16);
   await expect.poll(async () => (await live.state()).characters[name]?.items?.some((entry: any) => entry?.item?.name === 'pickaxe'), { timeout: 30_000 }).toBe(true);
 
-  // Both skills available at the start: no server, client or coordinator cooldown.
-  await live.restoreHistoricalSettings(async () => {
-    await live.admin(`output=(()=>{const p=get_player('${name}');p.last.fishing=p.last.mining=new Date(0);return true;})()`);
-    await live.clients[name].frame.evaluate(() => {
-      const game = window as any, root = (document.getElementById('maincode') as HTMLIFrameElement).contentWindow as any;
-      for (const mode of ['fishing', 'mining']) { game.next_skill[mode] = new Date(0); root.__merchantGatheringCooldowns[mode] = 0; }
-    });
-    return { gatheringCooldowns: { fishing: 0, mining: 0 } };
-  });
+  // Declare availability before native login. Clearing a live cooldown races
+  // status replies already in the browser, which correctly preserve known
+  // cooldowns. Observe agreement without rewriting live skill state.
+  let availability:any;
+  await expect.poll(async()=>{
+    const [state,client,server]=await Promise.all([live.state(),live.clients[name].frame.evaluate(()=>{
+      const game=window as any,root=(document.getElementById('maincode') as HTMLIFrameElement).contentWindow as any;
+      return {now:Date.now(),next:Object.fromEntries(['fishing','mining'].map(mode=>[mode,Number(new Date(game.next_skill[mode]||0))])),
+        recorded:{...root.__merchantGatheringCooldowns},session:!!root.__merchantGatheringSession,attempt:!!root.__merchantGatheringAttempt};
+    }),live.admin(`output=(()=>{const p=get_player('${name}');return {fishing:p.last.fishing,mining:p.last.mining};})()`)]);
+    availability={coordinator:state.gatheringCooldowns,client,server};
+    return !client.session&&!client.attempt&&['fishing','mining'].every(mode=>
+      Number(new Date(server[mode]))===0&&Number(client.next[mode])<=client.now&&
+      Number(client.recorded[mode]||0)===0&&Number(state.gatheringCooldowns[mode]||0)===0);
+  },{timeout:15000,message:'Native gathering availability must agree before the first cast'}).toBe(true);
+  await info.attach('native-gathering-initial-availability',{body:JSON.stringify(availability),contentType:'application/json'});
 
   // Declared outcomes of the server's gathering rolls, in order per mode.
   const hook = await live.admin(`output=(()=>{const p=get_player('${name}');
@@ -102,6 +110,11 @@ test('a missed fishing or mining channel is recast at once; a success waits for 
     await info.attach('gathering-cooldown-evidence', { body: JSON.stringify({ seed, hook, before, after: await stock(live), log: await rolls(live), server, recorded,
       activity: ((await live.state()).merchantActivity || []).filter((entry: any) => /fish|min|gather|caught|catch/i.test(entry.message || '')) }, null, 2), contentType: 'application/json' });
   } finally {
+    await info.attach('gathering-before-cleanup', {body:JSON.stringify({at:Date.now(),
+      server:await live.admin(`output=(()=>{const p=get_player('${name}');return {rolls:globalThis.__e2eGather,c:p.c,last:p.last,mp:p.mp};})()`),
+      client:await live.clients[name].run(`({c:character.c,mp:character.mp,nextSkill:parent.next_skill,session:globalThis.__merchantGatheringSession,
+        attempt:globalThis.__merchantGatheringAttempt,inventoryCommands:globalThis.__partyInventoryCommands,queue:sharedRoutine.queueReport()})`),
+      state:await live.state()}),contentType:'application/json'}).catch(()=>{});
     await live.admin(`output=(()=>{clearInterval(globalThis.__e2eGatherTimer);if(globalThis.__e2eOrigRandom)Math.random=globalThis.__e2eOrigRandom;globalThis.__e2eGather=null;
       const p=get_player('${name}');if(p&&p.c&&p.c.__e2eTarget)p.c=p.c.__e2eTarget;return true;})()`).catch(() => {});
     for (const mode of ['fishing', 'mining']) await live.post('/merchant/gather', { mode, enabled: false }).catch(() => {});

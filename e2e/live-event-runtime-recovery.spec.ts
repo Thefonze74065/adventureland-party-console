@@ -1,10 +1,144 @@
+import {isolateNativeMapAmbient,restoreNativeMapAmbient} from './native-map-ambient-isolation';
 import {observeNativeStatus} from './native-status-observer';
 import { killNativeCharacter } from "./hunt-interruption-helpers";
 import {test,expect} from './live-fixtures';
-import type {Route} from '@playwright/test';
+import type {Route,Response} from '@playwright/test';
+import {nativeEventSpawn} from './game/event-spawn';
 
 const W='E2EWarrior',P='E2EPriest',fighters=[W,P];
 test.use({initialPosition:{map:'halloween',x:-550,y:-290}});
+
+test.describe('empty event sighting recovery',()=>{
+ test.use({initialPosition:{map:'spookytown',x:255,y:-1425}});
+ test('native Mr Green leaves an empty last-seen waypoint and reacquires its catalog spawn',async({live},info)=>{
+  // Failure modes: repeatedly completing the empty hint; bouncing back after
+  // catalog arrival; trusting stale coordinates over a real boss; lost ownership.
+  test.setTimeout(360_000);const hint={map:'spookytown',x:255,y:-1425},spawn=await nativeEventSpawn(live.admin,'mrgreen');
+  let seed:any;const observations:any[]=[];
+  try{
+   // Native login can already have pulled the surrounding pack. This case
+   // exercises an empty advertised waypoint, not unrelated ambient combat or
+   // death recovery. Remove those actors reversibly, then reach the declared
+   // start through ordinary native navigation before timing reacquisition.
+   const ambient=await isolateNativeMapAmbient(live,'spookytown');
+   await info.attach('empty-hint-native-ambient-input',{body:JSON.stringify(ambient),contentType:'application/json'});
+   for(const character of fighters)await live.post('/command',{character,type:'character-travel',location:hint,label:'Empty-hint journey starting waypoint'});
+   await expect.poll(async()=>live.admin(`output=${JSON.stringify(fighters)}.every(name=>{const p=get_player(name);return p&&!p.rip&&p.map===${JSON.stringify(hint.map)}&&Math.hypot(p.x-(${hint.x}),p.y-(${hint.y}))<30;})`),
+     {timeout:90_000,message:'Both native fighters must reach the empty hint before catalog reacquisition starts'}).toBe(true);
+   seed=await seedRecoveryGreen(live,spawn,hint);
+   await expect.poll(()=>live.clients[W].run('parent.S.mrgreen && ({map:parent.S.mrgreen.map,x:parent.S.mrgreen.x,y:parent.S.mrgreen.y})'),{timeout:15_000}).toEqual(hint);
+   await live.post('/formation',{leader:W});await live.post('/formation',{character:P,follow:true});
+   await live.post('/formation',{character:W,eventSelections:['mrgreen']});
+   await expect.poll(async()=>{const s=await live.state();observations.push({at:Date.now(),convoy:s.activeConvoy&&{id:s.activeConvoy.id,location:s.activeConvoy.location},characters:Object.fromEntries(fighters.map(n=>[n,{map:s.characters[n]?.map,x:s.characters[n]?.x,y:s.characters[n]?.y,event:s.characters[n]?.joinedEvent}]))});if(observations.length>100)observations.shift();
+    const events=await live.clients[W].events();return fighters.every(n=>events.some((e:any)=>e.event==='hit'&&e.data?.hid===n&&String(e.data?.id)===seed.id&&e.data?.damage>0));
+   },{timeout:150_000,message:'Both fighters must leave the empty advertised waypoint and hit the actual native boss at its catalog spawn'}).toBe(true);
+   const final=await live.state();expect(final.characters[W].map).toBe(spawn.map);
+   expect(await live.clients[W].run('({map:parent.S.mrgreen.map,x:parent.S.mrgreen.x,y:parent.S.mrgreen.y})')).toEqual(hint);
+   expect(Math.hypot(final.characters[W].x-hint.x,final.characters[W].y-hint.y)).toBeGreaterThan(500);
+  }finally{
+   try{
+    await info.attach('native-empty-last-seen-spawn-recovery',{body:JSON.stringify({hint,spawn,seed,observations,state:await live.state(),events:await live.clients[W].events()}),contentType:'application/json'});
+   }finally{
+    try{await live.post('/formation',{character:W,eventSelections:[]}).catch(()=>{});await clearRecoveryGreen(live,seed);}
+    finally{await info.attach('empty-hint-native-ambient-restored',{body:JSON.stringify(await restoreNativeMapAmbient(live,true)),contentType:'application/json'});}
+   }
+  }
+ });
+});
+
+test('native respawned event follower starts catchup while the survivor convoy is still moving',async({live},info)=>{
+ // Failure modes: pre-death poll steals reentry; eventTraveling survives death;
+ // a late rejoin waits for the survivor's arrival or cancels its current convoy.
+ test.setTimeout(240_000);const spawn=await nativeEventSpawn(live.admin,'mrgreen');
+  let seed:any,death:any,before:any,started:any,hold=false;const held:any[]=[],samples:any[]=[],grants:any[]=[],setup:any[]=[];
+ const observe=async(response:Response)=>{if(!response.url().endsWith('/party-api/shared-travel'))return;try{const body=response.request().postDataJSON();if(body?.character===W&&body.reentryDeathAt){const result=await response.json();grants.push({at:Date.now(),body,result});}}catch{/* Retain actual successful authorization responses only. */}};
+ live.clients[W].page.on('response',observe);
+ const gate=async(route:Route)=>{const body=route.request().postDataJSON();if(hold&&body?.character===W&&body.event==='mrgreen'){held.push({at:Date.now(),body});await route.fulfill({status:200,json:{allowed:false,reason:'Declared current-operation event reentry hold'}});return;}await route.fallback();};
+ await live.clients[W].page.context().route('**/party-api/hunt-event-permission',gate);
+  // An ordinary entry can replace its walking token before native death. Hold
+  // that logical pre-death operation, then admit the exact native reentry.
+  const initialWalk=async(route:Route)=>{const body=route.request().postDataJSON();if(body?.character===W&&body.activity==='event'&&body.key==='mrgreen'&&!body.cancel&&!body.reentryDeathAt){await route.fulfill({status:200,json:{ok:true,phase:'waiting'}});return;}await route.fallback();};
+ await live.clients[W].page.context().route('**/party-api/shared-travel',initialWalk);
+ try{
+  seed=await seedRecoveryGreen(live,spawn,spawn);
+  await live.post('/formation',{leader:P});await live.post('/formation',{character:W,follow:true});
+  await live.post('/formation',{character:P,eventSelections:['mrgreen']});
+   await expect.poll(async()=>{const s=await live.state(),c=s.activeConvoy;setup.push({at:Date.now(),convoy:c,characters:Object.fromEntries(fighters.map(n=>{const r=s.characters[n];return [n,{map:r.map,x:r.x,y:r.y,moving:r.moving,joinedEvent:r.joinedEvent,lastDeath:r.lastDeath}];}))});if(setup.length>160)setup.shift();return c?.walkingEvent==='mrgreen'&&c.phase==='travel'&&c.participants.length===1&&c.participants[0]===P&&s.characters[P].moving&&s.characters[W].joinedEvent==='mrgreen';},{timeout:90_000}).toBe(true);
+  hold=true;
+  death=await killNativeCharacter(live,W);
+  await expect.poll(async()=>{const s=await live.state(),c=s.activeConvoy,w=s.characters[W],p=s.characters[P];if(c?.walkingEvent==='mrgreen'&&c.phase==='travel'&&c.participants.length===1&&c.participants[0]===P&&p.moving&&!w.rip&&w.map==='main'){before={at:Date.now(),convoyId:c.id,w,p};return true;}return false;},{timeout:90_000}).toBe(true);
+  hold=false;
+  await expect.poll(async()=>{const s=await live.state(),c=s.activeConvoy,w=s.characters[W],p=s.characters[P];samples.push({at:Date.now(),convoyId:c?.id,w:{map:w.map,x:w.x,y:w.y,moving:w.moving,recovery:w.recovery},p:{map:p.map,x:p.x,y:p.y,moving:p.moving}});
+   if(grants.some(g=>g.result.phase==='independent'&&g.result.reentryDeathAt===before.w.lastDeath.at)&&c?.id===before.convoyId&&p.moving&&w.moving&&!w.rip&&Math.hypot(w.x-before.w.x,w.y-before.w.y)>10){started={at:Date.now(),convoy:c,w,p};return true;}return false;
+  },{timeout:15_000,message:'The revived follower must physically move before the existing survivor convoy stops or completes'}).toBe(true);
+  expect(started.convoy.participants).toEqual([P]);
+  await expect.poll(async()=>{const events=await live.clients[W].events();return fighters.every(n=>events.some((e:any)=>e.event==='hit'&&e.data?.hid===n&&String(e.data?.id)===seed.id&&e.data?.damage>0));},{timeout:150_000}).toBe(true);
+ }finally{
+  hold=false;await live.clients[W].page.context().unroute('**/party-api/hunt-event-permission',gate);
+  await live.clients[W].page.context().unroute('**/party-api/shared-travel',initialWalk);
+  live.clients[W].page.off('response',observe);
+  await info.attach('native-respawn-moving-event-catchup',{body:JSON.stringify({spawn,seed,death,before,started,setup,held,samples,grants,state:await live.state(),events:await live.clients[W].events()}),contentType:'application/json'});
+  await live.post('/formation',{character:P,eventSelections:[]}).catch(()=>{});await clearRecoveryGreen(live,seed);
+ }
+});
+
+test('native event death during convoy admission returns after respawn',async({live},info)=>{
+ // Failure modes: death before route identities exist; dead pending requests
+ // admitted later; a failed setup poisons every subsequent reentry token;
+ // recovery renews an exhausted route or steals a newer navigation command.
+ test.setTimeout(240_000);
+ const spawn=await nativeEventSpawn(live.admin,'mrgreen');
+ let seed:any,death:any,admitted:any,releasePeer=false,waiting=false,cancelled=false;const samples:any[]=[];
+ const gate=async(route:Route)=>{
+  const body=route.request().postDataJSON();
+  if(body?.activity!=='event'||body.key!=='mrgreen'){await route.fallback();return;}
+  if(body.character===P&&!releasePeer){await route.fulfill({status:200,json:{ok:true,phase:'waiting'}});return;}
+  const response=await route.fetch();
+  if(body.character===W){if(body.cancel)cancelled=true;else waiting=true;}
+  await route.fulfill({response});
+ };
+ for(const n of fighters)await live.clients[n].page.context().route('**/party-api/shared-travel',gate);
+ try{
+  // Delay only this character's native respawn emission until the pending
+  // walk has been admitted. Status, movement and unrelated actions stay live.
+  await live.clients[W].run(`(()=>{const socket=parent.socket,emit=socket.emit;globalThis.__e2eAdmissionRespawn={socket,emit,held:[]};socket.emit=function(event,...args){if(event==='respawn'){__e2eAdmissionRespawn.held.push([event,...args]);return socket;}return emit.apply(socket,[event,...args]);};return true;})()`);
+  seed=await seedRecoveryGreen(live,spawn,spawn);
+  await live.post('/formation',{leader:P});await live.post('/formation',{character:W,follow:true});
+  await live.post('/formation',{character:P,eventSelections:['mrgreen']});
+  await expect.poll(()=>waiting,{timeout:60_000,message:'The first attendee must have a real pending walk before the peer requests admission'}).toBe(true);
+  death=await killNativeCharacter(live,W);
+  await expect.poll(async()=>cancelled&&(await live.state()).characters[W]?.rip===true,{timeout:15_000,message:'Observe native death and cancellation of the pre-death walking token'}).toBe(true);
+  releasePeer=true;
+  await expect.poll(async()=>{const s=await live.state(),c=s.activeConvoy;if(c?.walkingEvent!=='mrgreen')return false;if(c.participants.includes(W)&&c.phase!=='failed')return false;admitted={at:Date.now(),convoy:c};return true;},{timeout:45_000,message:'The peer must start; an admitted dead member exposes the failed setup'}).toBe(true);
+  await live.clients[W].run(`(()=>{const h=__e2eAdmissionRespawn;h.socket.emit=h.emit;for(const args of h.held)h.emit.apply(h.socket,args);delete globalThis.__e2eAdmissionRespawn;return true;})()`);
+  await expect.poll(async()=>{
+   const s=await live.state();samples.push({at:Date.now(),convoy:s.activeConvoy&&{id:s.activeConvoy.id,phase:s.activeConvoy.phase,failure:s.activeConvoy.failure},characters:Object.fromEntries(fighters.map(n=>[n,{map:s.characters[n]?.map,rip:s.characters[n]?.rip,lastDeath:s.characters[n]?.lastDeath,recovery:s.characters[n]?.recovery}]))});if(samples.length>160)samples.shift();
+   const events=await live.clients[W].events();
+   return s.characters[W]?.recovery?.status==='recovery-complete'&&fighters.every(n=>!s.characters[n]?.rip&&s.characters[n]?.joinedEvent==='mrgreen'&&s.characters[n]?.map===spawn.map&&events.some((e:any)=>e.at>=death.at&&e.event==='hit'&&e.data?.hid===n&&String(e.data?.id)===seed.id&&e.data?.damage>0));
+  },{timeout:150_000,message:'Both real fighters must return and damage the native event boss after the setup death'}).toBe(true);
+  const s=await live.state();expect(s.characters[W].lastDeath.eventTrip.event).toBe('mrgreen');
+  expect(death.skill).toBe('rimeshatter');
+  expect(s.characters[W].recovery.status).toBe('recovery-complete');
+ }finally{
+  await live.clients[W].run(`(()=>{const h=globalThis.__e2eAdmissionRespawn;if(h){h.socket.emit=h.emit;for(const args of h.held)h.emit.apply(h.socket,args);delete globalThis.__e2eAdmissionRespawn;}return true;})()`).catch(()=>{});
+  for(const n of fighters)await live.clients[n].page.context().unroute('**/party-api/shared-travel',gate);
+  await info.attach('native-event-admission-death-recovery',{body:JSON.stringify({spawn,seed,death,admitted,samples,state:await live.state(),events:await live.clients[W].events()}),contentType:'application/json'});
+  await live.post('/formation',{character:P,eventSelections:[]}).catch(()=>{});await clearRecoveryGreen(live,seed);
+ }
+});
+
+async function seedRecoveryGreen(live:import('./live-fixtures').LiveGame,spawn:{map:string;x:number;y:number},hint:{map:string;x:number;y:number}){
+ return live.admin(`output=(()=>{const original=G.monsters.mrgreen;if(Object.values(instances).some(i=>Object.values(i.monsters||{}).some(m=>m.type==='mrgreen')))throw Error('Requires a clean native Mr Green encounter');try{G.monsters.mrgreen={...original,hp:100000000,attack:1,speed:0,charge:0,range:1,aggro:0,rage:0,peaceful:true,spawns:[]};const p=${JSON.stringify(spawn)},m=new_monster(p.map,{__e2eAmbientExempt:true,type:'mrgreen',count:1,boundary:[p.x,p.y,p.x,p.y]},{temp:1});m.e2eRecoveryGreen=true;E.mrgreen={live:true,...${JSON.stringify(hint)},hp:m.hp,max_hp:m.max_hp};
+  // Declared stale server_info coordinates only. Native entity visibility,
+  // movement, attacks and death continue to report the real encounter.
+  globalThis.__e2eRecoveryGreenNativeBroadcast=broadcast_e;
+  const native=broadcast_e,hint=${JSON.stringify(hint)};
+  broadcast_e=function(dontSend){if(dontSend)return native(dontSend);broadcast('server_info',{...E,mrgreen:{...E.mrgreen,live:true,...hint}});};
+  globalThis.__e2eRecoveryGreenTimer=setInterval(()=>broadcast_e(),500);broadcast_e();return {id:String(m.id),map:m.map,x:m.x,y:m.y,hint};}finally{G.monsters.mrgreen=original;}})()`);
+}
+async function clearRecoveryGreen(live:import('./live-fixtures').LiveGame,seed:any){
+ if(!seed)return;await live.admin(`output=(()=>{clearInterval(globalThis.__e2eRecoveryGreenTimer);if(globalThis.__e2eRecoveryGreenNativeBroadcast){broadcast_e=globalThis.__e2eRecoveryGreenNativeBroadcast;delete globalThis.__e2eRecoveryGreenNativeBroadcast;}for(const i of Object.values(instances))for(const m of Object.values(i.monsters||{}))if(String(m.id)===${JSON.stringify(seed.id)})remove_monster(m,{silent:true});delete E.mrgreen;broadcast_e();return true;})()`).catch(()=>{});
+}
 
 const statusObservers=new Map<string,Awaited<ReturnType<typeof observeNativeStatus>>>();
 test.beforeEach(async({live},info)=>{
@@ -33,7 +167,15 @@ test('native fixed-end event timer survives clock resync and a limit added durin
   const seed=await live.admin(`output=(()=>{const original=G.monsters.mrpumpkin;try{
     G.monsters.mrpumpkin={...original,hp:100000000,attack:1,speed:0,charge:0,range:1,aggro:0,peaceful:true,spawns:[]};
     const m=new_monster('halloween',{type:'mrpumpkin',count:1,boundary:[-495,685,-495,685]},{temp:1});
-    const end=Date.now()+3600000;E.mrpumpkin={live:true,map:m.map,x:m.x,y:m.y,end,hp:m.hp,max_hp:m.max_hp};broadcast_e();return {id:String(m.id),end,original};
+    const end=Date.now()+3600000;E.mrpumpkin={live:true,map:m.map,x:m.x,y:m.y,end,hp:m.hp,max_hp:m.max_hp};
+    // The native event loop reconstructs Pumpkin's status without an end.
+    // Keep this case's declared fixed-end feed through every native publish;
+    // native boss presence, damage and position remain authoritative.
+    const originalBroadcast=broadcast_e;globalThis.__e2eFixedEnd={originalBroadcast};
+    broadcast_e=function(dontSend){const boss=get_monster('mrpumpkin');
+      if(boss&&String(boss.id)===String(m.id)&&E.mrpumpkin)E.mrpumpkin.end=end;
+      return originalBroadcast(dontSend);};
+    broadcast_e();return {id:String(m.id),end,original};
   }catch(error){G.monsters.mrpumpkin=original;throw error;}})()`);
   const samples:any[]=[];
   try{
@@ -58,7 +200,7 @@ test('native fixed-end event timer survives clock resync and a limit added durin
     try{await info.attach('fixed-end-event-timer',{body:JSON.stringify({seed,samples,state:await live.state(),events:await Promise.all(fighters.map(name=>live.clients[name].events()))}),contentType:'application/json'});
     }finally{try{await live.clients[W].run('parent.__e2eObserveMoves=false');}finally{
     await live.post('/formation',{character:W,eventSelections:[]});
-    await live.admin(`output=(()=>{for(const i of Object.values(instances))for(const m of Object.values(i.monsters||{}))if(String(m.id)===${JSON.stringify(seed.id)})remove_monster(m,{silent:true});G.monsters.mrpumpkin=${JSON.stringify(seed.original)};delete E.mrpumpkin;broadcast_e();return true;})()`);
+    await live.admin(`output=(()=>{broadcast_e=globalThis.__e2eFixedEnd.originalBroadcast;delete globalThis.__e2eFixedEnd;for(const i of Object.values(instances))for(const m of Object.values(i.monsters||{}))if(String(m.id)===${JSON.stringify(seed.id)})remove_monster(m,{silent:true});G.monsters.mrpumpkin=${JSON.stringify(seed.original)};delete E.mrpumpkin;broadcast_e();return true;})()`);
     }}
   }
 });
@@ -137,8 +279,21 @@ test.describe('retired event exit ownership',()=>{
           eventSelectionsByCharacter:{...settings.eventSelectionsByCharacter,[W]:['mrpumpkin']}};
       });
       if(variant==='stale-peer'){
-        await expect.poll(async()=>{const s=await live.state();return !s.deferredEventReturns[W]&&!!s.farmingProfiles[W].eventSessions[W];},{timeout:12_000}).toBe(true);
-        const admission=await live.state();
+        await expect.poll(async()=>{
+          const s=await live.state(),warrior=s.characters[W];
+          return warrior?.dashboardRuntime===started.characters[W].dashboardRuntime&&warrior.seenAt>=retiredAt&&
+            Date.now()-warrior.seenAt<3000&&warrior.serverLiveEvents?.some((event:{name:string})=>event.name==='mrpumpkin');
+        },{timeout:30_000,message:'The restarted coordinator must receive the original Warrior runtime and LIVE feed before timing admission'}).toBe(true);
+        let admission:any;
+        await expect.poll(async()=>{const s=await live.state();
+          if(s.deferredEventReturns[W]||!s.farmingProfiles[W].eventSessions[W])return false;
+          admission=s;
+          // End the status-loss fault at admission, before separate native
+          // observations. Leaving it active through those reads can cross the
+          // bridge's legitimate stale-CODE recovery deadline on a busy host.
+          holdingPriest=false;
+          return true;
+        },{timeout:12_000}).toBe(true);
         const priestSeenAt=Number(admission.characters[P]?.seenAt||priestSeenAtBeforeHold);
         expect(priestSeenAt).toBe(priestSeenAtBeforeHold);
         const priestNative=await live.clients[P].snapshot();
@@ -158,7 +313,7 @@ test.describe('retired event exit ownership',()=>{
             const runner=(document.getElementById('maincode') as HTMLIFrameElement)?.contentWindow as
               (Window & {character?:Pick<import('typed-adventureland').CharacterEntity,'name'>;__partyEventExitOwner?:{cycleId?:string;cancelled?:boolean;commandId?:number};
                 __partyEventRecoveryCycleId?:string|null;__partyRuntimeGeneration?:number})|null;
-            if(!runner||runner.character?.name!==expectedName)throw Error('Current native maincode identity mismatch: '+expectedName);
+            if(!runner||runner.character?.name!==expectedName)return null;
             const owner=runner.__partyEventExitOwner;
             return {name:runner.character.name,runtimeGeneration:runner.__partyRuntimeGeneration,
               owner:owner?{cycleId:owner.cycleId,cancelled:!!owner.cancelled,commandId:owner.commandId}:null,
@@ -168,9 +323,9 @@ test.describe('retired event exit ownership',()=>{
         const nativeObservedAt=Date.now(),s=await live.state(),stateObservedAt=Date.now();
         const checks=Object.fromEntries(fighters.map(name=>{
           const session=s.farmingProfiles[W].eventSessions[name];
-          return [name,{runtimeUnchanged:s.characters[name]?.dashboardRuntime===started.characters[name].dashboardRuntime,
-            selectionPublished:native[name].selectionPublished,selectionRetired:native[name].selectedCycle!==oldCycle,
-            ownerRetired:!native[name].owner||native[name].owner.cancelled||native[name].owner.cycleId!==oldCycle,
+          return [name,{nativeReady:!!native[name],runtimeUnchanged:s.characters[name]?.dashboardRuntime===started.characters[name].dashboardRuntime,
+            selectionPublished:!!native[name]?.selectionPublished,selectionRetired:!!native[name]&&native[name].selectedCycle!==oldCycle,
+            ownerRetired:!!native[name]&&(!native[name].owner||native[name].owner.cancelled||native[name].owner.cycleId!==oldCycle),
             admissionResumed:!deferred||!s.deferredEventReturns[name]&&!!session?.participants?.includes(name)}];
         }));
         if(exitOwnerSamples.length===64)exitOwnerSamples.shift();

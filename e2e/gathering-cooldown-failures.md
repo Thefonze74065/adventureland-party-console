@@ -21,3 +21,10 @@ merchant set the full reuse cooldown after every attempt, so each miss waited 48
    cooldown or block it while that mode is available.
 7. **Restart.** A recorded success cooldown survives a coordinator restart; a miss
    leaves no cooldown to restore.
+
+8. **Fixture reset races a genuine status reply.** A response captured before a
+   live reset can restore the login cooldown after the server and coordinator
+   reset. Seed native availability before login and observe server, client and
+   coordinator agreement without clearing live cooldowns. The reproduction holds
+   one genuine status response across the old reset: zero of five rolls occur;
+   no native skill, receipt or cooldown is fabricated.

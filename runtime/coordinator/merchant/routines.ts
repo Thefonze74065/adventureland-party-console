@@ -1,7 +1,7 @@
 /** User-facing priorities are independent of the executor transport. */
 export interface RoutineJob { reason: string; manual?: boolean; bidItemId?: string; routine?: string; order?: unknown; autoExchangeKeys?: string[] }
 const purchases = new Set(['stand purchases', 'stand bid purchases', 'ALData marketplace purchases', 'Ponty purchases']);
-const aliases: Record<string, string> = {'exchange pickup': 'manual exchange', 'stand search': 'manual marketplace purchases', 'marked items': 'party collection', 'npc sale pickup': 'npc sales', 'auto npc sale pickup': 'auto npc sales', 'upgrades and compounds': 'manual upgrades'};
+const aliases: Record<string, string> = {'auto npc withdrawals': 'auto npc sales', 'exchange pickup': 'manual exchange', 'stand search': 'manual marketplace purchases', 'marked items': 'party collection', 'npc sale pickup': 'npc sales', 'auto npc sale pickup': 'auto npc sales', 'upgrades and compounds': 'manual upgrades'};
 function purchaseRoutine(job: RoutineJob): string {
   return job.manual === true || (!job.bidItemId && job.reason !== 'stand bid purchases') ? 'manual marketplace purchases' : 'stand bid purchases';
 }

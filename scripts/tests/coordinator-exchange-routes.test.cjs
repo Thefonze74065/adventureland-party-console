@@ -1,6 +1,20 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const {createMerchantExchangeRoutes}=require('../../runtime/coordinator/http/merchant-exchange.ts');
+// Failure inventory: e2e/automatic-bank-routing-failures.md.
+test('default exchange rewards persist banking without overwriting explicit actions',()=>{
+ const f=fixture();f.state.merchantCurrent={id:'job',reason:'exchange',target:'M'};
+ f.state.merchantRules={owner:'M',members:['M']};
+ f.state.autoItemMarks={M:{}};
+ const {automaticCommerceRuleKey}=require('../../runtime/coordinator/inventory/item-identity.ts');
+ f.state.autoNpcSales={[automaticCommerceRuleKey({name:'helmet'})]:{item:{name:'helmet'}}};
+ const response=f.post('progress',{jobId:'job',remaining:[],rewards:[{name:'leather',q:3},{name:'helmet'}]});
+ assert.equal(response.code,200);
+ assert.equal(f.state.autoItemMarks.M['leather@+0'],'bank');
+ assert.equal(f.state.autoItemMarks.M['helmet@+0'],undefined);
+ assert.deepEqual(response.body.rewardActions.map(entry=>entry.action),['bank','npc']);
+ assert.deepEqual(f.effects,['persist']);
+});
 function fixture(){
  const state={merchantCharacter:'M',merchantCatalog:{exchangeable:[{id:'leather',level:0},{id:'token',level:1,reward:'coat'}]},merchantCurrent:null,merchantQueue:[]},effects=[];
  const routes=createMerchantExchangeRoutes(state,{now:()=>100,nextCommand:()=>1,stamp:job=>({...job,priority:50}),log:()=>effects.push('log'),persist:()=>effects.push('persist'),dispatch:()=>effects.push('dispatch'),queueStorage:(job,shortages)=>{effects.push(['supply',job.id,shortages]);return true;}});

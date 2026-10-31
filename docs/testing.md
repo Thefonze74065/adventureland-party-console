@@ -549,7 +549,7 @@ economic work. Screenshots, traces, state, native observations and source snapsh
 are retained under `.build/e2e-results`; the checksummed manifest and HTML report
 are under `.build/e2e-report`. This follow-up does not claim a full 67-case rerun.
 
-Use Node 24 (CI pins 24.14.0), Docker with Compose and a running Linux container
+Use Node 26 (CI pins 26.12.1), Docker with Compose and a running Linux container
 engine, then run from this checkout. The first game image build downloads the
 pinned upstream repositories and dependencies:
 
@@ -837,7 +837,7 @@ browser failure-mode documents under `e2e/` show this sequence for this migratio
 
 ## CI and runner budget
 
-Pull requests and pushes to `main` run the complete console, deployment, debug and ChronAL gameplay E2Es, evidence verification, retained isolated regressions with the strict TAP checker, coordinator lint and the production build. The **Validate and release** workflow runs console/debug validation separately from 16 ChronAL gameplay shards. Each gameplay shard owns a native Docker/MongoDB stack and uses real browser clients with accelerated gameplay time. Release versioning requires both jobs to pass.
+Pull requests run the basic type checks. Pushes to `main` run console, deployment and debug E2Es, evidence verification, retained isolated regressions, coordinator lint and the production build before release packaging. Full ChronAL gameplay E2Es run only through explicit manual dispatch (16 shards in **Validate and release**), independently of release versioning. Release publication requires Windows package startup and Docker startup checks on native x64 and ARM64 runners; native runners avoid QEMU failures in Node’s TypeScript parser.
 
 The **Native game E2E (manual)** workflow retains explicit real-time parity coverage:
 

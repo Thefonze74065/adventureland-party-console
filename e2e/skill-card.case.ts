@@ -70,7 +70,7 @@ test("skills show the game's skill card beside an extras box in both dialogs", a
   await page.goto(app.url + "/skill-card-harness");
   await page.addScriptTag({ content: bundle.outputFiles[0].text });
   await page.evaluate((classes) => (window as any).mountSkills(classes), SKILLS);
-  const dialog = page.getByRole("dialog", { name: "Class skills", exact: true });
+  const dialog = page.getByRole("dialog", { name: "Class skills and conditions", exact: true });
   const lines = (box: Locator) => box.locator("[data-line]").evaluateAll((nodes) => nodes.map((node) => node.textContent));
   const open = async (name: RegExp) => {
     await dialog.getByRole("button", { name }).click();

@@ -1,6 +1,9 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),path=require('node:path'),Module=require('node:module');
 const {buildSync}=require('esbuild'),React=require('../../dashboard/node_modules/react'),{create,act}=require('../../dashboard/node_modules/react-test-renderer');
 global.IS_REACT_ACT_ENVIRONMENT=true;
+global.window=new EventTarget();
+const preferences=new Map();
+global.localStorage={getItem:key=>preferences.get(key)??null,setItem:(key,value)=>preferences.set(key,String(value))};
 function load(name){const filename=path.resolve('dashboard/features/party/'+name+'.tsx'),m=new Module(filename,module);m.filename=filename;m.paths=Module._nodeModulePaths(path.dirname(filename));m.require=function(id){if(id==='@base-ui/react/menu')return {Menu:new Proxy({},{get:(_,key)=>'LuckyMenu'+String(key)})};if(id==='./query-actions')return {usePartyAction:()=>({})};if(id.startsWith('@/components/ui/'))return new Proxy({},{get:(_,key)=>String(key)});return Module.prototype.require.call(this,id)};m._compile(buildSync({entryPoints:[filename],bundle:true,packages:'external',external:['@/components/ui/*','./query-actions'],platform:'node',format:'cjs',write:false}).outputFiles[0].text,filename);return m.exports;}
 const text=n=>typeof n==='string'?n:(n.children||[]).map(text).join('');
 const {InventoryPanel}=load('inventory-panel'),{EquipSlot}=load('equip-slot');

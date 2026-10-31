@@ -37,12 +37,12 @@ export function ItemExchangeDetails({
   );
   // A table can award the same item in different quantities or through nested rolls.
   // Sum those mutually exclusive outcomes for the chance of receiving the item.
-  const sources = level === 0 ? exchanges.flatMap((entry) => {
+  const sources = exchanges.flatMap((entry) => {
     if (entry.reward) return [];
     const chance = entry.results.reduce((sum, result) =>
       sum + (result.id === id && result.kind === id ? result.chance : 0), 0);
     return chance > 0 ? [{ entry, chance }] : [];
-  }).sort((a, b) => b.chance - a.chance || a.entry.name.localeCompare(b.entry.name)) : [];
+  }).sort((a, b) => b.chance - a.chance || a.entry.name.localeCompare(b.entry.name));
   const row = (
     key: string,
     item: string,
@@ -100,7 +100,7 @@ export function ItemExchangeDetails({
       {!!rewards.length && (
         <section className="rounded border border-amber-900 bg-slate-950 p-4">
           <h3 className="font-mono text-xs uppercase tracking-wider text-amber-300">
-            {box ? 'Rewards' : 'Exchange reward'}
+            {box ? 'Rewards' : 'Exchange drops'}
           </h3>
           {rewards.map((entry) => (
             <div key={entry.key} className="mt-3">
@@ -155,7 +155,7 @@ export function ItemExchangeDetails({
       )}
       {!!sources.length && (
         <section className="rounded border border-amber-900 bg-slate-950 p-4">
-          <h3 className="font-mono text-xs uppercase tracking-wider text-amber-300">Reward in</h3>
+          <h3 className="font-mono text-xs uppercase tracking-wider text-amber-300">Exchange reward</h3>
           <p className="mt-2 text-xs text-slate-300">Chance per exchange using the quantity shown</p>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             {sources.map(({ entry, chance }) => row(

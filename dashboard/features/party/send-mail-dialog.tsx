@@ -222,7 +222,12 @@ export function SendMailDialog({
                   Mail may be out of date: {inbox.error}
                 </p>
               )}
-              {!inbox.messages.length && (
+                {inbox.automationError && (
+                  <p className="text-sm text-amber-200" role="status">
+                    {inbox.automationError}. Retrying automatically.
+                  </p>
+                )}
+                {!inbox.messages.length && (
                 <p className="text-sm text-emerald-100/80">
                   {inbox.updatedAt ? 'No received mail.' : 'Loading mail…'}
                 </p>

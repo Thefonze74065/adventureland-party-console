@@ -230,7 +230,7 @@ export function createMerchantDispatcher(state: DispatchState, ports: DispatchPo
   }
 
   function hasQueuedWork(job: MerchantWork): boolean {
-    if (job.reason === 'withdrawals' || job.reason === 'bank collection') return hasMarkedWithdrawals(ports.inputs().work(job.target).withdrawals);
+    if (job.reason === 'withdrawals' || job.reason === 'bank collection' || job.reason === 'auto npc withdrawals') return hasMarkedWithdrawals(ports.inputs().work(job.target).withdrawals);
     if (job.reason === "deliveries") return ports.inputs().work(job.target).deliveries.length > 0;
     if (job.reason !== "manual compounds") return true;
     if (ports.inputs().work(job.target).compounds.length) return true;
@@ -244,7 +244,7 @@ export function createMerchantDispatcher(state: DispatchState, ports: DispatchPo
     if (ports.returningHome() && !ports.ensureHome("resuming merchant work")) return false;
     // Preserve queued work until a fresh living merchant can execute it.
     if (!merchantAlive()) return false;
-    state.queue = mergePickupJobs(state.queue, ports.merchant()).map(job => ports.stamp(job));
+    state.queue = mergePickupJobs(state.queue, ports.merchant(), state.current).map(job => ports.stamp(job));
     const expired = state.queue.filter((job) => job.reason === "join giveaway" && Number(job.expiresAt) < ports.now());
     state.queue = state.queue.flatMap(job => splitLegacyWork(job)).filter(hasQueuedWork).filter((job) => !ports.bankboi(job.target) && (buyUpgradeOrder(job) || ports.enabled?.(job) !== false) && !expired.includes(job));
     expired.forEach((job) => ports.giveawayExpired?.(job));

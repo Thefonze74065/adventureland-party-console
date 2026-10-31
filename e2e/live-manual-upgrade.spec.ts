@@ -1,5 +1,32 @@
 import {test,expect} from './live-fixtures';
 
+test('interrupted automatic broom resumes from +2 until +7 or native destruction',async({live},info)=>{
+  // Failure modes: lost relocation, reset target (+9), replay after restart,
+  // completed stock claimed as the survivor, or queue/telemetry preceding native completion.
+  test.setTimeout(300_000);const merchant='E2EMerchant';
+  await live.post('/merchant/force-stand',{enabled:true});
+  await live.admin(`output=(()=>{const p=get_player('${merchant}');p.items[7]=null;p.items[10]={name:'broom',level:2};p.items[11]={name:'broom',level:7};p.items[20]={name:'scroll0',q:100};p.items[21]={name:'scroll1',q:100};p.items[22]={name:'scroll2',q:100};cache_player_items(p);resend(p,'reopen+cid');return true})()`);
+  await expect.poll(async()=>(await live.clients[merchant].snapshot()).items[10]?.level).toBe(2);
+  await live.restoreHistoricalSettings(()=>({autoUpgradeMarks:{[merchant]:{'broom@+0':{tiers:7,quantity:-1}}},upgrades:{[merchant]:[{slot:7,liveSlot:7,item:{name:'broom',level:0},liveItem:{name:'broom',level:2},tiers:7,auto:true,passId:'historical-native-broom'}]}}));
+  const before=await live.state();
+  await live.post('/merchant/routine-priorities',{priorities:{},enabled:{'auto upgrade':true}});
+  await live.post('/merchant/force-stand',{enabled:false});
+  await expect.poll(async()=>{
+    const state=await live.state(),items=(await live.clients[merchant].snapshot()).items;
+    const brooms=items.filter((item:any)=>item?.name==='broom');
+    return !(state.upgrades[merchant]||[]).length && !state.merchantCurrent && !state.merchantQueue.some((job:any)=>job.reason==='auto upgrade') &&
+      brooms.length>=1 && brooms.length<=2 && brooms.every((item:any)=>item.level===7) &&
+      (state.characters[merchant]?.items||[]).filter((entry:any)=>entry?.item?.name==='broom').length===brooms.length;
+  },{timeout:210_000}).toBe(true);
+  const events=await live.clients[merchant].events();
+  expect(events.some((event:any)=>event.event==='game_response'&&['upgrade_success','upgrade_fail'].includes(event.data?.response))).toBe(true);
+  const completed=(await live.clients[merchant].snapshot()).items.filter((item:any)=>item?.name==='broom');
+  await live.restartCoordinator();
+  expect((await live.state()).upgrades[merchant]||[]).toHaveLength(0);
+  expect((await live.clients[merchant].snapshot()).items.filter((item:any)=>item?.name==='broom')).toEqual(completed);
+  await info.attach('native-interrupted-broom-terminal-outcome',{body:JSON.stringify({before,completed,events,after:await live.state()}),contentType:'application/json'});
+});
+
 test('displaced manual upgrade recovers unfinished inventory among completed duplicates',async({live},info)=>{
  test.setTimeout(180_000);const merchant='E2EMerchant';
  await live.post('/merchant/force-stand',{enabled:true});

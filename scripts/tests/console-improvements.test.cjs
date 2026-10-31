@@ -35,14 +35,17 @@ test('blacklist migration drops blacklist aborts but preserves failed-round prot
  assert.equal(Object.hasOwn(state,'blacklist'),false);assert.deepEqual(Object.keys(state.abortedRounds),['b']);
 });
 
-test('public daily slots handle UTC day rollover without promising a specific event',()=>{
+test('published daily occurrences retain UTC day rollover without guessing legacy slots',()=>{
  const fs=require('node:fs'),vm=require('node:vm'),source=fs.readFileSync('characters/shared.js','utf8');
  const start=source.indexOf('  function eventScheduleSnapshot()'),end=source.indexOf('  var eventTargetTypes',start);
- const now=Date.UTC(2026,8,18,0,0),context={Date:class extends Date {static now(){return now;}},eventClockOffset:0,
- eventStatus:()=>({schedule:{time_offset:-5,dailies:[13,20],nightlies:[23]}}),anniversaryEpoch:x=>Number(x)||0,
+ const now=Date.UTC(2026,8,18,0,0),context={Date:class extends Date {static now(){return now;}},eventClockOffset:0,coordinatorClockOffset:0,
+ nativeEventStatus:()=>({schedule:{time_offset:-5,events:[
+ {id:'old',event:'franky',at:now-1,status:'scheduled'},
+ {id:'franky-next',event:'franky',at:Date.UTC(2026,8,18,4),status:'scheduled'},
+ {id:'goo-next',event:'goobrawl',at:Date.UTC(2026,8,18,1),status:'scheduled'}]}}),anniversaryEpoch:x=>Number(x)||0,
+ root:{partyOctoberEvents:require('../../runtime/events/october.ts')},supportedEventNames:()=>['franky','goobrawl'],
  G:{events:{franky:{name:'Franky'},goobrawl:{name:'Goobrawl'}}}};
- const names=source.slice(source.indexOf('  function supportedEventNames('),source.indexOf('  function halloweenEvent('));
- vm.createContext(context);vm.runInContext(names+source.slice(start,end),context);
- const schedule=context.eventScheduleSnapshot();assert.equal(schedule.find(e=>e.id==='franky').slotAt,Date.UTC(2026,8,18,4));
- assert.equal(schedule.find(e=>e.id==='goobrawl').slotAt,Date.UTC(2026,8,18,1));assert.equal(schedule[0].next,undefined);
+ vm.createContext(context);vm.runInContext(source.slice(start,end),context);
+ const schedule=context.eventScheduleSnapshot();assert.equal(schedule.find(e=>e.id==='franky').next,Date.UTC(2026,8,18,4));
+ assert.equal(schedule.find(e=>e.id==='goobrawl').next,Date.UTC(2026,8,18,1));assert.equal(schedule[0].occurrences.length,1);
 });

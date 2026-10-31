@@ -16,7 +16,9 @@ async function headless(live:any,name:string){
   await expect.poll(async()=>{const c=(await live.state()).characters[name];return c?.runtime==='headless'&&Date.now()-c.seenAt<3000;},{timeout:90_000}).toBe(true);
 }
 async function texturedPixels(page:Page,name:string){
-  const card=page.getByRole('article').filter({has:page.getByRole('heading',{name,exact:true})});
+  // A native choice can open between the caller's dialogue check and this
+  // screenshot. Keep the locator attached; the caller rejects covered pixels.
+  const card=page.getByRole('article',{includeHidden:true}).filter({has:page.getByRole('heading',{name,exact:true,includeHidden:true})});
   const shot=await card.locator('canvas').screenshot();
   const {data,info:size}=await sharp(shot).removeAlpha().raw().toBuffer({resolveWithObject:true});
   let floor=0,texture=0;
@@ -42,7 +44,13 @@ test('a headless party sees the Cave floor through its leader and frees it when 
     if(!c?.choice||c.choice.resolved)return false;
     const option=c.choice.options.find((o:any)=>!o.unavailable&&!o.cost&&!o.amber);
     await act({action:'vote',run:c.run,choice:c.choice.id,option:option.id});
-    await expect.poll(async()=>(await view()).members.every((m:any)=>m.observation?.cave?.choice?.id!==c.choice.id||m.observation.cave.choice.resolved),{timeout:30_000}).toBe(true);
+    await expect.poll(async()=>{
+      const current=await view();
+      return current.members.length===2&&current.members.every((m:any)=>m.fresh&&m.observation?.alive&&
+        m.observation.cave?.run===c.run&&m.observation.cave.floor===c.floor&&
+        m.observation.cave.choice?.id===c.choice.id&&m.observation.cave.choice.resolved&&
+        m.observation.cave.choice.votes?.[m.name]===option.id);
+    },{timeout:30_000,message:'Both native replies must settle for this exact choice'}).toBe(true);
     return true;
   }
   await expect.poll(async()=>{
@@ -76,7 +84,12 @@ test('a headless party sees the Cave floor through its leader and frees it when 
   await page.goto(live.url);
   // The follower's own worker never received floor art; its card still draws the floor.
   const followerCard=page.getByRole('article').filter({has:page.getByRole('heading',{name:P,exact:true})});
-  await followerCard.getByRole('button',{name:'Expand live map'}).click();
+  await expect.poll(async()=>{
+    await reply(await view());
+    const expand=followerCard.getByRole('button',{name:'Expand live map'});
+    if(await expand.isVisible())await expand.click({timeout:1000});
+    return followerCard.locator('canvas').isVisible();
+  },{timeout:30_000,message:'Open the follower map after any native entry dialogue'}).toBe(true);
   let definition:any;
   await expect.poll(async()=>{
     const response=await page.request.get(live.url+'/party-api/maps/'+zone);
@@ -85,8 +98,23 @@ test('a headless party sees the Cave floor through its leader and frees it when 
     return definition.tiles.length&&(definition.placements.length+definition.groups.length);
   },{timeout:60_000,message:'The leader must supply the full floor definition'}).toBeGreaterThan(0);
   let pixels:any;
-  await expect.poll(async()=>{pixels=await texturedPixels(page,P);return pixels.floor>200&&pixels.texture>200;},
-    {timeout:30_000,message:'The headless follower card must draw the textured Cave floor'}).toBe(true);
+  const renderingObservations:unknown[]=[];
+  try {
+    await expect.poll(async()=>{
+      const current=await view(),choice=current.members[0]?.observation?.cave?.choice;
+      const replied=await reply(current);
+      const dialogs=await page.getByRole('dialog').count();
+      renderingObservations.push({at:Date.now(),choice:choice?.id,resolved:choice?.resolved,replied,dialogs});
+      if(replied||dialogs)return false;
+      pixels=await texturedPixels(page,P);
+      const covered=await page.getByRole('dialog').count();
+      renderingObservations.push({at:Date.now(),floor:pixels.floor,texture:pixels.texture,covered});
+      return !covered&&pixels.floor>200&&pixels.texture>200;
+    },{timeout:30_000,message:'The headless follower card must draw the textured Cave floor'}).toBe(true);
+  } finally {
+    await info.attach('headless-cave-rendering-observations',{body:JSON.stringify(renderingObservations),contentType:'application/json'});
+    if(pixels)await info.attach('headless-cave-last-rendering',{body:pixels.shot,contentType:'image/png'});
+  }
   await info.attach('headless-cave-follower-map',{body:pixels.shot,contentType:'image/png'});
   // One stream subscriber receives the floor once, not on every frame.
   const stream=await page.evaluate(async({api,name})=>{

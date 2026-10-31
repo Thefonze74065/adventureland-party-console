@@ -68,7 +68,7 @@ function statusFixture() {
  const f=fixture(),r=f.r;
  Object.assign(r,{
   keepTracktrixLast:async()=>{},dungeonRuntime:()=>({receive(){},owns:()=>false}),
-  parent:{},busy:false,snapshot:()=>({}),runtimeCurrent:()=>true,dashboardSampler:null,reloadConvoyGeometry(){},
+  catalogGeneration:0,catalogKnown:false,parent:{},busy:false,snapshot:()=>({}),runtimeCurrent:()=>true,dashboardSampler:null,reloadConvoyGeometry(){},
   prepareCatalog:async()=>{},applyMerchantVisibility:async()=>{},
   bindLuckySlotCharacterId(){},luckySlotTracking:()=>({sync:()=>{}}),
   wakeGatheringAfterStatus:()=>{r.gatheringWakes=(r.gatheringWakes||0)+1;},

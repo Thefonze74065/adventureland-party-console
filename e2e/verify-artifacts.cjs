@@ -18,5 +18,10 @@ for (const artifact of manifest.artifacts) {
     throw new Error('Artifact changed: ' + artifact.path);
 }
 console.log(`Verified ${manifest.artifacts.length} evidence files for ${manifest.tests.length} scenarios (${manifest.status}).`);
-if (manifest.status !== 'passed' || manifest.tests.some(test => test.status !== 'passed'))
+// These transport tests have no native-clock equivalent. Preserve their recorded
+// selection and explicit expected skip; every ordinary gameplay case must pass.
+const backendExclusion = test => manifest.gameplayBackend==='native' &&
+  test.location==='e2e/chronal-clock-reconnect.case.ts' &&
+  test.status==='skipped' && test.expectedStatus==='skipped';
+if (manifest.status !== 'passed' || manifest.tests.some(test => test.status !== 'passed' && !backendExclusion(test)))
   throw new Error('Evidence is intact, but the recorded suite did not pass completely');

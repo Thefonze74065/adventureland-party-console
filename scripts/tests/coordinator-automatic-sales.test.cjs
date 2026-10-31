@@ -19,6 +19,19 @@ const item = {name:'leather',q:20};
 const key = automaticCommerceRuleKey(item);
 const status = {name:'M',items:[{slot:3,item}]};
 
+// Failure inventory: e2e/automatic-bank-routing-failures.md.
+test('Auto NPC discovers bank stock during an owned bank visit and owns retrieval independently',()=>{
+ const f=fixture();f.state.autoNpcSales[key]={item};
+ f.state.merchantAutomations={'auto npc sales':true,withdrawals:false,'party collection':false};
+ f.state.merchantCurrent={id:'bank',target:'M',reason:'manual bank exchange'};
+ f.state.bankSnapshot={packs:{items0:[{slot:0,item}]}};
+ f.service.reconcile({name:'M',items:[]});
+ assert.equal(f.state.withdrawals.M.length,1);
+ assert.ok(f.state.merchantQueue.some(job=>job.reason==='auto npc withdrawals'));
+ f.service.reconcile({name:'M',items:[]});
+ assert.equal(f.state.withdrawals.M.length,1);
+});
+
 test('a displaced sale reclaims an automatic buy slot while two explicit orders remain',()=>{
  const {nativeAllocation,createNativeStand}=require('../../runtime/coordinator/commerce/native-stand.ts');
  const f=fixture();f.state.autoStandBuys=true;

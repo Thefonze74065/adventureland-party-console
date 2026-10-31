@@ -79,7 +79,7 @@ export function createHuntTick(state: HuntTickState, ports: HuntTickPorts) {
       return;
     }
     if (reconcileCurrentHuntParty(hunt, state, ports.now(), () => ports.cancelHuntConvoy())) ports.persist();
-    if (communicationPaused(hunt)) return;
+    if (controlPaused(hunt)) return;
     if (hunt.stage === "failed-return") {
       recovery.failedReturn(hunt);
       return;
@@ -96,6 +96,25 @@ export function createHuntTick(state: HuntTickState, ports: HuntTickPorts) {
     if(!ports.rareEncounter())return false;
     hunt.message=state.activeConvoy?.defenseReason || state.rareHuntState?.encounter?.message || 'Travel encounter in progress';
     return true;
+  }
+  function consolePaused(hunt: HuntCycle): boolean {
+    const message = 'Waiting for safe console load; finishing current combat';
+    const held = hunt.participants.some(name => {
+      const report = state.statuses[name];
+      return !!report?.consoleMaintenance?.id && ports.now() - report.seenAt <= 5000;
+    });
+    if (!held) {
+      if (hunt.message === message) {
+        hunt.message = hunt.target ? 'Monster Hunt: ' + hunt.target : 'Checking Hunt quests';
+        ports.persist();
+      }
+      return false;
+    }
+    if (hunt.message !== message) { hunt.message = message; ports.persist(); }
+    return true;
+  }
+  function controlPaused(hunt: HuntCycle): boolean {
+    return communicationPaused(hunt) || consolePaused(hunt);
   }
   function communicationPaused(hunt: HuntCycle): boolean {
     if (!state.activeConvoy?.communicationHold || state.activeConvoy.id !== hunt.convoyId) return false;

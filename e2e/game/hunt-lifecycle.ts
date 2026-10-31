@@ -33,6 +33,12 @@ export async function quests(live: GameplayWorld, info: TestInfo, entries: Recor
 export async function start(live: GameplayWorld, name = warrior, monster = 'goo') {
   const destination = await location(live, monster);
   expect(destination).toBeTruthy();
+  // Public restart readiness and fresh character publication are independent.
+  // Hunt admission requires the latter; never retry the mutating request.
+  await poll(live,async()=>{
+    const state=await live.state(),character=state.characters?.[name],now=Date.now();
+    return !!character&&character.ctype!=='merchant'&&character.seenAt>=now-3000&&character.seenAt<=now+1000;
+  },{timeout:30000}).toBe(true);
   await live.post('/farming-mode', { character: name, mode: 'hunt', backup: { monsterFocus: [monster], location: destination } });
   return destination;
 }

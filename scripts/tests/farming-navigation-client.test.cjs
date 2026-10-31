@@ -9,6 +9,7 @@ function fixture() {
   const stops = [], handled = [];
   const r = vm.createContext({ travelCombatActive:()=>false, escapeOwns: () => false, root: { __anniversaryReturnLocation: { map: 'cave' } },
     navigationIntent: { revision: 0, cancelled: false }, farmingTravelToken: null, reunion: null,
+    wakeGatheringAfterStatus: () => {},
     anniversaryReturnLocation: { map: 'cave' }, anniversaryStagingReported: 'old', anniversaryReturnReported: 'old',
     convoyTraveling: null, followingLeader: false, forceTraveling: false,
     character: { name: 'F', ctype: 'priest' }, lastCommand: 0,

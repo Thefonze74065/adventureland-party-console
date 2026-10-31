@@ -41,6 +41,14 @@ test('exchange rewards that merge into carried stacks are banked by default', as
       return [state.merchantCurrent, ...(state.merchantQueue || [])].some(job => job?.id === order.jobId) || n.carried.gem0 > 0;
     }, { timeout: 360_000, intervals: [1000, 2000] }).toBe(false);
     const after = await native(live);
+    const gainedNames = Object.keys(rewards).filter(name => after.carried[name] + after.bank[name] > before.carried[name] + before.bank[name]);
+    await expect.poll(async () => {
+      const state = await live.state();
+      return gainedNames.every(name => state.autoItemMarks?.[merchant]?.[name + '@+0'] === 'bank');
+    }, {timeout: 30_000, message: 'Received default rewards must become visible saved Auto bank rules'}).toBe(true);
+    await live.restartCoordinator();
+    const restored = await live.state();
+    for (const name of gainedNames) expect(restored.autoItemMarks?.[merchant]?.[name + '@+0']).toBe('bank');
 
     // 1: every item reward left the merchant's inventory; nothing was lost on the way.
     const gained = Object.keys(rewards).reduce((sum, name) => sum + after.carried[name] + after.bank[name] - before.carried[name] - before.bank[name], 0);

@@ -76,7 +76,10 @@ function validateWait(body: Record<string, unknown>, item: Record<string, unknow
 }
 
 function relocateWait(state: State, owner: string, entry: Record<string, unknown>, slot: unknown): void {
-  if (owner === state.merchantCharacter && !entry.equipped && Number.isInteger(slot) && Number(slot) >= 0) entry.slot = slot;
+  if (owner === state.merchantCharacter && !entry.equipped && Number.isInteger(slot) && Number(slot) >= 0) {
+    entry.slot = slot;
+    entry.liveSlot = slot;
+  }
 }
 
 /** A deposited stack still belongs to collection until its withdrawal receipt. */

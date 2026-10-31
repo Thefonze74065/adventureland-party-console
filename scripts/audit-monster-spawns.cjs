@@ -5,7 +5,7 @@ const path = require('node:path');
 
 function catalog(G) {
   const source = fs.readFileSync(path.join(__dirname, '../characters/shared.js'), 'utf8');
-  const start = source.indexOf('  function monsterChoices()');
+  const start = source.indexOf('  function monsterChoices(');
   const end = source.indexOf('  function bestiaryCatalog()', start);
   if (start < 0 || end < 0) throw new Error('Monster catalog source boundary missing');
   const context = { G, monsterSpriteDefinition: () => null };

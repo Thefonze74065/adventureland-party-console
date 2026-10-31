@@ -12,6 +12,9 @@ import {ConsoleBuildController} from '../tools/console-build/controller';
 import {createDeploymentDriver, type ActivationPorts} from '../tools/console-build/driver';
 import {ImmutableDashboard} from '../tools/console-build/dashboard';
 import type {Candidate, CandidateManifest} from '../tools/console-build/contracts';
+import {startupCandidate, deployStartupCandidate} from '../tools/console-build/startup';
+import {loadManagedConsole} from '../tools/console-build/bootstrap';
+import type {Services} from '../tools/hosting/services';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 async function port() {
@@ -45,7 +48,7 @@ async function dependencyCache(store: ConsoleBuildStore, label: string) {
   await writeFile(path.join(directory, 'complete.json'), JSON.stringify({id, files, manifestHash: hash(JSON.stringify({id, files}))}));
   return {id, directory, label};
 }
-async function stage(store: ConsoleBuildStore, root: string, label: string, sequence: number, brokenDashboard = false, dependencyId?: string): Promise<Candidate> {
+async function stage(store: ConsoleBuildStore, root: string, label: string, sequence: number, brokenDashboard = false, dependencyId?: string, extraContent:Record<string,string>={}): Promise<Candidate> {
   const directory = path.join(root, 'stage-' + label);
   const dashboard = brokenDashboard ? 'process.exit(23);' : `
     import {createServer} from 'node:http';
@@ -57,7 +60,7 @@ async function stage(store: ConsoleBuildStore, root: string, label: string, sequ
     createServer((req,res)=>{res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({...identity,label:${JSON.stringify(label)},pid:process.pid}));}).listen(Number(process.argv[2]),'127.0.0.1');
   `;
   const content: Record<string, string> = {'tools/dashboard/node-server.mts': dashboard, 'coordinator.mts': coordinator, 'dashboard/.build/container/identity.txt': label,
-    'tools/caracal/pinned-native.cjs': await readFile(fileURLToPath(new URL('../tools/caracal/pinned-native.cjs', import.meta.url)), 'utf8')};
+    'tools/caracal/pinned-native.cjs': await readFile(fileURLToPath(new URL('../tools/caracal/pinned-native.cjs', import.meta.url)), 'utf8'), ...extraContent};
   for (const [name, value] of Object.entries(content)) {
     const file = path.join(directory, 'app', name);
     await mkdir(path.dirname(file), {recursive: true});
@@ -431,4 +434,79 @@ test('during a deployment hold a paused merchant job does not block the reload t
     expect(upper.loaded.at(-1)).toBe('new');
     await info.attach('merchant-hold-reload',{body:JSON.stringify({messages,loaded:upper.loaded}),contentType:'application/json'});
   }finally{await host.dispose();await filesystem.rm(directory,{recursive:true,force:true});}
+});
+
+// Failure inventory: startup keeps an older active build; it chases builds made
+// after launch; no-op restarts create deployments; readiness failures select
+// broken code; recovery is skipped; source files replace verified executables.
+// Coordinator and dashboard processes are real; game CODE receipts use the
+// declared native boundary in processHost, separately from process readiness.
+test('console startup deploys its newest completed snapshot and rolls back failed readiness', async ({}, info) => {
+  const parent=path.resolve('.build/p79'),root=path.join(parent,randomUUID().slice(0,8)),store=new ConsoleBuildStore(root);
+  let host:Awaited<ReturnType<typeof processHost>>|undefined;
+  try {
+    const a=await stage(store,root,'startup-A',1), b=await stage(store,root,'startup-B',2);
+    await store.setReferences({active:a.manifest.id,latest:b.manifest.id});
+    const selected=await startupCandidate(store);
+    expect(selected?.manifest.id).toBe(b.manifest.id);
+    const c=await stage(store,root,'startup-C',3);
+    const saved=path.join(root,'account-state.json');await writeFile(saved,JSON.stringify({job:'preserve',gold:1234}));
+    host=await processHost(store,info);
+    await host.driver.activate(a,undefined,AbortSignal.timeout(5000));
+    // Interrupted preparation is recovered before the automatic startup load.
+    await store.setJournal({id:'interrupted',target:c.manifest.id,previous:a.manifest.id,startedAt:new Date().toISOString(),phase:'preparing'});
+    await host.controller.recover();
+    expect((await store.journal())?.phase).toBe('failed');
+    await deployStartupCandidate(host.controller,selected?.manifest.id);
+    let snapshot={refs:await store.references(),identity:await host.observation(),dashboard:await host.body(),operation:await store.journal()};
+    expect(snapshot.refs.active).toBe(b.manifest.id);expect(snapshot.refs.latest).toBe(c.manifest.id);
+    expect(snapshot.identity.artifactId).toBe(b.manifest.id);expect(snapshot.dashboard).toBe('startup-B');
+    expect(snapshot.operation?.phase).toBe('complete');
+    const unchangedId=snapshot.operation?.id;
+    await deployStartupCandidate(host.controller,b.manifest.id);
+    expect((await store.journal())?.id).toBe(unchangedId);
+    await info.attach('startup-frozen-selection',{body:JSON.stringify(snapshot),contentType:'application/json'});
+    await host.stop();host=undefined;
+    // The next launch picks up C, which was deliberately left staged above.
+    const next=await startupCandidate(store);expect(next?.manifest.id).toBe(c.manifest.id);
+    host=await processHost(store,info);await host.driver.activate(b,undefined,AbortSignal.timeout(5000));
+    await deployStartupCandidate(host.controller,next?.manifest.id);
+    expect((await host.observation()).artifactId).toBe(c.manifest.id);expect(await host.body()).toBe('startup-C');
+    const bad=await stage(store,root,'startup-broken',4,true);
+    await expect(deployStartupCandidate(host.controller,(await startupCandidate(store))?.manifest.id)).rejects.toThrow('Startup console deployment failed');
+    snapshot={refs:await store.references(),identity:await host.observation(),dashboard:await host.body(),operation:await store.journal()};
+    expect(snapshot.refs.active).toBe(c.manifest.id);expect(snapshot.identity.artifactId).toBe(c.manifest.id);
+    expect(snapshot.dashboard).toBe('startup-C');expect(snapshot.operation?.phase).toBe('failed');
+    expect(JSON.parse(await readFile(saved,'utf8'))).toEqual({job:'preserve',gold:1234});
+    await info.attach('startup-readiness-rollback',{body:JSON.stringify(snapshot),contentType:'application/json'});
+    await writeFile(path.join(bad.directory,'coordinator.mts'),'corrupted');
+    await expect(startupCandidate(store)).rejects.toThrow();
+    expect((await store.references()).active).toBe(c.manifest.id);
+  } finally {
+    await host?.stop();
+    if(path.dirname(root)!==parent)throw Error('Startup E2E cleanup escaped owned workspace');
+    await filesystem.rm(root,{recursive:true,force:true});
+    await info.attach('startup-workspace-cleanup',{body:JSON.stringify({root,removed:true}),contentType:'application/json'});
+  }
+});
+
+// Host module selection is also part of startup: importing the previous host
+// would miss fixes even if its coordinator later deployed the right candidate.
+test('console startup imports the newest completed host implementation', async ({},info)=>{
+  const parent=path.resolve('.build/p79'),root=path.join(parent,randomUUID().slice(0,8)),store=new ConsoleBuildStore(root);
+  try {
+    const host=(label:string)=>({'tools/console-build/hosting.ts':`export function createManagedConsole(root,services,options){return {implementation:${JSON.stringify(label)},options};}`});
+    const a=await stage(store,root,'startup-host-A',1,false,undefined,host('A'));
+    const b=await stage(store,root,'startup-host-B',2,false,undefined,host('B'));
+    await store.setReferences({active:a.manifest.id,latest:b.manifest.id});
+    const selected=await loadManagedConsole(root,{} as Services,{dashboardPort:1,apiPort:2}) as unknown as {implementation:string;options:{startupCandidateId:string}};
+    expect(selected.implementation).toBe('B');expect(selected.options.startupCandidateId).toBe(b.manifest.id);
+    // Selection alone must not mark an unacknowledged candidate active.
+    expect((await store.references()).active).toBe(a.manifest.id);
+    await info.attach('startup-host-selection',{body:JSON.stringify(selected),contentType:'application/json'});
+  }finally{
+    if(path.dirname(root)!==parent)throw Error('Startup E2E cleanup escaped owned workspace');
+    await filesystem.rm(root,{recursive:true,force:true});
+    await info.attach('startup-host-workspace-cleanup',{body:JSON.stringify({root,removed:true}),contentType:'application/json'});
+  }
 });

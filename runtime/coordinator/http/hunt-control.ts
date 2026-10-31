@@ -5,6 +5,7 @@ import type { ReturnLocation } from "../events/return-types.ts";
 import { beginHuntEventTrip, endHuntEventTrip, type HuntEventTrips } from "../events/hunt-trip.ts";
 
 interface HuntControlState extends HuntEventTrips {
+  merchantCharacter?: string | null;
   eventReturn?: { participants: string[] } | null;
   anniversary?: { eventCycle?: { returnCompletedAt?: number; supersededAt?: number } | null };
   monsterHunt: HuntCycle | null;
@@ -67,7 +68,7 @@ export function createHuntControlRoutes(state: HuntControlState, ports: HuntCont
   }
   function travelAllowed(name: string): boolean {
     return !state.eventReturn?.participants.includes(name) &&
-      !ports.ownsTravel(state.monsterHunt) && !ports.cancelled(name);
+      (name === state.merchantCharacter || !ports.ownsTravel(state.monsterHunt)) && !ports.cancelled(name);
   }
   function depart(
     name: string,
@@ -77,6 +78,7 @@ export function createHuntControlRoutes(state: HuntControlState, ports: HuntCont
   ): unknown {
     const departure = ports.eventDeparture?.(name, event, operation);
     if (departure && !departure.allowed) return res.json(departure);
+    if(name === state.merchantCharacter)return res.json({allowed:true});
     const trip = beginHuntEventTrip(state, name, event, Date.now());
     ports.persist();
     return res.json({ allowed: true, eventTrip: trip });

@@ -21,7 +21,7 @@ function retargetDue(c: SharedConvoy, now: number): boolean {
 
 function eventTravel(c: SharedConvoy): boolean {
   return c.phase === 'travel' && c.purpose === 'shared-walk' && c.walkingActivity === 'event' &&
-    ['mrgreen', 'mrpumpkin', 'slenderman'].includes(c.walkingEvent || '') && !c.nonPreemptible && c.readinessStartedAt === undefined;
+    ['mrgreen', 'mrpumpkin', 'slenderman', 'horseman'].includes(c.walkingEvent || '') && !c.nonPreemptible && c.readinessStartedAt === undefined;
 }
 function ownsEventWalk(state: SharedState, c: SharedConvoy, name: string, now: number): boolean {
   const s = state.statuses[name], command = state.commands[name], parent = c.walkingParents?.[name];

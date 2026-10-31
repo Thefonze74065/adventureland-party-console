@@ -1,5 +1,5 @@
 import { preparationChanged } from '../navigation/shared-departure.ts';
-import type { HuntCycle, HuntConvoy, HuntTickState, HuntTickPorts } from "./contracts.ts";
+import type { HuntCycle, HuntConvoy, HuntStatus, HuntCommand, HuntTickState, HuntTickPorts } from "./contracts.ts";
 import type { ReturnLocation } from "../events/return-types.ts";
 import type { Relocation } from "../../characters/movement-relocation.ts";
 import { requestObject } from "../http/contracts.ts";
@@ -208,12 +208,52 @@ export function recoverHuntRoute(
     return false;
   if (policy.shouldReturn(hunt, state.leader!, state.statuses) || paused(hunt, state, ports))
     return false;
+  if (resumeChangedRuntime(hunt, state, ports)) return true;
   if (restoreRecoveryDestination(hunt,state,ports)) return true;
   // The ledger retains the destination's spent retry budget after success.
   // It is not a request to start another convoy once arrival released farming.
   if (recoveryReleased(hunt, state)) return false;
   const entry = observeFailure(hunt, state, ports, destination);
   return entry ? advanceRecovery(hunt, state, ports, entry) : false;
+}
+/** A fresh runtime can resume the same Hunt only after every owned route is stopped. */
+function resumeChangedRuntime(hunt: HuntCycle, state: HuntTickState, ports: HuntTickPorts): boolean {
+  const c = state.activeConvoy, now = ports.now();
+  if (!c || c.id !== hunt.convoyId || c.purpose !== "monster-hunt" ||
+      c.phase !== "failed" || c.failureCode !== "runtime-lost" || !c.routeServer ||
+      !hunt.participants.some(n => c.runtimes?.[n] &&
+        state.statuses[n]?.combatSelection?.runtimeId !== c.runtimes[n])) return false;
+  const stopped = hunt.participants.every(n => stoppedRuntimeMember(n, c, state, ports, now));
+  if (!stopped) return false;
+  ports.cancelHuntConvoy();
+  hunt.convoyId = null;
+  delete hunt.originArrivedAt;
+  // Preserve destination attempts; the next tick resumes their existing stage.
+  hunt.message = "Party runtime restored; preparing Hunt route";
+  ports.persist();
+  return true;
+}
+function freshRuntimeStatus(s: HuntStatus | undefined, c: HuntConvoy, now: number): s is HuntStatus {
+  if (!s) return false;
+  return !s.rip && s.hp !== 0 && s.seenAt >= now - 3000 && s.seenAt <= now + 500 &&
+    s.seenAt >= (c.failedAt || 0) && s.server === c.routeServer;
+}
+function stoppedRuntimeMember(n: string, c: HuntConvoy, state: HuntTickState, ports: HuntTickPorts, now: number): boolean {
+  const s = state.statuses[n];
+  if (!freshRuntimeStatus(s, c, now)) return false;
+  if (s.moving || s.transporting || !s.combatSelection?.runtimeId) return false;
+  return ownsStoppedRuntime(n, s, c, state, ports);
+}
+function ownsStoppedRuntime(n: string, s: HuntStatus, c: HuntConvoy, state: HuntTickState, ports: HuntTickPorts): boolean {
+  const report = s.convoyNavigation, command = state.commands[n], intent = ports.intent(n);
+  if (intent.cancelled || c.expected?.[n]?.revision !== intent.revision) return false;
+  if (command?.convoyId !== c.id || !report) return false;
+  return sameStoppedRuntime(report, command, c, intent.revision, s.combatSelection?.runtimeId);
+}
+function sameStoppedRuntime(report: NonNullable<HuntStatus["convoyNavigation"]>, command: HuntCommand,
+  c: HuntConvoy, revision: number | undefined, runtime: string | undefined): boolean {
+  return report.id === c.id && report.epoch === c.epoch && report.commandId === command.id &&
+    report.navigationRevision === revision && report.runtimeId === runtime && report.phase === "failed";
 }
 function recoveryReleased(hunt: HuntCycle, state: HuntTickState): boolean {
   const convoy = state.activeConvoy;

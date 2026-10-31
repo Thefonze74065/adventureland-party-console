@@ -50,3 +50,57 @@ test('tool equip captures the current broom instead of stale session equipment',
   assert.equal(await c.restoreGatheringEquipment(session),true);
   assert.equal(c.character.slots.mainhand.name,'broom');
 });
+
+// Failure inventory: e2e/gathering-handoff-failures.md (recorded before the fix).
+function handoffFixture(tool) {
+  const f=fixture(tool), {c,broom}=f;
+  c.gatheringSession={tool,mainhand:broom,offhand:{name:'wbook0',level:0}};
+  c.character.items.push(c.gatheringSession.offhand);
+  c.merchantWeapon={item:broom};
+  c.merchantForceStand=false;c.merchantAnniversaryWorkReserved=()=>false;
+  c.reportMerchantCommand=()=>{};
+  c.stop=async()=>{};
+  vm.runInContext(require('./helpers/named-function.cjs').namedFunction(source,'gatheringCommandHandoff'),c);
+  return f;
+}
+
+for (const tool of ['rod','pickaxe']) {
+  for (const active of [false,true]) test(`${tool} restores both hands before Ponty handoff with active attempt=${active}`,async()=>{
+    const {c}=handoffFixture(tool);
+    if(active)c.root.__merchantGatheringAttempt={phase:'settling',done:Promise.resolve()};
+    assert.equal(await c.gatheringCommandHandoff({type:'merchant-ponty-buy',id:42}),true);
+    assert.equal(c.character.slots.mainhand.name,'broom');
+    assert.equal(c.character.slots.offhand.name,'wbook0');
+    assert.equal(c.character.items.filter(item=>item?.name===tool).length,1);
+  });
+}
+
+test('casting defers Ponty until release, then restores equipment',async()=>{
+  const {c}=handoffFixture('rod');
+  c.root.__merchantGatheringAttempt={phase:'casting'};
+  const command={type:'merchant-ponty-buy',id:42};
+  assert.equal(await c.gatheringCommandHandoff(command),false);
+  assert.equal(c.character.slots.mainhand.name,'rod');
+  c.root.__merchantGatheringAttempt=null;
+  assert.equal(await c.gatheringCommandHandoff(command),true);
+  assert.equal(c.character.slots.mainhand.name,'broom');
+  assert.equal(c.character.slots.offhand.name,'wbook0');
+});
+
+test('gathering and manual commands do not claim equipment restoration',async()=>{
+  for(const type of ['merchant-gather','force-travel']) {
+    const {c}=handoffFixture('rod');
+    assert.equal(await c.gatheringCommandHandoff({type}),true);
+    assert.equal(c.character.slots.mainhand.name,'rod');
+  }
+});
+
+test('failed restoration defers the job and an obsolete handoff cannot restore',async()=>{
+  const {c}=handoffFixture('rod');c.character.items=[];
+  assert.equal(await c.gatheringCommandHandoff({type:'merchant-ponty-buy'}),false);
+  const next=handoffFixture('rod').c;
+  next.root.__merchantGatheringAttempt={phase:'settling',done:Promise.resolve()};
+  next.stop=async()=>{next.root.__merchantGatheringGeneration++;};
+  assert.equal(await next.gatheringCommandHandoff({type:'merchant-ponty-buy'}),false);
+  assert.equal(next.character.slots.mainhand.name,'rod');
+});

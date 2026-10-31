@@ -72,6 +72,7 @@ export function createCoordinatorCharacterCommands(
     selectAction: (item, name) => selectAction(item, name, 'compound'),
     queue: ports.queue,
     persist: ports.persist,
+    persistBank: ports.persistBank,
     schedule: ports.scheduleCompound,
     log: ports.log,
   });

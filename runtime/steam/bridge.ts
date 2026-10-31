@@ -230,7 +230,7 @@ export function installSteamBridge(host: NativeHost): void {
       navigating = id;
       const realm = destinationRealm.replace(/^SR_/, "").match(/^(US|EU|ASIA)(I|II|III|IV|V|PVP)$/);
       if (!realm) throw new Error("Invalid Steam destination realm");
-      host.location.href =
+      const destination =
         "/character/" +
         encodeURIComponent(target) +
         "/in/" +
@@ -238,6 +238,9 @@ export function installSteamBridge(host: NativeHost): void {
         "/" +
         realm[2] +
         "/";
+      // The native socket connects after the document loads. A fresh bridge on
+      // that same document must let login finish instead of reloading it again.
+      if (host.location.pathname !== destination) host.location.href = destination;
   }
   function mayStartCompanion(operation: Handoff, name: string): boolean {
     const group = operation.multi!;

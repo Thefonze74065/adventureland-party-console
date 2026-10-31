@@ -22,12 +22,12 @@ test('event release clears exactly its held movement and wakes acquisition', asy
 });
 
 function reentry(overrides = {}) {
-  const c = vm.createContext({ escapeOwns: () => false, navigationIntent: { revision: 2, cancelled: false },
+  const c = vm.createContext({ lastDeathInfo: null, escapeOwns: () => false, navigationIntent: { revision: 2, cancelled: false },
     eventsEnabled: true, character: { ctype: 'priest', map: 'main' }, activeCombatEvent: () => ({ name: 'franky', types: ['franky'], state: {} }),
     eventSelectionRevision: 1, runtimeCurrent: () => true, eventSelected: () => true, eventTravelAllowed: async () => true,
     eventTraveling: false, eventTargetTypes: [], eventMissingSince: 0, travellingEventName: null, joinedEvent: 'franky',
     __partyEventRejoinRequired: 'franky', stop: async () => {}, eventDestination: () => ({ map: 'level2w', x: 0, y: 0 }),
-    eventRequiresJoin: () => true, join: async () => { c.character.map = 'level2w'; }, nearestEventTarget: () => ({ id: 'boss' }),
+    eventPrizeSpaceAvailable: () => true, eventRequiresJoin: () => true, join: async () => { c.character.map = 'level2w'; }, nearestEventTarget: () => ({ id: 'boss' }),
     is_in_range: () => true, sharedPartyWalk: async () => {}, game_log() {}, ...overrides });
   c.root = c;
   vm.runInContext(source.slice(source.indexOf('  function eventCombatReachable('), source.indexOf('  function eventCombatSighting(')), c);
@@ -45,7 +45,7 @@ test('join failure retries, while successful teleport needs neither boss visibil
   let joins = 0; c.join = async () => { joins++; c.character.map = 'level2w'; };
   assert.equal((await c.rejoinActiveEventAfterRespawn()).status, 'recovered');
   assert.equal(c.__partyEventRejoinRequired, null);
-  assert.equal((await c.rejoinActiveEventAfterRespawn()).status, 'recovered'); assert.equal(joins, 1);
+  assert.equal(await c.joinCombatEvent(c.activeCombatEvent(),c.eventDestination(),()=>true),true); assert.equal(joins, 1);
 });
 
 test('stale joined marker without a death flag still rejoins from Main', async () => {
@@ -88,7 +88,7 @@ for (const change of ['ended', 'deselected', 'dead', 'revision']) test('pending 
     if (change === 'revision') c.navigationIntent.revision++;
   };
   assert.equal((await c.rejoinActiveEventAfterRespawn()).status, 'cancelled');
-  assert.equal(c.__partyEventRejoinRequired, 'franky'); assert.equal(c.eventTraveling, false);
+  assert.equal(c.__partyEventRejoinRequired, null); assert.equal(c.eventTraveling, false);
 });
 
 test('non-joinable event recovery still walks', async () => {

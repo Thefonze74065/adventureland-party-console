@@ -170,6 +170,7 @@ export interface Combat {
   busy(): boolean;
   killed(s: Sight): boolean;
   claimed(s: Sight): boolean;
+  releasedForTravel(s: Sight, since: number): boolean;
   release(s: Sight, until: number, rejectedAt?: number): void;
   allow(s: Sight): void;
   rejected(s: Sight): boolean;
