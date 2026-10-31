@@ -6,10 +6,10 @@ The dated log is in [history.md](history.md) and the maintenance procedure in [r
 
 | | |
 |---|---|
-| Upstream base | `1.5-feature-branch` @ b9b5c91, merged as 92cc9a2 on 10-22 (branch `adopt/1.5`; previous merges 33981c8 of 2a1a72f, b78d52c of aaf175a on 10-20, 7d89bf8 of 1832350 and 98f25b5 of 3ddec7d on 10-18, 53a3cd6 of 849c38a on 10-16). Adds the October events and shared Witch Cipher automation (ff8cf0b), Icelocked's Cave fixes (9a874c0, merged as 77fa7e7), event-only monster labels and farming exclusions (9a8f43e, 457a9a8), Horseman and Trick or Treat fixes, and exchange/monster odds as ratios (b9b5c91) |
-| Fork head | `claude/project-thread-eho1g7` @ the commit recording this (after 92cc9a2), branched from `origin/adopt/1.5` @ dae2c98 and pushed for review; `adopt/1.5` not advanced yet; `main` @ c864c9c (v1.4.1 released from 2dd3b2b on 10-17), not advanced so no release |
-| Divergence | 0 behind; 226 files differ from upstream’s tip (b9b5c91) |
-| Checked | 2026-10-22, upstream's 24 commits to b9b5c91: none references an issue or supersedes a fork fix, so no rows moved; issue states as on 10-20 (not re-checked against the tracker) |
+| Upstream base | `main` @ aac30d4 (v1.5.0; the maintainer merged `1.5-feature-branch` on 10-31), merged as 9ede0f6 on 10-31 (branch `adopt/1.5`; previous merges 92cc9a2 of b9b5c91 on 10-22, 33981c8 of 2a1a72f, b78d52c of aaf175a on 10-20, 7d89bf8 of 1832350 and 98f25b5 of 3ddec7d on 10-18, 53a3cd6 of 849c38a on 10-16). Adds the October events and shared Witch Cipher automation (ff8cf0b), Icelocked's Cave fixes (9a874c0, merged as 77fa7e7), event-only monster labels and farming exclusions (9a8f43e, 457a9a8), Horseman and Trick or Treat fixes, and exchange/monster odds as ratios (b9b5c91) |
+| Fork head | `adopt/1.5` @ the commit recording this (after 9ede0f6); merged into `main` after it, so the fork `main` now carries 1.5 (not released yet) |
+| Divergence | 0 behind; 248 files differ from upstream’s tip (aac30d4) |
+| Checked | 2026-10-31, upstream v1.5.0 (68 commits since b9b5c91); issue states as on 10-20 (not re-checked against the tracker) |
 
 | Status | Count |
 |---|---|
