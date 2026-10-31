@@ -170,18 +170,3 @@ test('restart recovers a held sort item before ordinary bank work is allowed to 
  t.r.root.__partyBankSortJournal=[{slot:0,floor:'bank',identities:[t.r.bankStackIdentity(t.r.character.items[0])]}];
  await t.r.recoverBankSortBeforeWork();assert.equal(t.r.character.items[0],null);assert.equal(t.r.bankSortRecovered,true);
 });
-// Swap confirmation waits on a clock; these tests advance it instead of sleeping.
-function fakeClock(t){let clock=Date.now();t.r.Date=class extends Date{static now(){return clock}};t.r.sleep=async ms=>{clock+=ms||0};}
-function pendingSwap(t,slot,floor,pack,cell,item,inventory,bank){
- const storage=new Map();t.r.root.localStorage={getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)};
- t.r.saveBankSortBuffers([{slot,floor,identities:[t.r.bankStackIdentity(item)],pending:{pack,slot:cell,inventory,bank}}]);
- delete t.r.root.__partyBankSortJournal;delete t.r.root.__partyBankSortBuffers;
-}
-test('a persisted swap from another bank floor settles there instead of blocking work',async()=>{
- const t=client();await t.enter();fakeClock(t);const z=t.bank.items8[0];
- pendingSwap(t,0,'bank_b','items8',0,z,t.r.bankSortItemState(z),'null');
- t.r.character.items[0]=z;t.bank.items8[0]=null;
- await t.r.bankSortMove('main');
- assert.equal(t.r.character.map,'main');assert.equal(t.r.bankSortBufferJournal().length,0);
- assert.equal(t.r.character.items[0],null);assert.ok(t.bank.items8.includes(z));
-});

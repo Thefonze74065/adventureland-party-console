@@ -4711,7 +4711,6 @@
     var entries = bankSortBufferJournal();
     for (var i = 0; i < entries.length; i += 1) {
       var entry = entries[i];
-      if (entry.pending && character.map !== entry.floor) await movement.move(entry.floor);
       await settleBankSortSwap(entry);
       var item = character.items[entry.slot];
       if (!item) continue;
