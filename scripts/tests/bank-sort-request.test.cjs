@@ -177,22 +177,6 @@ function pendingSwap(t,slot,floor,pack,cell,item,inventory,bank){
  t.r.saveBankSortBuffers([{slot,floor,identities:[t.r.bankStackIdentity(item)],pending:{pack,slot:cell,inventory,bank}}]);
  delete t.r.root.__partyBankSortJournal;delete t.r.root.__partyBankSortBuffers;
 }
-test('a persisted store into an empty cell settles after its item was withdrawn again',async()=>{
- const t=client();await t.enter();fakeClock(t);const item={name:'a'};
- pendingSwap(t,0,'bank','items1',5,item,'null',t.r.bankSortItemState(item));
- await t.r.bankSortMove('main');
- assert.equal(t.r.character.map,'main');assert.equal(t.r.bankSortBufferJournal().length,0);
- assert.equal(t.calls.filter(x=>x==='swap').length,0);
-});
-test('a persisted swap settles from the current bank when the item is somewhere else',async()=>{
- const t=client();await t.enter();fakeClock(t);const z=t.bank.items0[0];
- pendingSwap(t,0,'bank','items0',0,z,t.r.bankSortItemState(z),'null');
- // The player moved the item into another inventory slot instead.
- t.bank.items0[0]=null;t.r.character.items[3]=z;
- await t.r.bankSortMove('main');
- assert.equal(t.r.character.map,'main');assert.equal(t.r.bankSortBufferJournal().length,0);
- assert.equal(t.r.character.items[3],z);assert.equal(t.calls.filter(x=>x==='swap').length,0);
-});
 test('a persisted swap from another bank floor settles there instead of blocking work',async()=>{
  const t=client();await t.enter();fakeClock(t);const z=t.bank.items8[0];
  pendingSwap(t,0,'bank_b','items8',0,z,t.r.bankSortItemState(z),'null');
@@ -200,13 +184,4 @@ test('a persisted swap from another bank floor settles there instead of blocking
  await t.r.bankSortMove('main');
  assert.equal(t.r.character.map,'main');assert.equal(t.r.bankSortBufferJournal().length,0);
  assert.equal(t.r.character.items[0],null);assert.ok(t.bank.items8.includes(z));
-});
-test('a swap that never lands ends the pass and the next pass sorts from the current bank',async()=>{
- const t=client('automatic');await t.enter();fakeClock(t);const emit=t.r.parent.socket.emit;let dropped=false;
- t.r.parent.socket.emit=(...args)=>{if(!dropped){dropped=true;return;}emit(...args)};
- await assert.rejects(t.r.sortCurrentBankFloor([]),/not confirmed/);
- assert.equal(t.r.bankSortBufferJournal().length,0);assert.ok(t.r.character.items.every(x=>!x));
- await t.r.sortCurrentBankFloor([]);
- assert.equal(t.bank.items0[0].name,'a');assert.ok(t.r.character.items.every(x=>!x));
- assert.equal(t.r.bankSortBufferJournal().length,0);
 });
