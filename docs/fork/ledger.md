@@ -14,7 +14,7 @@ The dated log is in [history.md](history.md) and the maintenance procedure in [r
 | Status | Count |
 |---|---|
 | New issue | 1 |
-| Update / comment | 10 (3 to do) |
+| Update / comment | 10 (2 to do) |
 | Done upstream | 50 |
 | Matches | 14 (all done) |
 | Open upstream | 18 |
@@ -159,7 +159,7 @@ Icelocked's [PR #131](https://github.com/Ryan-Haines/adventureland-party-console
 
 ### Bank sort swap journal recovers from any bank state
 
-[#145 · filed 10-18, commented 10-22](https://github.com/Ryan-Haines/adventureland-party-console/issues/145#issuecomment-6356554065)
+[#145 · filed 10-18, commented 10-22 and 11-02](https://github.com/Ryan-Haines/adventureland-party-console/issues/145#issuecomment-6582661938)
 
 [8d79aff](https://github.com/Thefonze74065/adventureland-party-console/commit/8d79aff), the 10-22 commit, and the commit recording the 11-02 change
 
@@ -167,7 +167,7 @@ Icelocked's [PR #131](https://github.com/Ryan-Haines/adventureland-party-console
 - 10-22: the user [commented](https://github.com/Ryan-Haines/adventureland-party-console/issues/145#issuecomment-6356554065) on #145 with this change (draft `bank-sort-swap/issue-145-comment.md` in the project files). The user confirmed the fix live.
 - 10-31: replaced by upstream's `settleBankSortSwap`, which keeps the entry and throws `Bank sort swap not confirmed; recovery pending`. On 11-02 a store that never landed (Poison ×5 still in inventory slot 10, bank cell empty) blocked all FonzeMerch work.
 - 11-02 (the user's decision, reversing 10-31): `settleBankSortSwap` is the fork's again and always settles the entry, with three outcomes. **Confirmed**: the incoming item is in the buffer slot and no longer in the cell (a refilled cell counts). **Unchanged**: both sides still hold the expected result mirrored, so the swap never happened; settled silently, and cleanup banks the buffer item. **Unconfirmed**: anything else; settled with warning `Bank sort swap not confirmed; continuing from the current bank`, giving the expected and found states. A sort pass stops on anything but confirmed and the next pass plans from the current bank. Recovery still does not move to another floor's journal (upstream's, 10-31). Inventory items 10–11; unit tests in `bank-sort-request.test.cjs`; live journey `e2e/live-bank-sort-journal.spec.ts` (second test) written but not run: Docker could not start the game server (kernel modules missing until reboot).
-- To do: comment on #145 with the never-landed case and the three-outcome settle.
+- 11-02: the user [commented](https://github.com/Ryan-Haines/adventureland-party-console/issues/145#issuecomment-6582661938) on #145 with the never-landed case and the three-outcome settle (draft `.build/bank-sort-swap/issue-145-comment-2.md`).
 
 ## Done upstream: reimplemented on bugfix-1.4, adopted in fdd89f0, 3e414a1, a311d12, 13e8b7c, 1566e02, 43ac030, 7eb464b, 9577eca, 53a3cd6, 7d89bf8 and b78d52c
 
