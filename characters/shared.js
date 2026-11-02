@@ -4687,25 +4687,39 @@
     identity[7] = null;
     return JSON.stringify([JSON.stringify(identity), value[1]]);
   }
+  // Settles a journaled swap and says how it ended: "confirmed" (it happened), "unchanged" (it never
+  // happened: both sides still hold what they held before) or "unconfirmed" (anything else, reported
+  // as a warning). The entry is always settled: the bank and inventory as they are now are the truth,
+  // nothing is replayed, cleanup returns any journaled item still in the buffer slot and the next sort
+  // plans from the current bank. Keeping it pending would block every merchant job until cleared by hand.
   async function settleBankSortSwap(entry) {
-    if (!entry.pending) return;
-    var expected = entry.pending, deadline = Date.now() + 5000;
+    if (!entry.pending) return "confirmed";
+    var expected = entry.pending, deadline = Date.now() + 5000, storedBank = bankSortStoredState(expected.bank), inventory, bank;
     for (;;) {
       if (!runtimeCurrent()) throw new Error("Bank sort runtime replaced while confirming swap");
       if (character.map !== entry.floor || !character.bank || !Array.isArray(character.bank[expected.pack]))
         throw new Error("Bank sort floor changed while confirming swap");
       // Acknowledgement and reactive inventory publication are separate milestones.
       // Read both sides together, preserving exact identity, lock and quantity.
-      var inventory = bankSortItemState(character.items[entry.slot]);
-      var bank = bankSortItemState(character.bank[expected.pack][expected.slot]);
-      if (inventory === expected.inventory && bank === bankSortStoredState(expected.bank)) {
-        delete entry.pending;
-        saveBankSortBuffers(bankSortBufferJournal());
-        return;
-      }
-      if (Date.now() >= deadline) throw new Error("Bank sort swap not confirmed; recovery pending");
+      inventory = bankSortItemState(character.items[entry.slot]);
+      bank = bankSortItemState(character.bank[expected.pack][expected.slot]);
+      // A later deposit can refill the freed bank cell before the swap is confirmed: the swap
+      // happened once the incoming item is in the buffer slot and no longer in that cell.
+      if (inventory === expected.inventory && (bank === storedBank || bank !== expected.inventory)) break;
+      if (Date.now() >= deadline) break;
       await sleep(100);
     }
+    var outcome = inventory === expected.inventory && (bank === storedBank || bank !== expected.inventory) ? "confirmed"
+      // A swap exchanges the two sides, so its starting point is the expected result mirrored. The
+      // native swap deletes m on the bank side only, so compare both sides without it.
+      : bankSortStoredState(inventory) === storedBank && bankSortStoredState(bank) === bankSortStoredState(expected.inventory) ? "unchanged"
+      : "unconfirmed";
+    if (outcome === "unconfirmed") gatheringStatus("Bank sort swap not confirmed; continuing from the current bank", "warning",
+      JSON.stringify({ pack: expected.pack, slot: expected.slot, expected: { inventory: expected.inventory, bank: expected.bank },
+        found: { inventory: inventory, bank: bank } }));
+    delete entry.pending;
+    saveBankSortBuffers(bankSortBufferJournal());
+    return outcome;
   }
   async function cleanupBankSortBuffers() {
     var entries = bankSortBufferJournal();
@@ -4958,7 +4972,11 @@
           throw swapError;
         }
         operations += 1;
-        await settleBankSortSwap(bankSortBufferJournal()[0]);
+        if (await settleBankSortSwap(bankSortBufferJournal()[0]) !== "confirmed") {
+          // The plan no longer matches the bank; stop and let the next pass plan again.
+          failure = new Error("Bank sort swap not confirmed; sorting resumes from the current bank");
+          break;
+        }
       }
       if (operations >= limit) failure = new Error("Bank sorting exceeded its safe operation limit");
     } finally {

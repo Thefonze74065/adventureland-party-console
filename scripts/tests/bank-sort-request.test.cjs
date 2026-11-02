@@ -170,3 +170,65 @@ test('restart recovers a held sort item before ordinary bank work is allowed to 
  t.r.root.__partyBankSortJournal=[{slot:0,floor:'bank',identities:[t.r.bankStackIdentity(t.r.character.items[0])]}];
  await t.r.recoverBankSortBeforeWork();assert.equal(t.r.character.items[0],null);assert.equal(t.r.bankSortRecovered,true);
 });
+// Swap confirmation waits on a clock; these tests advance it instead of sleeping.
+function fakeClock(t){let clock=Date.now();t.r.Date=class extends Date{static now(){return clock}};t.r.sleep=async ms=>{clock+=ms||0};}
+function pendingSwap(t,slot,floor,pack,cell,item,inventory,bank){
+ const storage=new Map();t.r.root.localStorage={getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)};
+ t.r.saveBankSortBuffers([{slot,floor,identities:[t.r.bankStackIdentity(item)],pending:{pack,slot:cell,inventory,bank}}]);
+ delete t.r.root.__partyBankSortJournal;delete t.r.root.__partyBankSortBuffers;
+}
+function warnings(t){const seen=[];t.r.gatheringStatus=(message,level,details)=>{if(level==='warning')seen.push({message,details:JSON.parse(details)})};return seen;}
+test('a persisted swap whose freed cell was refilled settles as confirmed',async()=>{
+ const t=client();await t.enter();fakeClock(t);const seen=warnings(t);const z=t.bank.items0[0];
+ pendingSwap(t,0,'bank','items0',0,z,t.r.bankSortItemState(z),'null');
+ t.r.character.items[0]=z;t.bank.items0[0]={name:'candy'};
+ await t.r.bankSortMove('main');
+ assert.equal(t.r.character.map,'main');assert.equal(t.r.bankSortBufferJournal().length,0);assert.deepEqual(seen,[]);
+ assert.equal(t.r.character.items[0],null);assert.ok(t.bank.items0.includes(z));assert.equal(t.bank.items0[0].name,'candy');
+ assert.equal(t.calls.filter(x=>x==='swap').length,0);
+});
+test('a persisted swap that never landed settles without a warning and banks its item',async()=>{
+ const t=client();await t.enter();fakeClock(t);const seen=warnings(t);const poison={name:'a',q:5};
+ // A store from inventory slot 0 into the empty cell items1[34]: the item is still in the slot.
+ pendingSwap(t,0,'bank','items1',34,poison,'null',t.r.bankSortItemState(poison));
+ t.r.character.items[0]=poison;
+ await t.r.bankSortMove('main');
+ assert.equal(t.r.character.map,'main');assert.equal(t.r.bankSortBufferJournal().length,0);assert.deepEqual(seen,[]);
+ assert.equal(t.r.character.items[0],null);assert.equal([...t.bank.items0,...t.bank.items1].filter(x=>x===poison).length,1);
+ assert.equal(t.calls.filter(x=>x==='swap').length,0);
+});
+test('a persisted swap that never landed matches although the bank side drops m',async()=>{
+ const t=client();await t.enter();fakeClock(t);const seen=warnings(t);const item={name:'a',m:'M'},stored={name:'a'};
+ pendingSwap(t,0,'bank','items1',34,item,'null',t.r.bankSortItemState(stored));
+ t.r.character.items[0]=item;
+ await t.r.bankSortMove('main');
+ assert.equal(t.r.bankSortBufferJournal().length,0);assert.deepEqual(seen,[]);
+});
+test('a persisted store into an empty cell settles with a warning after its item was withdrawn again',async()=>{
+ const t=client();await t.enter();fakeClock(t);const seen=warnings(t);const item={name:'a'};
+ pendingSwap(t,0,'bank','items1',5,item,'null',t.r.bankSortItemState(item));
+ await t.r.bankSortMove('main');
+ assert.equal(t.r.character.map,'main');assert.equal(t.r.bankSortBufferJournal().length,0);
+ assert.equal(t.calls.filter(x=>x==='swap').length,0);
+ assert.equal(seen.length,1);assert.match(seen[0].message,/not confirmed/);
+ assert.deepEqual(seen[0].details.found,{inventory:'null',bank:'null'});
+ assert.equal(seen[0].details.expected.bank,t.r.bankSortItemState(item));
+});
+test('a persisted swap settles from the current bank when the item is somewhere else',async()=>{
+ const t=client();await t.enter();fakeClock(t);const seen=warnings(t);const z=t.bank.items0[0];
+ pendingSwap(t,0,'bank','items0',0,z,t.r.bankSortItemState(z),'null');
+ // The player moved the item into another inventory slot instead.
+ t.bank.items0[0]=null;t.r.character.items[3]=z;
+ await t.r.bankSortMove('main');
+ assert.equal(t.r.character.map,'main');assert.equal(t.r.bankSortBufferJournal().length,0);
+ assert.equal(t.r.character.items[3],z);assert.equal(t.calls.filter(x=>x==='swap').length,0);assert.equal(seen.length,1);
+});
+test('a swap that never lands ends the pass and the next pass sorts from the current bank',async()=>{
+ const t=client('automatic');await t.enter();fakeClock(t);const emit=t.r.parent.socket.emit;let dropped=false;
+ t.r.parent.socket.emit=(...args)=>{if(!dropped){dropped=true;return;}emit(...args)};
+ await assert.rejects(t.r.sortCurrentBankFloor([]),/not confirmed/);
+ assert.equal(t.r.bankSortBufferJournal().length,0);assert.ok(t.r.character.items.every(x=>!x));
+ await t.r.sortCurrentBankFloor([]);
+ assert.equal(t.bank.items0[0].name,'a');assert.ok(t.r.character.items.every(x=>!x));
+ assert.equal(t.r.bankSortBufferJournal().length,0);
+});

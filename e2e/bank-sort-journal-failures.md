@@ -30,3 +30,15 @@ the entry pending, and every merchant job threw behind it until the journal was 
    job instead of moving to the journaled floor.
 9. **Swap that never lands mid-pass.** The pass fails and leaves the entry pending, so the next job
    fails too. It must clear the entry and let the next pass plan from the current bank.
+
+Added 2026-11-02. On 10-31 the fork took upstream's `settleBankSortSwap`, which again keeps any entry it
+cannot confirm and throws `Bank sort swap not confirmed; recovery pending`, so items 1, 6, 7 and 9 came
+back. Live: FonzeMerch stopped doing any work, with the error every 6 s. Its journal held a store of Poison ×5
+from inventory slot 10 into the empty bank cell `items7` 34. The bank snapshot showed that cell empty and no
+Poison anywhere in the bank; the Poison was still in slot 10.
+
+10. **Swap that never landed.** Both sides still hold what they held before the swap (the buffer item in
+    the inventory slot, the cell unchanged). Nothing moved, so recovery must settle it without a warning
+    and return the buffer item to the bank like any other journaled item.
+11. **Other states hidden.** A state that is neither the swap's result nor its starting point must still
+    settle, with a warning that shows the expected and found states for both sides.
